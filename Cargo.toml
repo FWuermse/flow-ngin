@@ -29,3 +29,4 @@ log = "0.4.28"
 # TOOD: retire this one soon
 tobj = { version = "4.0.3", default-features = false, features = ["async"] }
 wgpu = "26.0.1"
+winit = "0.30.12"
