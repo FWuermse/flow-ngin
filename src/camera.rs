@@ -15,6 +15,38 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_co
 
 const SAFE_FRAC_PI_2: f32 = FRAC_PI_2 - 0.0001;
 
+fn screen_to_ndc(mouse_x: f32, mouse_y: f32, width: f32, height: f32) -> cgmath::Vector3<f32> {
+    let x = (2.0 * mouse_x / width) - 1.0;
+    let y = 1.0 - (2.0 * mouse_y) / height; // y is flipped
+    let z = 1.0;
+    Vector3::new(x, y, z)
+}
+
+#[derive(Debug)]
+pub struct Ray {
+    pub origin: Point3<f32>,
+    pub direction: Vector3<f32>,
+}
+
+// TODO: calculate intersection with depth buffer elem aswell for a picking alternative
+impl Ray {
+    /**
+     * Calculates the intersection of the ray `self` with the floor (y = 0.0).
+     * 
+     * Returns None if the ray is not pointed towards the floor.
+     */
+    pub fn intersect_with_floor(&self) -> Option<Point2<f32>> {
+        if self.direction.y.abs() < f32::EPSILON {
+            return None;
+        }
+        let t = -self.origin.y / self.direction.y;
+        if t < 0.0 {
+            return None;
+        }
+        let intersection_point = self.origin + self.direction * t;
+        Some(Point2::new(intersection_point.x, intersection_point.z))
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -66,6 +98,40 @@ impl Camera {
             Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vector3::unit_y(),
         )
+    }
+
+    /**
+     * This method casts a ray from the location of the mouse pointer using the camera's FOV and view.
+     */
+    pub fn cast_ray_from_mouse(
+        &self,
+        position: PhysicalPosition<f64>,
+        width: f32,
+        height: f32,
+        projection: &Projection,
+    ) -> Ray {
+        let (mouse_x, mouse_y) = position.into();
+        let ndc = screen_to_ndc(mouse_x, mouse_y, width, height);
+
+        let clip = cgmath::Vector4::new(ndc.x, ndc.y, 1.0, 1.0);
+
+        let inv_proj_view = (projection.calc_matrix() * self.calc_matrix())
+            .invert()
+            .unwrap();
+
+        let mut world_coords = inv_proj_view * clip;
+
+        world_coords /= world_coords.w;
+        // TODO: does it make sense to use Point3 or should I stay with Vector3?
+        let world_point = Point3::new(world_coords.x, world_coords.y, world_coords.z);
+
+        let ray_origin = self.position;
+        let ray_direction = (world_point - ray_origin).normalize();
+
+        Ray {
+            origin: ray_origin,
+            direction: ray_direction,
+        }
     }
 }
 

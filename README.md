@@ -9,7 +9,7 @@ A simple cross-plattform instancing-oriented game engine with focus on full WASM
     - [x] Meshes
     - [x] Normals
     - [x] Tex-coords
-  - [ ] Loading GLTF files
+  - [x] Loading GLTF files
     - [x] Meshes
     - [x] Normals
     - [x] Tex-coords
@@ -18,25 +18,28 @@ A simple cross-plattform instancing-oriented game engine with focus on full WASM
     - [x] Textures
     - [x] Normal Maps
     - [x] Multiple Animation Tracks
-    - [ ] Rigs
+    - [ ] Rigs (Not planned at the moment)
 - [x] Light
 - [x] Animations
   - [x] Hierarchies
   - [x] Position Interpolation
   - [x] Time-based
-- [ ] Camera
+- [x] Camera
 - [ ] Audio
 - [x] Shading
   - [x] Blinn-Phong
   - [x] Normal Map support
 - [ ] Shadows
 - [x] Picking 
-- [ ] Ray casting
+- [x] Ray casting
 - [ ] Terrain generation
   - [ ] Multi-texture Terrain
   - [ ] Deterministic Terrain generation
   - [ ] Seed as input parameter
 - [ ] User Interface
+  - [ ] Button
+  - [ ] Icons (including transparency)
+  - [ ] Responsiveness
 
 ## Supported backends
 
