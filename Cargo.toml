@@ -9,7 +9,7 @@ license = "Apache-2.0"
 license-file = "LICENSE"
 documentation = "https://docs.rs/flow-ngin"
 keywords = ["flow", "engine", "wasm"]
-categories = ["cg", "wasm"]
+categories = ["graphics", "wasm"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
