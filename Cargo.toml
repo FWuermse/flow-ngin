@@ -2,6 +2,14 @@
 name = "flow-ngin"
 version = "0.1.0"
 edition = "2024"
+authors = ["wuermseer.florian@gmail.com"]
+description = "A simple cross-plattform instancing-oriented game engine with focus on full WASM-compatibility."
+homepage = "https://github.com/FWuermse/flow-ngin"
+license = "Apache-2.0"
+license-file = "LICENSE"
+documentation = "https://docs.rs/flow-ngin"
+keywords = ["flow", "engine", "wasm"]
+categories = ["cg", "wasm"]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
