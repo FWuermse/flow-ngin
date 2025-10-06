@@ -11,7 +11,7 @@ use crate::{
         texture::diffuse_normal_layout,
     },
 };
-use cgmath::{Rotation3, Zero};
+use cgmath::{One, Rotation3, Zero};
 use wgpu::{BindGroupLayout, Device, Queue, SurfaceConfiguration, util::DeviceExt};
 
 /**
@@ -113,6 +113,40 @@ impl BuildingBlocks {
     }
 
     /**
+     * This constructor creates `amount` instances all located at (0.0, 0.0, 0.0).
+     * 
+     * TODO: pass iter fn to choose the transformation
+     */
+    pub async fn mk_multiple(
+        amount: u32,
+        device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
+        light_bind_group_layout: &BindGroupLayout,
+        config: &SurfaceConfiguration,
+        queue: &Queue,
+        obj_files: &[&'static str],
+    ) -> Vec<BuildingBlocks> {
+        let mut output = vec![];
+        for obj_file in obj_files {
+            output.push(
+                BuildingBlocks::new(
+                    cgmath::Vector3::zero(),
+                    cgmath::Quaternion::one(),
+                    amount,
+                    device,
+                    camera_bind_group_layout,
+                    light_bind_group_layout,
+                    config,
+                    queue,
+                    obj_file,
+                )
+                .await,
+            );
+        }
+        output
+    }
+
+    /**
      * This method creates a copy of the original Block (and instances) where only the
      * fragment shader differs. The fragment shader is a U32 id referring to the object
      * that was drawn.
@@ -205,10 +239,10 @@ impl BuildingBlocks {
 
     /**
      * Sets a new pipeline for a BuildingBlock that makes it transparent.
-     * 
+     *
      * This includes all textures wrapped around a mesh regardless of whether they
      * had already partially set to a transparency value lower than `1.0`.
-     * 
+     *
      * TODO: use the basic pipeline and configure transparency via unform buffer.
      * It's overkill to set a new pipeline just for that.
      */
