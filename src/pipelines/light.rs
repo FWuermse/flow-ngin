@@ -14,12 +14,13 @@ pub struct LightResources {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LightUniform {
-    position: [f32; 3],
+    // TODO: make private and create nicer API for light sources
+    pub position: [f32; 3],
     // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
-    _padding: u32,
-    color: [f32; 3],
+    pub _padding: u32,
+    pub color: [f32; 3],
     // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
-    _padding2: u32,
+    pub _padding2: u32,
 }
 
 pub fn mk_buffer(device: &wgpu::Device, light_uniform: LightUniform) -> wgpu::Buffer {
