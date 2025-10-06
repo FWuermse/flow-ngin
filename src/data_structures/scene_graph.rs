@@ -4,7 +4,7 @@ use log::warn;
 use wgpu::{util::DeviceExt, Device, Queue};
 
 use crate::{
-    data_structures::{instance::{Instance, InstanceRaw}, model::{self, DrawModel}}, resources::{self, animation::Keyframes, load_model_obj, pick::load_pick_model}
+    data_structures::{instance::{Instance, InstanceRaw}, model::{self, DrawModel}}, resources::{animation::Keyframes, load_model_obj, pick::load_pick_model}
 };
 
 #[derive(Clone, Debug)]

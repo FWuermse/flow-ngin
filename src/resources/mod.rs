@@ -110,7 +110,6 @@ pub async fn load_model_gltf(
                 Keyframes::Other
             };
             let name = animation.name().unwrap_or("Default").to_string();
-            dbg!(name.clone());
             let animation = AnimationClip {
                 name,
                 keyframes,
@@ -156,7 +155,7 @@ pub async fn load_model_gltf(
         };
         let normal_texture = if let Some(texture) = material.normal_texture() {
             match &texture.texture().source().source() {
-                gltf::image::Source::View { view, mime_type } => {
+                gltf::image::Source::View { view, mime_type: _ } => {
                     let texture = Texture::from_bytes(
                         device,
                         queue,
@@ -169,7 +168,7 @@ pub async fn load_model_gltf(
                     texture
                 }
                 // TODO: parse and pass the mime_type so that the img lib does't have to guess
-                gltf::image::Source::Uri { uri, mime_type } => {
+                gltf::image::Source::Uri { uri, mime_type: _ } => {
                     let texture = load_texture(uri, false, device, queue, None).await?;
                     texture
                 }
