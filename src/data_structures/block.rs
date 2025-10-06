@@ -1,5 +1,5 @@
 use cgmath::{Rotation3, Zero};
-use crate::{data_structures::{instance::{Instance, InstanceRaw}, model::{self, Vertex}, texture::Texture}, pipelines::basic::mk_render_pipeline, resources::{self, diffuse_normal_layout}};
+use crate::{data_structures::{instance::{Instance, InstanceRaw}, model::{self, Vertex}, texture::Texture}, pipelines::basic::mk_render_pipeline, resources::{self, pick::{load_pick_model, pick_render_pipeline_layout, pick_shader}, texture::diffuse_normal_layout}};
 use wgpu::{util::DeviceExt, BindGroupLayout, Device, Queue, SurfaceConfiguration};
 
 /**
@@ -33,7 +33,7 @@ impl BuildingBlocks {
         queue: &Queue,
         obj_file: &str,
     ) -> Self {
-        let obj_model = resources::load_model(obj_file, &device, &queue).await;
+        let obj_model = resources::load_model_obj(obj_file, &device, &queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}", e);
         }
@@ -97,6 +97,102 @@ impl BuildingBlocks {
             instance_buffer,
             // Ids may be used later for picking, hitboxes, etc.
             id: 0,
+        }
+    }
+
+        /**
+     * This method creates a copy of the original Block (and instances) where only the
+     * fragment shader differs. The fragment shader is a U32 id referring to the object
+     * that was drawn.
+     *
+     * This is used to draw a pick shader which allows identifying objects clicked on
+     * with a mouse pointer.
+     * 
+     * TODO: make this a trait if possible
+     */
+    pub fn to_clickable(
+        &self,
+        device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
+        color: u32,
+    ) -> Self {
+        let obj_model = load_pick_model(
+            &device,
+            color,
+            self.obj_model.meshes.clone(),
+        )
+        .unwrap();
+
+        let render_pipeline_layout = pick_render_pipeline_layout(device, camera_bind_group_layout);
+
+        let shader = pick_shader(device);
+
+        let color_format = wgpu::TextureFormat::R32Uint;
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            cache: None,
+            label: Some("Pick Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                // Requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+        });
+        let instance_data = self
+            .instances
+            .iter()
+            .map(Instance::to_raw)
+            .collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer for Picking"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        Self {
+            pipeline: render_pipeline,
+            obj_model: obj_model,
+            obj_file: self.obj_file.clone(),
+            instances: self.instances.clone(),
+            instance_buffer,
+            id: color,
         }
     }
 }

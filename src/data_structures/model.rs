@@ -55,6 +55,22 @@ impl Vertex for ModelVertex {
     }
 }
 
+fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some("pick_bind_group_layout"),
+    })
+}
+
 #[derive(Clone)]
 pub struct Material {
     pub name: String,
@@ -94,6 +110,28 @@ impl Material {
             ],
             label: Some(name),
         });
+        Self {
+            name: String::from(name),
+            bind_group,
+        }
+    }
+
+    pub fn new_pick_material(device: &wgpu::Device, name: &str, buffer: wgpu::Buffer) -> Self {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &pick_layout(device),
+            entries: &[
+                // Must match amount of bind groups in texture_bind_group_layout (hmmm not surprising...)
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+            ],
+            label: Some(name),
+        });
 
         Self {
             name: String::from(name),
@@ -113,7 +151,7 @@ pub struct Mesh {
 
 pub struct Model {
     pub meshes: Vec<Mesh>,
-    pub materials: Vec<Material>
+    pub materials: Vec<Material>,
 }
 
 pub trait DrawModel<'a> {
