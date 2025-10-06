@@ -1,3 +1,5 @@
+use std::ops::{Add, Mul};
+
 use cgmath::One;
 
 use crate::data_structures::model;
@@ -34,6 +36,83 @@ impl Instance {
         InstanceRaw {
             model: self.to_matrix().into(),
             normal: cgmath::Matrix3::from(self.rotation).into(),
+        }
+    }
+}
+
+impl Mul<Instance> for Instance {
+    type Output = Self;
+
+    fn mul(self, rhs: Instance) -> Self::Output {
+        let new_rotation = self.rotation * rhs.rotation;
+
+        let new_scale = cgmath::Vector3::new(
+            self.scale.x * rhs.scale.x,
+            self.scale.y * rhs.scale.y,
+            self.scale.z * rhs.scale.z,
+        );
+        let scaled_rhs_pos = cgmath::Vector3::new(
+            self.scale.x * rhs.position.x,
+            self.scale.y * rhs.position.y,
+            self.scale.z * rhs.position.z,
+        );
+        let new_position = self.position + (self.rotation * scaled_rhs_pos);
+
+        Instance {
+            position: new_position,
+            rotation: new_rotation,
+            scale: new_scale,
+        }
+    }
+}
+
+impl Add<Instance> for Instance {
+    type Output = Self;
+
+    fn add(self, rhs: Instance) -> Self::Output {
+        Instance {
+            position: self.position + rhs.position,
+            rotation: self.rotation + rhs.rotation,
+            scale: self.scale + rhs.scale,
+        }
+    }
+}
+
+impl<'a, 'b> Mul<&'b Instance> for &'a Instance {
+    type Output = Instance;
+
+    fn mul(self, rhs: &'b Instance) -> Self::Output {
+        let new_rotation = self.rotation * rhs.rotation;
+
+        let new_scale = cgmath::Vector3::new(
+            self.scale.x * rhs.scale.x,
+            self.scale.y * rhs.scale.y,
+            self.scale.z * rhs.scale.z,
+        );
+        let scaled_rhs_pos = cgmath::Vector3::new(
+            self.scale.x * rhs.position.x,
+            self.scale.y * rhs.position.y,
+            self.scale.z * rhs.position.z,
+        );
+        let new_position = self.position + (self.rotation * scaled_rhs_pos);
+
+        Instance {
+            position: new_position,
+            rotation: new_rotation,
+            scale: new_scale,
+        }
+    }
+}
+
+
+impl<'a, 'b> Add<&'b Instance> for &'a Instance {
+    type Output = Instance;
+
+    fn add(self, rhs: &'b Instance) -> Self::Output {
+        Instance {
+            position: self.position + rhs.position,
+            rotation: self.rotation + rhs.rotation,
+            scale: self.scale + rhs.scale,
         }
     }
 }
