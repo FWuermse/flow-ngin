@@ -21,6 +21,239 @@ pub struct ModelAnimation {
     pub timestamps: Vec<f32>,
 }
 
+pub fn to_scene_node(
+    node: gltf::scene::Node,
+    buf: &Vec<Vec<u8>>,
+    device: &wgpu::Device,
+    mats: &Vec<model::Material>,
+    anims: &HashMap<usize, Vec<AnimationClip>>,
+) -> Box<dyn SceneNode> {
+    // TODO: is node.index() correct?
+    let animations = merge(anims[&node.index()].clone());
+    // TODO: only select materials for current mesh
+    let mut scene_node: Box<dyn SceneNode> = match node.mesh() {
+        Some(mesh) => {
+            let mut meshes = Vec::new();
+            let primitives = mesh.primitives();
+
+            primitives.for_each(|primitive| {
+                let reader = primitive.reader(|buffer| Some(&buf[buffer.index()]));
+
+                let mut vertices = Vec::new();
+                if let Some(vertex_attribute) = reader.read_positions() {
+                    vertex_attribute.for_each(|vertex| {
+                        vertices.push(model::ModelVertex {
+                            position: vertex,
+                            tex_coords: Default::default(),
+                            normal: Default::default(),
+                            bitangent: Default::default(),
+                            tangent: Default::default(),
+                        })
+                    });
+                }
+                if let Some(normal_attribute) = reader.read_normals() {
+                    let mut normal_index = 0;
+                    normal_attribute.for_each(|normal| {
+                        vertices[normal_index].normal = normal;
+
+                        normal_index += 1;
+                    });
+                }
+                if let Some(tex_coord_attribute) = reader.read_tex_coords(0).map(|v| v.into_f32()) {
+                    let mut tex_coord_index = 0;
+                    tex_coord_attribute.for_each(|tex_coord| {
+                        vertices[tex_coord_index].tex_coords = tex_coord;
+
+                        tex_coord_index += 1;
+                    });
+                }
+                // TODO: don't recalculate all tangents if the ModelVertex already contains them
+                if let Some(tangent_attribute) = reader.read_tangents() {
+                    let mut tangent_index = 0;
+                    tangent_attribute.for_each(|tangent| {
+                        // GLTF represents tangents as vec4 where the 4th elem can be used to calculate the bitangent
+                        let tangent: cgmath::Vector4<f32> = tangent.into();
+                        vertices[tangent_index].tangent = tangent.truncate().into();
+                        let normal: cgmath::Vector3<f32> = vertices[tangent_index].normal.into();
+                        let bitangent = normal.cross(tangent.truncate()) * tangent[3];
+                        vertices[tangent_index].bitangent = bitangent.into();
+
+                        tangent_index += 1;
+                    });
+                };
+
+                let mut indices = Vec::new();
+                if let Some(indices_raw) = reader.read_indices() {
+                    // dbg!(indices_raw);
+                    indices.append(&mut indices_raw.into_u32().collect::<Vec<u32>>());
+                }
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("{:?} Vertex Buffer", mesh.name())),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("{:?} Index Buffer", mesh.name())),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                println!("adding mesh:");
+                dbg!(mesh.name());
+                dbg!(mesh.extras());
+                let mat_idx = mesh
+                    .primitives()
+                    .filter_map(|prim| prim.material().index())
+                    .next()
+                    .unwrap_or(0);
+
+                meshes.push(model::Mesh {
+                    name: mesh.name().unwrap_or("unknown_mesh").to_string(),
+                    vertex_buffer,
+                    index_buffer,
+                    num_elements: indices.len() as u32,
+                    material: mat_idx,
+                });
+            });
+            /* TOOD: don't store all materials in one place (insert Walter White meme here)
+                Instead adjust the mesh/anim index above as well as the vec below
+                e.g. mats [1,2,3,4] for mesh1[1,2] and mesh2[3,4] must become mats1 [1, 2] mesh1[1,2] and mats2 [1, 2] mesh2 [1, 2]
+            */
+            let model = model::Model {
+                meshes,
+                materials: mats.clone(),
+            };
+            Box::new(ModelNode::from_model(1, device, model, animations))
+        }
+        None => Box::new(ContainerNode::new(1, animations)),
+    };
+    let decomp_pos = node.transform().decomposed();
+    let instance = Instance {
+        position: decomp_pos.0.into(),
+        rotation: decomp_pos.1.into(),
+        scale: decomp_pos.2.into(),
+    };
+    scene_node.set_local_transform(0, instance);
+    for child in node.children() {
+        let child_node = to_scene_node(child, buf, device, mats, anims);
+        scene_node.add_child(child_node);
+    }
+
+    scene_node
+}
+
+/**
+ * Merges keyframes with the same name to have all transformations in one place.
+ *
+ * GLTF:
+ * AnimationClip {
+ *      name: anim1
+ *      keyframes: Scale(
+ *          [[data]]
+ *      )
+ * }
+ * AnimationClip {
+ *      name: anim1
+ *      keyframes: Rotation(
+ *          [[data]]
+ *      )
+ * }
+ * ...
+ *
+ * to
+ *
+ * ModelAnimation {
+ *      name: anim1
+ *      keyframes: [
+ *          rot: []
+ *          tr: []
+ *          sc: []
+ *      ]
+ * }
+ */
+fn merge(clips: Vec<AnimationClip>) -> Vec<ModelAnimation> {
+    let mut animations = Vec::new();
+    let mut trans: Vec<cgmath::Vector3<f32>> = Vec::new();
+    let mut rots: Vec<cgmath::Quaternion<f32>> = Vec::new();
+    let mut scals: Vec<cgmath::Vector3<f32>> = Vec::new();
+    let mut timestamps = Vec::new();
+    let mut current_clip = &clips.first().unwrap().name;
+    for clip in clips.iter() {
+        if &clip.name != current_clip {
+            let t_len = trans.len();
+            let r_len = rots.len();
+            let s_len = scals.len();
+            let max_len = t_len.max(r_len.max(s_len));
+            if t_len != r_len || r_len != s_len {
+                println!(
+                    "warning, animation track len() doesn't match and will matched with defaults. previous animation: {}, current: {}", current_clip, clip.name
+                );
+                // Use first frame as default (this is important as child nodes have offsets)
+                trans.append(
+                    &mut (t_len..max_len)
+                        .into_iter()
+                        .filter_map(|_| trans.first())
+                        .cloned()
+                        .collect(),
+                );
+                rots.append(
+                    &mut (r_len..max_len)
+                        .into_iter()
+                        .filter_map(|_| rots.first())
+                        .cloned()
+                        .collect(),
+                );
+                scals.append(
+                    &mut (s_len..max_len)
+                        .into_iter()
+                        .filter_map(|_| scals.first())
+                        .cloned()
+                        .collect(),
+                );
+            }
+            // now assume the're all the same length
+            let mut instances = Vec::with_capacity(t_len);
+            for i in 0..max_len {
+                let instance = Instance {
+                    position: trans[i],
+                    rotation: rots[i],
+                    scale: scals[i],
+                };
+                instances.push(instance);
+            }
+            // new clip, reset vecs
+            let animation = ModelAnimation {
+                name: clip.name.clone(),
+                instances,
+                timestamps: timestamps.clone(),
+            };
+            timestamps = vec![];
+            animations.push(animation);
+            trans = vec![];
+            rots = vec![];
+            scals = vec![];
+            current_clip = &clip.name;
+        }
+        match &clip.keyframes {
+            Keyframes::Translation(translations) => {
+                translations.into_iter().for_each(|&tr| trans.push(tr))
+            }
+            Keyframes::Rotation(rotations) => {
+                rotations.into_iter().for_each(|&rot| rots.push(rot));
+            }
+            Keyframes::Scale(scalations) => {
+                scalations.into_iter().for_each(|&sc| scals.push(sc));
+            }
+            Keyframes::Other => todo!(),
+        }
+        // in case some tracks have fewer steps than others we want to have the largest set of timestamps for smooth animations
+        if clip.timestamps.len() > timestamps.len() {
+            timestamps = clip.timestamps.clone();
+        }
+    }
+    animations
+}
+
 pub trait SceneNode {
     fn get_world_transforms(&self) -> Vec<Instance>;
 
