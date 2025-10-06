@@ -118,25 +118,25 @@ async fn load_textures(
     )
     .await?;
 
+    // We rather use a default normal map when none is passed instead of changing the pipeline
     let mut materials = Vec::new();
     for m in obj_materials? {
         if let Some(m_diffuse_texture) = &m.diffuse_texture {
-            if let Some(m_normal_texture) = &m.normal_texture {
-                let diffuse_texture =
-                    load_texture(&m_diffuse_texture, false, device, queue, None).await?;
-                let normal_texture =
-                    load_texture(&m_normal_texture, true, device, queue, None).await?;
-
-                materials.push(model::Material::new(
-                    device,
-                    &m.name,
-                    diffuse_texture,
-                    normal_texture,
-                    layout,
-                ));
-            } else {
-                log::error!("This material's mtl ({file_name}) references no normal texture.")
-            }
+            let diffuse_texture =
+                load_texture(&m_diffuse_texture, false, device, queue, None).await?;
+            let normal_texture = match &m.normal_texture {
+                Some(m_normal_texture) => {
+                    load_texture(&m_normal_texture, true, device, queue, None).await?
+                },
+                None => texture::Texture::create_default_normal_map(1, 1, device, queue)
+            };
+            materials.push(model::Material::new(
+                device,
+                &m.name,
+                diffuse_texture,
+                normal_texture,
+                layout,
+            ));
         } else {
             log::error!("This material's mtl ({file_name}) references no texture.")
         }
