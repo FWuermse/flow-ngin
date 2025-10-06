@@ -63,9 +63,11 @@ pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
     };
     #[cfg(not(target_arch = "wasm32"))]
     let txt = {
-        let path = std::path::Path::new(env!("OUT_DIR"))
+        // TODO: pass env for absolute path from lib caller
+        let path = std::path::Path::new("./")
             .join("assets")
             .join(file_name);
+        // TODO: use tokio if it's not wasm anyway. Most IO-load will be here
         std::fs::read_to_string(path)?
     };
 
@@ -81,7 +83,8 @@ pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
     #[cfg(not(target_arch = "wasm32"))]
     // TODO make async
     let data = {
-        let path = std::path::Path::new(env!("OUT_DIR"))
+        // TODO: pass env for absolute path from lib caller
+        let path = std::path::Path::new("./")
             .join("assets")
             .join(file_name);
         // TODO: use tokio if it's not wasm anyway. Most IO-load will be here

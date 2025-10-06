@@ -1,9 +1,11 @@
 use crate::{data_structures::{model::{self}}, resources::texture::diffuse_normal_layout};
 
+/**
+ * This module contains all logic for loading mesh/textures/etc. from external files.
+ */
 pub mod texture;
 pub mod mesh;
 pub mod pick;
-
 
 pub async fn load_model_obj(
     file_name: &str,
