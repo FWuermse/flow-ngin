@@ -16,4 +16,7 @@ anyhow = "1.0.100"
 bytemuck = "1.24.0"
 cgmath = "0.18.0"
 image = "0.25.8"
+log = "0.4.28"
+# TOOD: retire this one soon
+tobj = { version = "4.0.3", default-features = false, features = ["async"] }
 wgpu = "26.0.1"
