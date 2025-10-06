@@ -84,7 +84,6 @@ pub fn to_scene_node(
 
                 let mut indices = Vec::new();
                 if let Some(indices_raw) = reader.read_indices() {
-                    // dbg!(indices_raw);
                     indices.append(&mut indices_raw.into_u32().collect::<Vec<u32>>());
                 }
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

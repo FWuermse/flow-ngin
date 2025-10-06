@@ -59,7 +59,7 @@ pub struct LightUniform {
     pub _padding2: u32,
 }
 
-pub fn mk_buffer(device: &wgpu::Device, light_uniform: LightUniform) -> wgpu::Buffer {
+fn mk_buffer(device: &wgpu::Device, light_uniform: LightUniform) -> wgpu::Buffer {
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Light Vertex Buffer"),
         contents: bytemuck::cast_slice(&[light_uniform]),
@@ -67,7 +67,7 @@ pub fn mk_buffer(device: &wgpu::Device, light_uniform: LightUniform) -> wgpu::Bu
     })
 }
 
-pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
@@ -83,7 +83,7 @@ pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-pub fn mk_bind_group(
+fn mk_bind_group(
     device: &wgpu::Device,
     bind_group_layout: &wgpu::BindGroupLayout,
     light_buffer: wgpu::BindingResource<'_>,
@@ -98,7 +98,7 @@ pub fn mk_bind_group(
     })
 }
 
-pub fn mk_render_pipeline(
+fn mk_render_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
     light_bind_group_layout: &wgpu::BindGroupLayout,

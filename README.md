@@ -4,7 +4,7 @@ A simple cross-plattform instancing-oriented game engine with focus on full WASM
 
 ## Features
 
-- [ ] Model loading:
+- [x] Model loading:
   - [x] Loading OBJ files
     - [x] Meshes
     - [x] Normals

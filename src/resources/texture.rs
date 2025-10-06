@@ -42,7 +42,6 @@ pub fn diffuse_normal_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-
 #[cfg(target_arch = "wasm32")]
 fn format_url(file_name: &str) -> reqwest::Url {
     let window = web_sys::window().unwrap();
