@@ -98,9 +98,6 @@ pub fn to_scene_node(
                     contents: bytemuck::cast_slice(&indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
-                println!("adding mesh:");
-                dbg!(mesh.name());
-                dbg!(mesh.extras());
                 let mat_idx = mesh
                     .primitives()
                     .filter_map(|prim| prim.material().index())

@@ -44,7 +44,6 @@ pub async fn load_model_gltf(
             gltf::buffer::Source::Bin => {
                 if let Some(blob) = gltf.blob.as_deref() {
                     buffer_data.push(blob.into());
-                    println!("Found a bin, saving");
                 };
             }
             gltf::buffer::Source::Uri(uri) => {
@@ -62,8 +61,6 @@ pub async fn load_model_gltf(
                 match inputs {
                     gltf::accessor::Iter::Standard(times) => {
                         let times: Vec<f32> = times.collect();
-                        println!("Time: {}", times.len());
-                        // dbg!(times);
                         times
                     }
                     gltf::accessor::Iter::Sparse(_) => {
@@ -72,7 +69,7 @@ pub async fn load_model_gltf(
                     }
                 }
             } else {
-                println!("Why no animation?");
+                println!("No animation found in channel {}", channel.index());
                 let times: Vec<f32> = Vec::new();
                 times
             };
@@ -109,7 +106,7 @@ pub async fn load_model_gltf(
                     gltf::animation::util::ReadOutputs::MorphTargetWeights(_) => Keyframes::Other,
                 }
             } else {
-                println!("Why no keyframes?");
+                println!("No Keyframes found in channel {}", channel.index());
                 Keyframes::Other
             };
             let name = animation.name().unwrap_or("Default").to_string();
@@ -125,12 +122,10 @@ pub async fn load_model_gltf(
     // Load materials
     let mut materials = Vec::new();
     for material in gltf.materials() {
-        println!("Looping thru materials");
         let pbr = material.pbr_metallic_roughness();
         let texture_source = &pbr
             .base_color_texture()
             .map(|tex| {
-                println!("Grabbing diffuse tex: {:?}", tex.texture().name());
                 tex.texture().source().source()
             })
             .expect("texture");
@@ -156,7 +151,6 @@ pub async fn load_model_gltf(
                     mime_type.map(|mt| mt.split('/').last().map_or("jpg", identity)),
                 )
                 .await?;
-                println!("uri: {}", uri);
                 diffuse_texture
             }
         };
