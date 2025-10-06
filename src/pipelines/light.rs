@@ -1,6 +1,9 @@
 use wgpu::util::DeviceExt;
 
-use crate::data_structures::{model::{Model, ModelVertex, Vertex}, texture};
+use crate::data_structures::{
+    model::{Model, ModelVertex, Vertex},
+    texture,
+};
 
 pub struct LightResources {
     pub model: Model,
@@ -9,6 +12,39 @@ pub struct LightResources {
     pub render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
     pub bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl LightResources {
+    pub fn new(
+        light_uniform: LightUniform,
+        model: Model,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        camera: &wgpu::BindGroupLayout
+    ) -> Self {
+        let light_buffer = mk_buffer(&device, light_uniform);
+        let light_bind_group_layout = mk_bind_group_layout(&device);
+        let light_bind_group = mk_bind_group(
+            &device,
+            &light_bind_group_layout,
+            light_buffer.as_entire_binding(),
+        );
+        let light_render_pipeline = mk_render_pipeline(
+            &device,
+            &config,
+            &light_bind_group_layout,
+            &camera,
+        );
+
+        Self {
+            model,
+            uniform: light_uniform,
+            buffer: light_buffer,
+            render_pipeline: light_render_pipeline,
+            bind_group: light_bind_group,
+            bind_group_layout: light_bind_group_layout.clone(),
+        }
+    }
 }
 
 #[repr(C)]
@@ -47,22 +83,30 @@ pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-pub fn mk_bind_group(device: &wgpu::Device, bind_group_layout: wgpu::BindGroupLayout, light_buffer: wgpu::Buffer) -> wgpu::BindGroup {
+pub fn mk_bind_group(
+    device: &wgpu::Device,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    light_buffer: wgpu::BindingResource<'_>,
+) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &bind_group_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
-            resource: light_buffer.as_entire_binding(),
+            resource: light_buffer,
         }],
         label: None,
     })
 }
 
-pub fn mk_render_pipeline(device: &wgpu::Device, config: wgpu::SurfaceConfiguration, camera_bind_group_layout: wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
-    let light_bind_group_layout = mk_bind_group_layout(device);
+pub fn mk_render_pipeline(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    light_bind_group_layout: &wgpu::BindGroupLayout,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Light Pipeline Layout"),
-        bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+        bind_group_layouts: &[camera_bind_group_layout, light_bind_group_layout],
         push_constant_ranges: &[],
     });
     let shader = wgpu::ShaderModuleDescriptor {
