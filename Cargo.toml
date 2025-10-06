@@ -1,0 +1,11 @@
+[package]
+name = "flow-ngin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.100"
+bytemuck = "1.24.0"
+cgmath = "0.18.0"
+image = "0.25.8"
+wgpu = "26.0.1"
