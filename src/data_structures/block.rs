@@ -1,10 +1,22 @@
+use crate::{
+    data_structures::{
+        instance::{Instance, InstanceRaw},
+        model::{self, ModelVertex, Vertex},
+        texture::Texture,
+    },
+    pipelines::basic::mk_render_pipeline,
+    resources::{
+        self,
+        pick::{load_pick_model, pick_render_pipeline_layout, pick_shader},
+        texture::diffuse_normal_layout,
+    },
+};
 use cgmath::{Rotation3, Zero};
-use crate::{data_structures::{instance::{Instance, InstanceRaw}, model::{self, Vertex}, texture::Texture}, pipelines::basic::mk_render_pipeline, resources::{self, pick::{load_pick_model, pick_render_pipeline_layout, pick_shader}, texture::diffuse_normal_layout}};
-use wgpu::{util::DeviceExt, BindGroupLayout, Device, Queue, SurfaceConfiguration};
+use wgpu::{BindGroupLayout, Device, Queue, SurfaceConfiguration, util::DeviceExt};
 
 /**
  * A `BuildingBlock` is a one-by-one voxel that uses instancing.
- * 
+ *
  * I don't recommend it for building entire voxel worlds similar to Minecraft at
  * this point as "hidden" blocks are still progressing through the pipeline until
  * the depth-buffer.
@@ -100,14 +112,14 @@ impl BuildingBlocks {
         }
     }
 
-        /**
+    /**
      * This method creates a copy of the original Block (and instances) where only the
      * fragment shader differs. The fragment shader is a U32 id referring to the object
      * that was drawn.
      *
      * This is used to draw a pick shader which allows identifying objects clicked on
      * with a mouse pointer.
-     * 
+     *
      * TODO: make this a trait if possible
      */
     pub fn to_clickable(
@@ -116,12 +128,7 @@ impl BuildingBlocks {
         camera_bind_group_layout: &BindGroupLayout,
         color: u32,
     ) -> Self {
-        let obj_model = load_pick_model(
-            &device,
-            color,
-            self.obj_model.meshes.clone(),
-        )
-        .unwrap();
+        let obj_model = load_pick_model(&device, color, self.obj_model.meshes.clone()).unwrap();
 
         let render_pipeline_layout = pick_render_pipeline_layout(device, camera_bind_group_layout);
 
@@ -194,5 +201,46 @@ impl BuildingBlocks {
             instance_buffer,
             id: color,
         }
+    }
+
+    /**
+     * Sets a new pipeline for a BuildingBlock that makes it transparent.
+     * 
+     * This includes all textures wrapped around a mesh regardless of whether they
+     * had already partially set to a transparency value lower than `1.0`.
+     * 
+     * TODO: use the basic pipeline and configure transparency via unform buffer.
+     * It's overkill to set a new pipeline just for that.
+     */
+    pub fn to_transparent(
+        &mut self,
+        config: &SurfaceConfiguration,
+        device: &Device,
+        camera_bind_group_layout: &BindGroupLayout,
+        light_bind_group_layout: &BindGroupLayout,
+    ) {
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &diffuse_normal_layout(device),
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+        let shader = wgpu::ShaderModuleDescriptor {
+            label: Some("Normal Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("transparent.wgsl").into()),
+        };
+        self.pipeline = mk_render_pipeline(
+            device,
+            &render_pipeline_layout,
+            config.format,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            Some(Texture::DEPTH_FORMAT),
+            &[ModelVertex::desc(), InstanceRaw::desc()],
+            shader,
+        );
     }
 }
