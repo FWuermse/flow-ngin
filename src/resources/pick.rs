@@ -1,8 +1,22 @@
-use crate::{data_structures::model, resources::diffuse_normal_layout};
+use crate::data_structures::model;
 
-use wgpu::{
-    BindGroupLayout, PipelineLayout, ShaderModule, util::DeviceExt,
-};
+use wgpu::{BindGroupLayout, PipelineLayout, ShaderModule, util::DeviceExt};
+
+pub(crate) fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some("pick_bind_group_layout"),
+    })
+}
 
 pub fn pick_render_pipeline_layout(
     device: &wgpu::Device,
@@ -10,7 +24,7 @@ pub fn pick_render_pipeline_layout(
 ) -> PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout (For picking)"),
-        bind_group_layouts: &[&diffuse_normal_layout(device), &camera_bind_group_layout],
+        bind_group_layouts: &[&pick_layout(device), &camera_bind_group_layout],
         push_constant_ranges: &[],
     })
 }
@@ -18,7 +32,7 @@ pub fn pick_render_pipeline_layout(
 pub fn pick_shader(device: &wgpu::Device) -> ShaderModule {
     let shader = wgpu::ShaderModuleDescriptor {
         label: Some("Normal Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("pick.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(include_str!("pick_basic.wgsl").into()),
     };
     device.create_shader_module(shader)
 }
@@ -45,11 +59,12 @@ pub fn load_pick_model(
         contents: bytemuck::cast_slice(&buf),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
-    let materials = vec![model::Material::new_pick_material(
-        device,
-        &"Pick Material",
-        buffer,
-    )];
+    let max_idx = meshes.iter().map(|m| m.material).max().unwrap_or(0);
+
+    // We just do this to keep the API consistant. The pick material is just an ID stretched over the mesh
+    let materials = (0..max_idx + 1)
+        .map(|_| model::Material::new_pick_material(device, &"Pick Material", buffer.clone()))
+        .collect();
 
     let model = model::Model { meshes, materials };
     Ok(model)

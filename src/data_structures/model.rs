@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::data_structures::texture;
+use crate::{data_structures::texture, resources::pick::pick_layout};
 
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
@@ -53,22 +53,6 @@ impl Vertex for ModelVertex {
             ],
         }
     }
-}
-
-fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-        label: Some("pick_bind_group_layout"),
-    })
 }
 
 #[derive(Clone)]
