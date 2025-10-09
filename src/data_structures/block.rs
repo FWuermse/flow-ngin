@@ -45,7 +45,7 @@ impl BuildingBlocks {
         queue: &Queue,
         obj_file: &str,
     ) -> Self {
-        let obj_model = resources::load_model_obj(obj_file, &device, &queue).await;
+        let obj_model = resources::load_model_obj(obj_file, device, queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}", e);
         }
@@ -56,8 +56,8 @@ impl BuildingBlocks {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &diffuse_normal_layout(device),
-                    &camera_bind_group_layout,
-                    &light_bind_group_layout,
+                    camera_bind_group_layout,
+                    light_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -114,7 +114,7 @@ impl BuildingBlocks {
 
     /**
      * This constructor creates `amount` instances all located at (0.0, 0.0, 0.0).
-     * 
+     *
      * TODO: pass iter fn to choose the transformation
      */
     pub async fn mk_multiple(
@@ -162,7 +162,7 @@ impl BuildingBlocks {
         camera_bind_group_layout: &BindGroupLayout,
         color: u32,
     ) -> Self {
-        let obj_model = load_pick_model(&device, color, self.obj_model.meshes.clone()).unwrap();
+        let obj_model = load_pick_model(device, color, self.obj_model.meshes.clone()).unwrap();
 
         let render_pipeline_layout = pick_render_pipeline_layout(device, camera_bind_group_layout);
 
@@ -258,8 +258,8 @@ impl BuildingBlocks {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &diffuse_normal_layout(device),
-                    &camera_bind_group_layout,
-                    &light_bind_group_layout,
+                    camera_bind_group_layout,
+                    light_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -276,5 +276,19 @@ impl BuildingBlocks {
             &[ModelVertex::desc(), InstanceRaw::desc()],
             shader,
         );
+    }
+
+    pub fn clear_first(&mut self, device: &Device, amount: usize) {
+        self.instances.drain(0..amount);
+        let instance_data = self
+            .instances
+            .iter()
+            .map(Instance::to_raw)
+            .collect::<Vec<_>>();
+        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
     }
 }

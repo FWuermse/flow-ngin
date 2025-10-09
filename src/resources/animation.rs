@@ -48,7 +48,7 @@ impl<'a> Animation {
         graph.update_world_transform_all();
         graph.write_to_buffers(queue, device);
 
-        // repeat anim after x secs
+        // repeat anim after 20 secs TODO: remove once testing is done
         if self.time.elapsed().as_secs_f32() > 20.0 {
             self.time = Instant::now();
         }
