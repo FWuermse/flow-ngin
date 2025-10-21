@@ -19,13 +19,18 @@ pub enum Keyframes {
 
 pub struct Animation {
     speed: f32,
+    rep_after_sec: f32,
     time: Instant,
 }
 
 impl<'a> Animation {
-    pub fn new(speed: f32) -> Self {
+    pub fn new(speed: f32, rep_after_sec: f32) -> Self {
         let time = Instant::now();
-        Self { speed, time }
+        Self { speed, time, rep_after_sec }
+    }
+
+    pub fn set_rep_time(&mut self, new_time: f32) {
+        self.rep_after_sec = new_time;
     }
 
     /**
@@ -45,11 +50,9 @@ impl<'a> Animation {
     ) {
         let current_time = &mut self.time;
         animate_graph(graph, anim_idx, current_time, self.speed);
-        graph.update_world_transform_all();
-        graph.write_to_buffers(queue, device);
 
         // repeat anim after 20 secs TODO: remove once testing is done
-        if self.time.elapsed().as_secs_f32() > 20.0 {
+        if self.time.elapsed().as_secs_f32() > self.rep_after_sec {
             self.time = Instant::now();
         }
     }

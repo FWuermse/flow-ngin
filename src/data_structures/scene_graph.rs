@@ -1,10 +1,15 @@
 use std::{collections::HashMap, ops::Range};
 
+use gltf::mesh::Mode;
 use log::warn;
-use wgpu::{util::DeviceExt, Device, Queue};
+use wgpu::{Device, Queue, util::DeviceExt};
 
 use crate::{
-    data_structures::{instance::{Instance, InstanceRaw}, model::{self, DrawModel}}, resources::{animation::Keyframes, load_model_obj, pick::load_pick_model}
+    data_structures::{
+        instance::{Instance, InstanceRaw},
+        model::{self, DrawModel},
+    },
+    resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
 };
 
 #[derive(Clone, Debug)]
@@ -14,11 +19,33 @@ pub struct AnimationClip {
     pub timestamps: Vec<f32>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ModelAnimation {
     pub name: String,
     pub instances: Vec<Instance>,
     pub timestamps: Vec<f32>,
+}
+
+/**
+ * Intermediate state when converting between `AnimationClip` and `ModelAnimation`
+ */
+#[derive(Default)]
+struct ModelState {
+    animations: Vec<ModelAnimation>,
+    trans: Vec<cgmath::Vector3<f32>>,
+    rots: Vec<cgmath::Quaternion<f32>>,
+    scals: Vec<cgmath::Vector3<f32>>,
+    timestamps: Vec<f32>,
+    current_clip: String,
+}
+impl ModelState {
+    fn reset(&mut self, clip: &AnimationClip) {
+        self.timestamps = vec![];
+        self.trans = vec![];
+        self.rots = vec![];
+        self.scals = vec![];
+        self.current_clip = clip.name.clone();
+    }
 }
 
 pub fn to_scene_node(
@@ -138,6 +165,58 @@ pub fn to_scene_node(
     scene_node
 }
 
+fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnimation {
+    let t_len = state.trans.len();
+    let r_len = state.rots.len();
+    let s_len = state.scals.len();
+    let max_len = t_len.max(r_len.max(s_len));
+    if t_len != r_len || r_len != s_len {
+        println!(
+            "warning, animation track len() doesn't match and will matched with defaults. previous animation: {}, current: {}",
+            state.current_clip, clip.name
+        );
+        // Use first frame as default (this is important as child nodes have offsets)
+        state.trans.append(
+            &mut (t_len..max_len)
+                .into_iter()
+                .filter_map(|_| state.trans.first())
+                .cloned()
+                .collect(),
+        );
+        state.rots.append(
+            &mut (r_len..max_len)
+                .into_iter()
+                .filter_map(|_| state.rots.first())
+                .cloned()
+                .collect(),
+        );
+        state.scals.append(
+            &mut (s_len..max_len)
+                .into_iter()
+                .filter_map(|_| state.scals.first())
+                .cloned()
+                .collect(),
+        );
+    }
+    // now assume the're all the same length
+    let mut instances = Vec::with_capacity(t_len);
+    for i in 0..max_len {
+        let instance = Instance {
+            position: state.trans[i],
+            rotation: state.rots[i],
+            scale: state.scals[i],
+        };
+        instances.push(instance);
+    }
+    // new clip, reset vecs
+    let animation = ModelAnimation {
+        name: clip.name.clone(),
+        instances,
+        timestamps: state.timestamps.clone(),
+    };
+    animation
+}
+
 /**
  * Merges keyframes with the same name to have all transformations in one place.
  *
@@ -168,86 +247,39 @@ pub fn to_scene_node(
  * }
  */
 fn merge(clips: Vec<AnimationClip>) -> Vec<ModelAnimation> {
-    let mut animations = Vec::new();
-    let mut trans: Vec<cgmath::Vector3<f32>> = Vec::new();
-    let mut rots: Vec<cgmath::Quaternion<f32>> = Vec::new();
-    let mut scals: Vec<cgmath::Vector3<f32>> = Vec::new();
-    let mut timestamps = Vec::new();
-    let mut current_clip = &clips.first().unwrap().name;
+    let mut state = ModelState {
+        current_clip: clips.first().unwrap().name.clone(),
+        ..Default::default()
+    };
     for clip in clips.iter() {
-        if &clip.name != current_clip {
-            let t_len = trans.len();
-            let r_len = rots.len();
-            let s_len = scals.len();
-            let max_len = t_len.max(r_len.max(s_len));
-            if t_len != r_len || r_len != s_len {
-                println!(
-                    "warning, animation track len() doesn't match and will matched with defaults. previous animation: {}, current: {}", current_clip, clip.name
-                );
-                // Use first frame as default (this is important as child nodes have offsets)
-                trans.append(
-                    &mut (t_len..max_len)
-                        .into_iter()
-                        .filter_map(|_| trans.first())
-                        .cloned()
-                        .collect(),
-                );
-                rots.append(
-                    &mut (r_len..max_len)
-                        .into_iter()
-                        .filter_map(|_| rots.first())
-                        .cloned()
-                        .collect(),
-                );
-                scals.append(
-                    &mut (s_len..max_len)
-                        .into_iter()
-                        .filter_map(|_| scals.first())
-                        .cloned()
-                        .collect(),
-                );
-            }
-            // now assume the're all the same length
-            let mut instances = Vec::with_capacity(t_len);
-            for i in 0..max_len {
-                let instance = Instance {
-                    position: trans[i],
-                    rotation: rots[i],
-                    scale: scals[i],
-                };
-                instances.push(instance);
-            }
-            // new clip, reset vecs
-            let animation = ModelAnimation {
-                name: clip.name.clone(),
-                instances,
-                timestamps: timestamps.clone(),
-            };
-            timestamps = vec![];
-            animations.push(animation);
-            trans = vec![];
-            rots = vec![];
-            scals = vec![];
-            current_clip = &clip.name;
+        if clip.name != state.current_clip {
+            let animation = save_current_anim(&mut state, clip);
+            state.animations.push(animation);
+            state.reset(clip);
         }
         match &clip.keyframes {
-            Keyframes::Translation(translations) => {
-                translations.into_iter().for_each(|&tr| trans.push(tr))
-            }
+            Keyframes::Translation(translations) => translations
+                .into_iter()
+                .for_each(|&tr| state.trans.push(tr)),
             Keyframes::Rotation(rotations) => {
-                rotations.into_iter().for_each(|&rot| rots.push(rot));
+                rotations.into_iter().for_each(|&rot| state.rots.push(rot));
             }
             Keyframes::Scale(scalations) => {
-                scalations.into_iter().for_each(|&sc| scals.push(sc));
+                scalations.into_iter().for_each(|&sc| state.scals.push(sc));
             }
             Keyframes::Other => todo!(),
         }
         // in case some tracks have fewer steps than others we want to have the largest set of timestamps for smooth animations
-        if clip.timestamps.len() > timestamps.len() {
-            timestamps = clip.timestamps.clone();
+        if clip.timestamps.len() > state.timestamps.len() {
+            state.timestamps = clip.timestamps.clone();
         }
     }
-    animations
+    if let Some(clip) = clips.last() {
+        let animation = save_current_anim(&mut state, clip);
+        state.animations.push(animation);
+        state.reset(clip);
+    }
+    state.animations
 }
 
 pub trait SceneNode {
@@ -662,8 +694,7 @@ impl SceneNode for ModelNode {
     }
 
     fn to_clickable(&self, device: &wgpu::Device, id: u32) -> Box<dyn SceneNode> {
-        let obj_model =
-            load_pick_model(&device, id, self.obj_model.meshes.clone()).unwrap();
+        let obj_model = load_pick_model(&device, id, self.obj_model.meshes.clone()).unwrap();
 
         let children = self
             .children
