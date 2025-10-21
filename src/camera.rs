@@ -277,3 +277,12 @@ impl CameraController {
         }
     }
 }
+
+pub struct CameraResources {
+    camera: Camera,
+    controller: CameraController,
+    uniform: CameraUniform,
+    buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
+}
