@@ -1,8 +1,19 @@
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use winit::{application::ApplicationHandler, event::{DeviceEvent, DeviceId, WindowEvent}, event_loop::{ActiveEventLoop, EventLoop}, window::Window};
+use winit::{
+    application::ApplicationHandler,
+    event::{DeviceEvent, DeviceId, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::Window,
+};
 
-use crate::{camera::CameraResources, pipelines::light::LightResources};
+use crate::{
+    camera::{CameraResources, Projection},
+    pipelines::light::LightResources,
+};
 
 // TODO: move camera to state and make ctx immutable
 pub struct Context {
@@ -11,23 +22,52 @@ pub struct Context {
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
     pub camera: CameraResources,
+    pub projection: Projection,
     pub light: LightResources,
 }
 impl Context {
     fn new() -> Self {
-        Self { surface: todo!(), device: todo!(), queue: todo!(), config: todo!(), camera: todo!(), light: todo!() }
+        Self {
+            surface: todo!(),
+            device: todo!(),
+            queue: todo!(),
+            config: todo!(),
+            camera: todo!(),
+            projection: todo!(),
+            light: todo!(),
+        }
     }
 }
 
-pub trait GraphicsFlow {
-    fn init(&mut self, ctx: &mut Context, state: &mut State);
-    fn update(&mut self, ctx: &mut Context, state: &mut State, dt: Duration);
-    fn handle_device_events(&mut self, ctx: &mut Context, event: winit::event::DeviceEvent);
-    fn handle_window_events(&mut self, ctx: &mut Context, event: winit::event::WindowEvent);
-    fn render(&self);
+pub trait GraphicsFlow<'a, State, Event> {
+    fn on_init(&mut self, ctx: &Context, state: &mut State);
+    /**
+     * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
+     * 
+     * `id` is the ID in the picking buffer that corresponds to an object.
+     * It is advised to use a unique u32 id for each element that should be selectable
+     * and pass that id to the underlying data structures (see `ScreneGraph` or `block`)
+     * and match for it when `on_click` triggers.
+     */
+    fn on_click(&mut self, ctx: &Context, state: &mut State, id: u32);
+    fn on_update(&mut self, ctx: &Context, state: &mut State, dt: Duration) -> Vec<u32>;
+    fn on_tick(&mut self, ctx: &Context, state: &mut State);
+    fn handle_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent);
+    fn handle_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent);
+    // Events can only be consumed by one GraphicsFlow - non consumed events are returned
+    // TODO: reconsider the Event. Should it be used to carry data? If so, maybe only Clonable data.
+    fn handle_custom_events(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        event: Event,
+    ) -> Option<Event>;
+    // Ctx must live as long as RenderPass while state must live shorter.
+    // TODO: remove state here entirely. It's not self's responsibility to read from state.
+    fn on_render(&self, ctx: &'a Context, state: &State, render_pass: &mut wgpu::RenderPass<'a>);
 }
 
-type Flow = Box<dyn GraphicsFlow>;
+pub type Flow = Box<dyn for<'a> GraphicsFlow<'a, State, Event>>;
 
 pub struct State {
     pub ctx: Context,
@@ -35,13 +75,16 @@ pub struct State {
 }
 impl State {
     async fn new(window: Arc<winit::window::Window>) -> anyhow::Result<Self> {
-        Ok(Self { graphics_flows: Vec::new(), ctx: Context::new() })
+        Ok(Self {
+            graphics_flows: Vec::new(),
+            ctx: Context::new(),
+        })
     }
 }
 
 // TODO: make extensible
 pub enum Event {
-    State(State)
+    State(State),
 }
 
 pub struct App {
@@ -99,13 +142,15 @@ impl ApplicationHandler<Event> for App {
         {
             if let Some(proxy) = self.proxy.take() {
                 wasm_bindgen_futures::spawn_local(async move {
-                    assert!(proxy
-                        .send_event(Event::State(
-                            State::new(window, Some(proxy.clone()))
-                                .await
-                                .expect("Unable to create canvas!!!")
-                        ))
-                        .is_ok())
+                    assert!(
+                        proxy
+                            .send_event(Event::State(
+                                State::new(window, Some(proxy.clone()))
+                                    .await
+                                    .expect("Unable to create canvas!!!")
+                            ))
+                            .is_ok()
+                    )
                 });
             }
         }
@@ -141,7 +186,7 @@ impl ApplicationHandler<Event> for App {
             return;
         };
         for flow in &mut state.graphics_flows {
-            flow.handle_device_events(&mut state.ctx, event.clone());
+            //flow.handle_device_events(&mut state.ctx, &mut state, event.clone());
         }
     }
 
@@ -157,7 +202,7 @@ impl ApplicationHandler<Event> for App {
             None => return,
         };
         for flow in &mut state.graphics_flows {
-            flow.handle_window_events(&mut state.ctx, event.clone());
+            //flow.handle_window_events(&mut state.ctx, event.clone());
         }
     }
 }

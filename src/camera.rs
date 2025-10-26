@@ -1,9 +1,10 @@
 use cgmath::*;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
-use winit::dpi::PhysicalPosition;
 use winit::event::*;
 use winit::keyboard::KeyCode;
+use winit::{dpi::PhysicalPosition, keyboard::PhysicalKey};
+
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_cols(
@@ -32,7 +33,7 @@ pub struct Ray {
 impl Ray {
     /**
      * Calculates the intersection of the ray `self` with the floor (y = 0.0).
-     * 
+     *
      * Returns None if the ray is not pointed towards the floor.
      */
     pub fn intersect_with_floor(&self) -> Option<Point2<f32>> {
@@ -193,34 +194,47 @@ impl CameraController {
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyCode, pressed: bool) -> bool {
-        let amount = if pressed { 1.0 } else { 0.0 };
-        match key {
-            KeyCode::KeyW | KeyCode::ArrowUp => {
-                self.amount_forward = amount;
-                true
+    pub fn handle_window_events(&mut self, event: &WindowEvent) -> bool {
+        if let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(key),
+                    state: key_state,
+                    ..
+                },
+            ..
+        } = event
+        {
+            let amount = if key_state.is_pressed() { 1.0 } else { 0.0 };
+            match key {
+                KeyCode::KeyW | KeyCode::ArrowUp => {
+                    self.amount_forward = amount;
+                    true
+                }
+                KeyCode::KeyS | KeyCode::ArrowDown => {
+                    self.amount_backward = amount;
+                    true
+                }
+                KeyCode::KeyA | KeyCode::ArrowLeft => {
+                    self.amount_left = amount;
+                    true
+                }
+                KeyCode::KeyD | KeyCode::ArrowRight => {
+                    self.amount_right = amount;
+                    true
+                }
+                KeyCode::Space => {
+                    self.amount_up = amount;
+                    true
+                }
+                KeyCode::ShiftLeft => {
+                    self.amount_down = amount;
+                    true
+                }
+                _ => false,
             }
-            KeyCode::KeyS | KeyCode::ArrowDown => {
-                self.amount_backward = amount;
-                true
-            }
-            KeyCode::KeyA | KeyCode::ArrowLeft => {
-                self.amount_left = amount;
-                true
-            }
-            KeyCode::KeyD | KeyCode::ArrowRight => {
-                self.amount_right = amount;
-                true
-            }
-            KeyCode::Space => {
-                self.amount_up = amount;
-                true
-            }
-            KeyCode::ShiftLeft => {
-                self.amount_down = amount;
-                true
-            }
-            _ => false,
+        } else {
+            false
         }
     }
 
@@ -236,7 +250,7 @@ impl CameraController {
         };
     }
 
-    pub fn update_camera(&mut self, camera: &mut Camera, dt: Duration) {
+    pub fn update(&mut self, camera: &mut Camera, dt: Duration) {
         let dt = dt.as_secs_f32();
 
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
@@ -279,10 +293,10 @@ impl CameraController {
 }
 
 pub struct CameraResources {
-    camera: Camera,
-    controller: CameraController,
-    uniform: CameraUniform,
-    buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    bind_group_layout: wgpu::BindGroupLayout,
+    pub camera: Camera,
+    pub controller: CameraController,
+    pub uniform: CameraUniform,
+    pub buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub bind_group_layout: wgpu::BindGroupLayout,
 }
