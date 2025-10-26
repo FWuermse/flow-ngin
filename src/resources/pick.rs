@@ -1,6 +1,6 @@
 use crate::data_structures::model;
 
-use wgpu::{BindGroupLayout, PipelineLayout, ShaderModule, util::DeviceExt};
+use wgpu::util::DeviceExt;
 
 pub(crate) fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -16,25 +16,6 @@ pub(crate) fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         }],
         label: Some("pick_bind_group_layout"),
     })
-}
-
-pub fn pick_render_pipeline_layout(
-    device: &wgpu::Device,
-    camera_bind_group_layout: &BindGroupLayout,
-) -> PipelineLayout {
-    device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Render Pipeline Layout (For picking)"),
-        bind_group_layouts: &[&pick_layout(device), &camera_bind_group_layout],
-        push_constant_ranges: &[],
-    })
-}
-
-pub fn pick_shader(device: &wgpu::Device) -> ShaderModule {
-    let shader = wgpu::ShaderModuleDescriptor {
-        label: Some("Normal Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("pick_basic.wgsl").into()),
-    };
-    device.create_shader_module(shader)
 }
 
 /**
