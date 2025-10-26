@@ -2,7 +2,7 @@ use std::iter;
 
 use winit::dpi::PhysicalPosition;
 
-use crate::{flow::Context, pipelines::pick};
+use crate::{context::Context, pipelines::pick};
 
 #[cfg(target_arch = "wasm32")]
 use crate::Event;

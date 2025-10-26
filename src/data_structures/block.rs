@@ -3,13 +3,11 @@ use crate::{
         instance::{Instance, InstanceRaw},
         model::{self, ModelVertex, Vertex},
         texture::Texture,
-    },
-    pipelines::{basic::mk_render_pipeline, pick},
-    resources::{
+    }, context::Context, pipelines::{basic::mk_render_pipeline, pick}, resources::{
         self,
         pick::load_pick_model,
         texture::diffuse_normal_layout,
-    },
+    }
 };
 use cgmath::{One, Rotation3, Zero};
 use wgpu::{BindGroupLayout, Device, Queue, SurfaceConfiguration, util::DeviceExt};
@@ -35,29 +33,25 @@ pub struct BuildingBlocks {
 
 impl BuildingBlocks {
     pub async fn new(
+        ctx: &Context,
         start_position: cgmath::Vector3<f32>,
         start_rotation: cgmath::Quaternion<f32>,
         amount: u32,
-        device: &Device,
-        camera_bind_group_layout: &BindGroupLayout,
-        light_bind_group_layout: &BindGroupLayout,
-        config: &SurfaceConfiguration,
-        queue: &Queue,
         obj_file: &str,
     ) -> Self {
-        let obj_model = resources::load_model_obj(obj_file, device, queue).await;
+        let obj_model = resources::load_model_obj(obj_file, &ctx.device, &ctx.queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}", e);
         }
         let obj_model = obj_model.unwrap();
 
         let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &diffuse_normal_layout(device),
-                    camera_bind_group_layout,
-                    light_bind_group_layout,
+                    &diffuse_normal_layout(&ctx.device),
+                    &ctx.camera.bind_group_layout,
+                    &ctx.light.bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -68,9 +62,9 @@ impl BuildingBlocks {
         };
 
         let render_pipeline = mk_render_pipeline(
-            device,
+            &ctx.device,
             &render_pipeline_layout,
-            config.format,
+            ctx.config.format,
             Some(wgpu::BlendState {
                 alpha: wgpu::BlendComponent::REPLACE,
                 color: wgpu::BlendComponent::REPLACE,
@@ -95,7 +89,7 @@ impl BuildingBlocks {
             .collect::<Vec<_>>();
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let instance_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Instance Buffer"),
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -118,26 +112,18 @@ impl BuildingBlocks {
      * TODO: pass iter fn to choose the transformation
      */
     pub async fn mk_multiple(
+        ctx: &Context,
         amount: u32,
-        device: &Device,
-        camera_bind_group_layout: &BindGroupLayout,
-        light_bind_group_layout: &BindGroupLayout,
-        config: &SurfaceConfiguration,
-        queue: &Queue,
         obj_files: &[&'static str],
     ) -> Vec<BuildingBlocks> {
         let mut output = vec![];
         for obj_file in obj_files {
             output.push(
                 BuildingBlocks::new(
+                    ctx,
                     cgmath::Vector3::zero(),
                     cgmath::Quaternion::one(),
                     amount,
-                    device,
-                    camera_bind_group_layout,
-                    light_bind_group_layout,
-                    config,
-                    queue,
                     obj_file,
                 )
                 .await,
@@ -197,18 +183,15 @@ impl BuildingBlocks {
      */
     pub fn to_transparent(
         &mut self,
-        config: &SurfaceConfiguration,
-        device: &Device,
-        camera_bind_group_layout: &BindGroupLayout,
-        light_bind_group_layout: &BindGroupLayout,
+        ctx: &Context
     ) {
         let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &diffuse_normal_layout(device),
-                    camera_bind_group_layout,
-                    light_bind_group_layout,
+                    &diffuse_normal_layout(&ctx.device),
+                    &ctx.camera.bind_group_layout,
+                    &ctx.light.bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -217,9 +200,9 @@ impl BuildingBlocks {
             source: wgpu::ShaderSource::Wgsl(include_str!("transparent.wgsl").into()),
         };
         self.pipeline = mk_render_pipeline(
-            device,
+            &ctx.device,
             &render_pipeline_layout,
-            config.format,
+            ctx.config.format,
             Some(wgpu::BlendState::ALPHA_BLENDING),
             Some(Texture::DEPTH_FORMAT),
             &[ModelVertex::desc(), InstanceRaw::desc()],

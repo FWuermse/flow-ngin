@@ -10,40 +10,13 @@ use winit::{
     window::Window,
 };
 
-use crate::{
-    camera::{CameraResources, Projection},
-    pipelines::light::LightResources,
-};
-
-// TODO: move camera to state and make ctx immutable
-pub struct Context {
-    pub surface: wgpu::Surface<'static>,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub config: wgpu::SurfaceConfiguration,
-    pub camera: CameraResources,
-    pub projection: Projection,
-    pub light: LightResources,
-}
-impl Context {
-    fn new() -> Self {
-        Self {
-            surface: todo!(),
-            device: todo!(),
-            queue: todo!(),
-            config: todo!(),
-            camera: todo!(),
-            projection: todo!(),
-            light: todo!(),
-        }
-    }
-}
+use crate::context::Context;
 
 pub trait GraphicsFlow<'a, State, Event> {
     fn on_init(&mut self, ctx: &Context, state: &mut State);
     /**
      * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
-     * 
+     *
      * `id` is the ID in the picking buffer that corresponds to an object.
      * It is advised to use a unique u32 id for each element that should be selectable
      * and pass that id to the underlying data structures (see `ScreneGraph` or `block`)
@@ -67,50 +40,24 @@ pub trait GraphicsFlow<'a, State, Event> {
     fn on_render(&self, ctx: &'a Context, state: &State, render_pass: &mut wgpu::RenderPass<'a>);
 }
 
-pub type Flow = Box<dyn for<'a> GraphicsFlow<'a, State, Event>>;
-
-pub struct State {
+pub struct AppState<'a, S, T> {
     pub ctx: Context,
-    pub graphics_flows: Vec<Flow>,
-}
-impl State {
-    async fn new(window: Arc<winit::window::Window>) -> anyhow::Result<Self> {
-        Ok(Self {
-            graphics_flows: Vec::new(),
-            ctx: Context::new(),
-        })
-    }
+    pub state: S,
+    pub graphics_flows: Vec<Box<dyn GraphicsFlow<'a, S, T>>>,
 }
 
-// TODO: make extensible
-pub enum Event {
-    State(State),
-}
-
-pub struct App {
-    #[cfg(target_arch = "wasm32")]
-    proxy: Option<winit::event_loop::EventLoopProxy<Event>>,
-    state: Option<State>,
+pub struct App<'a, S, T> {
+    state: Option<AppState<'a, S, T>>,
     last_time: Instant,
-    // TODO use for configurable game ticks
     time_since_tick: Duration,
 }
 
-impl App {
-    pub fn new(#[cfg(target_arch = "wasm32")] event_loop: &EventLoop<Event>) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let proxy = Some(event_loop.create_proxy());
-        Self {
-            state: None,
-            #[cfg(target_arch = "wasm32")]
-            proxy,
-            last_time: Instant::now(),
-            time_since_tick: Duration::from_millis(0),
-        }
-    }
+enum FlowEvent<T> {
+    Id(u32),
+    Custom(T),
 }
 
-impl ApplicationHandler<Event> for App {
+impl<'a, S, T: 'static> ApplicationHandler<FlowEvent<T>> for App<'a, S, T> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes();
@@ -133,9 +80,9 @@ impl ApplicationHandler<Event> for App {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // If we are not on web we can use pollster to await the event
-            // TODO: switch to tokio for non-wasm stuff
-            self.state = Some(pollster::block_on(State::new(window)).unwrap());
+            // If we are not on web we can use pollster to
+            // await the
+            self.state = Some(pollster::block_on(AppState::new(window)).unwrap());
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -157,21 +104,24 @@ impl ApplicationHandler<Event> for App {
     }
 
     #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: Event) {
-        match event {
-            // TODO: make extensible
-            Event::State(mut state) => {
-                #[cfg(target_arch = "wasm32")]
-                {
-                    state.window.request_redraw();
-                    state.resize(
-                        state.window.inner_size().width,
-                        state.window.inner_size().height,
-                    );
-                }
-                self.state = Some(state);
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<T>) {
+        let state = match &mut self.state {
+            Some(state) => state,
+            None => return,
+        };
+        Some(event).and_then(|e| {
+            if let FlowEvent::Id(id) = e {
+                state.graphics_flows.iter_mut().for_each(
+                    |f: &mut Box<dyn GraphicsFlow<'_, S, T>>| {
+                        f.on_click(&state.ctx, &mut state.state, id);
+                    },
+                );
+                None
+            } else {
+                Some(e)
             }
-        }
+            // TODO flatmap state.graphics_flows.handle_custom_event();
+        });
     }
 
     fn device_event(
@@ -180,29 +130,43 @@ impl ApplicationHandler<Event> for App {
         _device_id: DeviceId,
         event: DeviceEvent,
     ) {
-        let state = if let Some(state) = &mut self.state {
-            state
-        } else {
-            return;
+        let state = match &mut self.state {
+            Some(state) => state,
+            None => return,
         };
-        for flow in &mut state.graphics_flows {
-            //flow.handle_device_events(&mut state.ctx, &mut state, event.clone());
-        }
+        state.graphics_flows.iter_mut().for_each(|f| f.handle_device_events(&state.ctx, &mut state.state, &event));
     }
 
     fn window_event(
         &mut self,
-        // TODO include event_loop for wasm async stuff
         event_loop: &ActiveEventLoop,
         _window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
         let state = match &mut self.state {
-            Some(canvas) => canvas,
+            Some(state) => state,
             None => return,
         };
-        for flow in &mut state.graphics_flows {
-            //flow.handle_window_events(&mut state.ctx, event.clone());
+
+        state.graphics_flows.iter_mut().for_each(|f| f.handle_window_events(&state.ctx, &mut state.state, &event));
+
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            //WindowEvent::Resized(size) => state.resize(size.width, size.height),
+            WindowEvent::RedrawRequested => {
+                let dt = self.last_time.elapsed();
+                self.last_time = Instant::now();
+                self.time_since_tick += dt;
+                let render_pass = todo!();
+                state.graphics_flows.iter_mut().for_each(|f| f.on_render(&state.ctx, &state.state, render_pass));
+                // TODO: Handle draw errors
+                if self.time_since_tick >= Duration::from_millis(500) {
+                    state.graphics_flows.iter_mut().for_each(|f| f.on_tick(&state.ctx, &mut state.state));
+                    self.time_since_tick = Duration::from_millis(0);
+                }
+                state.graphics_flows.iter_mut().for_each(|f| {let _ = f.on_update(&state.ctx, &mut state.state, dt);});
+            }
+            _ => {}
         }
     }
 }

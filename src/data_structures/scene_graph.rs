@@ -1,6 +1,5 @@
 use std::{collections::HashMap, ops::Range};
 
-use gltf::mesh::Mode;
 use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
