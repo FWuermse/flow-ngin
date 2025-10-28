@@ -6,7 +6,7 @@ use crate::data_structures::{
 };
 
 pub struct LightResources {
-    pub model: Model,
+    pub model: Option<Model>,
     pub uniform: LightUniform,
     pub buffer: wgpu::Buffer,
     pub render_pipeline: wgpu::RenderPipeline,
@@ -17,7 +17,7 @@ pub struct LightResources {
 impl LightResources {
     pub fn new(
         light_uniform: LightUniform,
-        model: Model,
+        model: Option<Model>,
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         camera: &wgpu::BindGroupLayout

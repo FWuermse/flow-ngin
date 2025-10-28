@@ -3,10 +3,10 @@ use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use winit::window::Window;
 
-use crate::{camera::{self, CameraResources, CameraUniform, Projection}, data_structures::{model::Model, texture}, pipelines::light::{LightResources, LightUniform}};
+use crate::{camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pipelines::light::{LightResources, LightUniform}};
 
 pub struct Context {
-    window: Arc<Window>,
+    pub(crate) window: Arc<Window>,
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -18,7 +18,6 @@ pub struct Context {
 impl Context {
     pub async fn new(
         window: Arc<Window>,
-        main_light: Model,
         #[cfg(target_arch = "wasm32")] event_proxy: Option<
             winit::event_loop::EventLoopProxy<Event>,
         >,
@@ -151,11 +150,9 @@ impl Context {
             _padding2: 0,
         };
 
-        let light_model = main_light;
-
         let light = LightResources::new(
             light_uniform,
-            light_model,
+            None,
             &device,
             &config,
             &camera_bind_group_layout,
