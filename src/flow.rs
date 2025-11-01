@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use cgmath::Rotation3;
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, WindowEvent},
@@ -11,10 +12,13 @@ use winit::{
     window::Window,
 };
 
-use crate::{context::Context, data_structures::model::DrawLight};
+use crate::{
+    context::Context,
+    data_structures::{model::DrawLight, texture::Texture},
+};
 
 pub trait GraphicsFlow<State, Event> {
-    fn on_init(&mut self, ctx: &Context, state: &mut State);
+    fn on_init(&mut self, ctx: &Context, state: &mut State, id: u32);
     /**
      * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
      *
@@ -38,7 +42,12 @@ pub trait GraphicsFlow<State, Event> {
     ) -> Option<Event>;
     // Ctx must live as long as RenderPass while state must live shorter.
     // TODO: remove state here entirely. It's not self's responsibility to read from state.
-    fn on_render<'b>(&self, ctx: &Context, state: &State, render_pass: &mut wgpu::RenderPass<'b>);
+    fn on_render<'a>(
+        &self,
+        ctx: &'a Context,
+        state: &mut State,
+        render_pass: &mut wgpu::RenderPass<'a>,
+    );
 }
 
 pub struct AppState<S, T> {
@@ -58,6 +67,24 @@ impl<'a, S: Default, T> AppState<S, T> {
             state,
             graphics_flows,
             is_surface_configured,
+        }
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.ctx.config.width = width;
+            self.ctx.config.height = height;
+            self.is_surface_configured = true;
+            self.ctx.projection.resize(width, height);
+            self.ctx
+                .surface
+                .configure(&self.ctx.device, &self.ctx.config);
+            self.ctx.depth_texture = Texture::create_depth_texture(
+                &self.ctx.device,
+                [self.ctx.config.width, self.ctx.config.height],
+                "depth_texture",
+            );
+            // TODO: re-render GUI
         }
     }
 
@@ -124,7 +151,7 @@ impl<'a, S: Default, T> AppState<S, T> {
             // TODO: sort by type and use appropriate pipeline (GraphicsFlow should'nt care about the pipeline)
             self.graphics_flows
                 .iter_mut()
-                .for_each(|f| f.on_render(&self.ctx, &self.state, &mut render_pass));
+                .for_each(|f| f.on_render(&self.ctx, &mut self.state, &mut render_pass));
         }
         self.ctx.queue.submit(iter::once(encoder.finish()));
         output.present();
@@ -157,14 +184,18 @@ impl<'a, S, T> App<S, T> {
     }
 }
 
-enum FlowEvent<T> {
+enum FlowEvent<State, Event> {
     #[allow(dead_code)]
     Id(u32),
     #[allow(dead_code)]
-    Custom(T),
+    State(AppState<State, Event>),
+    #[allow(dead_code)]
+    Custom(Event),
 }
 
-impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
+impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event>>
+    for App<S, Event>
+{
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes();
@@ -211,25 +242,41 @@ impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
     }
 
     #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<T>) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<S, Event>) {
         let state = match &mut self.state {
             Some(state) => state,
             None => return,
         };
-        Some(event).and_then(|e| {
-            if let FlowEvent::Id(id) = e {
-                state
-                    .graphics_flows
-                    .iter_mut()
-                    .for_each(|f: &mut Box<dyn GraphicsFlow<S, T>>| {
-                        f.on_click(&state.ctx, &mut state.state, id);
-                    });
-                None
-            } else {
-                Some(e)
-            }
-            // TODO flatmap state.graphics_flows.handle_custom_event();
-        });
+        Some(event)
+            .and_then(|e| {
+                if let FlowEvent::Id(id) = e {
+                    state.graphics_flows.iter_mut().for_each(
+                        |f: &mut Box<dyn GraphicsFlow<S, Event>>| {
+                            f.on_click(&state.ctx, &mut state.state, id);
+                        },
+                    );
+                    None
+                } else {
+                    Some(e)
+                }
+            })
+            .and_then(|e| {
+                if let FlowEvent::State(mut state) = e {
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        state.window.request_redraw();
+                        state.resize(
+                            state.window.inner_size().width,
+                            state.window.inner_size().height,
+                        );
+                    }
+                    self.state = Some(state);
+                    None
+                } else {
+                    Some(e)
+                }
+            });
+        // TODO flatmap state.graphics_flows.handle_custom_event();
     }
 
     fn device_event(
@@ -259,6 +306,9 @@ impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
             None => return,
         };
 
+        // general stuff
+        state.ctx.camera.controller.handle_window_events(&event);
+
         state
             .graphics_flows
             .iter_mut()
@@ -266,7 +316,7 @@ impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            //WindowEvent::Resized(size) => state.resize(size.width, size.height),
+            WindowEvent::Resized(size) => state.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
                 let dt = self.last_time.elapsed();
                 self.last_time = Instant::now();
@@ -281,6 +331,25 @@ impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
                                 .for_each(|f| f.on_tick(&state.ctx, &mut state.state));
                             self.time_since_tick = Duration::from_millis(0);
                         }
+                        // Update the camera
+                        state.ctx.camera.controller.update(&mut state.ctx.camera.camera, dt);
+                        state.ctx.camera
+                            .uniform
+                            .update_view_proj(&state.ctx.camera.camera, &state.ctx.projection);
+                        state.ctx.queue.write_buffer(
+                            &state.ctx.camera.buffer,
+                            0,
+                            bytemuck::cast_slice(&[state.ctx.camera.uniform]),
+                        );
+                        // Update the light
+                        let old_position: cgmath::Vector3<_> =
+                            state.ctx.light.uniform.position.into();
+                        state.ctx.light.uniform.position = (cgmath::Quaternion::from_axis_angle(
+                            (0.0, 1.0, 0.0).into(),
+                            cgmath::Deg(2.0 * dt.as_secs_f32()),
+                        ) * old_position)
+                            .into();
+                        // Update custom stuff
                         state.graphics_flows.iter_mut().for_each(|f| {
                             let _ = f.on_update(&state.ctx, &mut state.state, dt);
                         });
@@ -288,8 +357,7 @@ impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
                     // Reconfigure the surface if it's lost or outdated
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = state.ctx.window.inner_size();
-                        // TODO: handle window resizes
-                        //state.resize(size.width, size.height);
+                        state.resize(size.width, size.height);
                     }
                     Err(e) => {
                         log::error!("Unable to render {}", e);
@@ -303,7 +371,7 @@ impl<S: Default, T: 'static> ApplicationHandler<FlowEvent<T>> for App<S, T> {
 
 pub fn run<'a, S, T>() -> anyhow::Result<()>
 where
-    S: Default,
+    S: 'static + Default,
     T: 'static,
 {
     #[cfg(not(target_arch = "wasm32"))]
