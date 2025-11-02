@@ -7,6 +7,7 @@ use crate::{camera::{self, CameraResources, CameraUniform, Projection}, data_str
 
 pub struct Context {
     pub(crate) window: Arc<Window>,
+    pub(crate) depth_texture: texture::Texture,
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -167,6 +168,7 @@ impl Context {
             projection,
             light,
             window,
+            depth_texture,
         }
     }
 }

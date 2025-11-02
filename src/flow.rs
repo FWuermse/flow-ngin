@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub trait GraphicsFlow<State, Event> {
-    fn on_init(&mut self, ctx: &Context, state: &mut State, id: u32);
+    fn on_init(&mut self, ctx: &Context, state: &mut State);
     /**
      * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
      *
@@ -43,29 +43,26 @@ pub trait GraphicsFlow<State, Event> {
     // Ctx must live as long as RenderPass while state must live shorter.
     // TODO: remove state here entirely. It's not self's responsibility to read from state.
     fn on_render<'a>(
-        &self,
+        &mut self,
         ctx: &'a Context,
         state: &mut State,
         render_pass: &mut wgpu::RenderPass<'a>,
     );
 }
 
-pub struct AppState<S, T> {
-    ctx: Context,
+pub struct AppState<S> {
+    pub(crate) ctx: Context,
     state: S,
     is_surface_configured: bool,
-    graphics_flows: Vec<Box<dyn GraphicsFlow<S, T>>>,
 }
-impl<'a, S: Default, T> AppState<S, T> {
+impl<'a, S: Default> AppState<S> {
     async fn new(window: Arc<Window>) -> Self {
         let ctx = Context::new(window).await;
         let state = S::default();
-        let graphics_flows = Vec::new();
         let is_surface_configured = false;
         Self {
             ctx,
             state,
-            graphics_flows,
             is_surface_configured,
         }
     }
@@ -88,7 +85,10 @@ impl<'a, S: Default, T> AppState<S, T> {
         }
     }
 
-    fn render(&'a mut self) -> Result<(), wgpu::SurfaceError> {
+    fn render<E>(
+        &'a mut self,
+        graphics_flows: &mut Vec<Box<dyn GraphicsFlow<S, E>>>,
+    ) -> Result<(), wgpu::SurfaceError> {
         // render stuff
         self.ctx.window.request_redraw();
 
@@ -149,7 +149,7 @@ impl<'a, S: Default, T> AppState<S, T> {
                 );
             }
             // TODO: sort by type and use appropriate pipeline (GraphicsFlow should'nt care about the pipeline)
-            self.graphics_flows
+            graphics_flows
                 .iter_mut()
                 .for_each(|f| f.on_render(&self.ctx, &mut self.state, &mut render_pass));
         }
@@ -161,13 +161,17 @@ impl<'a, S: Default, T> AppState<S, T> {
 }
 
 pub struct App<S, T> {
-    state: Option<AppState<S, T>>,
+    state: Option<AppState<S>>,
+    pub(crate) graphics_flows: Vec<Box<dyn GraphicsFlow<S, T>>>,
     last_time: Instant,
     time_since_tick: Duration,
 }
 
-impl<'a, S, T> App<S, T> {
-    pub fn new(#[cfg(target_arch = "wasm32")] event_loop: &EventLoop<Event>) -> Self {
+impl<'a, S, E> App<S, E> {
+    pub fn new(
+        #[cfg(target_arch = "wasm32")] event_loop: &EventLoop<Event>,
+        graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
+    ) -> Self {
         #[cfg(target_arch = "wasm32")]
         let proxy = Some(event_loop.create_proxy());
         let state = None;
@@ -177,9 +181,10 @@ impl<'a, S, T> App<S, T> {
             proxy,
             last_time: Instant::now(),
             time_since_tick: Duration::from_millis(0),
+            graphics_flows,
         }
     }
-    pub fn get_mut(&mut self) -> &mut AppState<S, T> {
+    pub fn get_mut(&mut self) -> &mut AppState<S> {
         self.state.as_mut().unwrap()
     }
 }
@@ -188,9 +193,33 @@ enum FlowEvent<State, Event> {
     #[allow(dead_code)]
     Id(u32),
     #[allow(dead_code)]
-    State(AppState<State, Event>),
+    State(AppState<State>),
     #[allow(dead_code)]
     Custom(Event),
+}
+
+fn run_async<F: IntoFuture>(fut: F) -> F::Output {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        pollster::block_on(fut)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(proxy) = self.proxy.take() {
+            wasm_bindgen_futures::spawn_local(async move {
+                assert!(
+                    proxy
+                        .send_event(Event::State(
+                            State::new(window, Some(proxy.clone()))
+                                .await
+                                .expect("Unable to create canvas!!!")
+                        ))
+                        .is_ok()
+                )
+            });
+        }
+    }
 }
 
 impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event>>
@@ -250,7 +279,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
         Some(event)
             .and_then(|e| {
                 if let FlowEvent::Id(id) = e {
-                    state.graphics_flows.iter_mut().for_each(
+                    self.graphics_flows.iter_mut().for_each(
                         |f: &mut Box<dyn GraphicsFlow<S, Event>>| {
                             f.on_click(&state.ctx, &mut state.state, id);
                         },
@@ -289,8 +318,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             Some(state) => state,
             None => return,
         };
-        state
-            .graphics_flows
+        self.graphics_flows
             .iter_mut()
             .for_each(|f| f.handle_device_events(&state.ctx, &mut state.state, &event));
     }
@@ -309,8 +337,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
         // general stuff
         state.ctx.camera.controller.handle_window_events(&event);
 
-        state
-            .graphics_flows
+        self.graphics_flows
             .iter_mut()
             .for_each(|f| f.handle_window_events(&state.ctx, &mut state.state, &event));
 
@@ -322,18 +349,23 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                 self.last_time = Instant::now();
                 self.time_since_tick += dt;
 
-                match state.render() {
+                match state.render(&mut self.graphics_flows) {
                     Ok(_) => {
                         if self.time_since_tick >= Duration::from_millis(500) {
-                            state
-                                .graphics_flows
+                            self.graphics_flows
                                 .iter_mut()
                                 .for_each(|f| f.on_tick(&state.ctx, &mut state.state));
                             self.time_since_tick = Duration::from_millis(0);
                         }
                         // Update the camera
-                        state.ctx.camera.controller.update(&mut state.ctx.camera.camera, dt);
-                        state.ctx.camera
+                        state
+                            .ctx
+                            .camera
+                            .controller
+                            .update(&mut state.ctx.camera.camera, dt);
+                        state
+                            .ctx
+                            .camera
                             .uniform
                             .update_view_proj(&state.ctx.camera.camera, &state.ctx.projection);
                         state.ctx.queue.write_buffer(
@@ -350,7 +382,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                         ) * old_position)
                             .into();
                         // Update custom stuff
-                        state.graphics_flows.iter_mut().for_each(|f| {
+                        self.graphics_flows.iter_mut().for_each(|f| {
                             let _ = f.on_update(&state.ctx, &mut state.state, dt);
                         });
                     }
@@ -369,28 +401,42 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
-pub fn run<'a, S, T>() -> anyhow::Result<()>
-where
-    S: 'static + Default,
-    T: 'static,
-{
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        env_logger::init();
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        console_log::init_with_level(log::Level::Info).unwrap_throw();
-    }
+pub struct NGIN<S, E> {
+    app: App<S, E>,
+}
 
-    let event_loop = EventLoop::with_user_event().build()?;
-    let mut app: App<S, T> = App::new(
+impl<S, E> NGIN<S, E> {
+    pub fn mk() -> Self {
+        let app: App<S, E> = App::new(
+            #[cfg(target_arch = "wasm32")]
+            &event_loop,
+            Vec::new(),
+        );
+        Self { app }
+    }
+    pub fn run<'a, F, Fut>(&mut self, graphics_flows: Vec<F>) -> anyhow::Result<()>
+    where
+        S: 'static + Default,
+        E: 'static,
+        F: for<'b> Fn(&'b Context) -> Fut,
+        Fut: Future<Output = Result<(), anyhow::Error>>,
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            env_logger::init();
+        }
         #[cfg(target_arch = "wasm32")]
-        &event_loop,
-    );
-    event_loop.run_app(&mut app)?;
+        {
+            console_log::init_with_level(log::Level::Info).unwrap_throw();
+        }
+        //self.app.graphics_flows = graphics_flows;
 
-    Ok(())
+        let event_loop = EventLoop::with_user_event().build()?;
+
+        event_loop.run_app(&mut self.app)?;
+
+        Ok(())
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
