@@ -1,5 +1,10 @@
 use std::{
-    iter, pin::Pin, sync::Arc, time::{Duration, Instant}
+    cell::RefCell,
+    iter,
+    pin::Pin,
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use cgmath::Rotation3;
@@ -126,7 +131,7 @@ impl<'a, S: Default> AppState<S> {
                         depth_slice: None,
                     })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &view,
+                        view: &self.ctx.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Clear(1.0),
                             store: wgpu::StoreOp::Store,
@@ -161,7 +166,7 @@ impl<'a, S: Default> AppState<S> {
 pub struct App<S, E> {
     state: Option<AppState<S>>,
     // This will hold the fully initialized flows once they are ready.
-    graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>, 
+    graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
     // This holds the constructors at the start.
     // We use Option to `take()` it after use.
     constructors: Option<Vec<AsyncGraphicsFlowConstructor<S, E>>>,
@@ -173,7 +178,7 @@ impl<'a, S, E> App<S, E> {
     pub fn new(constructors: Vec<AsyncGraphicsFlowConstructor<S, E>>) -> Self {
         Self {
             state: None,
-            graphics_flows: Vec::new(), // Starts empty
+            graphics_flows: Vec::new(),       // Starts empty
             constructors: Some(constructors), // Starts with constructors
             last_time: Instant::now(),
             time_since_tick: Duration::from_millis(0),
@@ -222,52 +227,52 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     for App<S, Event>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = Arc::new(event_loop.create_window(Window::default_attributes()).unwrap());
-        
-        // Take the constructors, we will consume them now.
-        let constructors = self.constructors.take().expect("Constructors should be present on first resume");
+        let window = Arc::new(
+            event_loop
+                .create_window(Window::default_attributes())
+                .unwrap(),
+        );
+        let constructors = self
+            .constructors
+            .take()
+            .expect("Constructors should be present");
+
+        let init_future = async move {
+            let mut app_state = AppState::new(window).await;
+
+            let ctx = app_state.ctx; // Assuming you can extract/replace ctx
+            let ctx_handle = Rc::new(RefCell::new(ctx));
+
+            let flow_futures: Vec<_> = constructors
+                .into_iter()
+                // Each constructor gets a cheap clone of the Rc handle.
+                .map(|constructor| constructor(ctx_handle.clone()))
+                .collect();
+
+            let results = futures::future::join_all(flow_futures).await;
+            let flows: Vec<_> = results;
+
+            // 5. Unwrap the Context from the Rc<RefCell<>> to restore original ownership.
+            //    This step ensures we don't have the Rc/RefCell overhead during the main loop.
+            let final_ctx = Rc::try_unwrap(ctx_handle).unwrap().into_inner();
+
+            app_state.ctx = final_ctx; // Put the context back
+
+            (app_state, flows)
+        };
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // On native, we can block on the entire async initialization process.
-            pollster::block_on(async {
-                let mut app_state = AppState::new(window).await;
-
-                // Create a collection of futures by calling each constructor
-                let flow_futures: Vec<_> = constructors
-                    .into_iter()
-                    .map(|constructor| constructor(&app_state.ctx))
-                    .collect();
-
-                // Await them all concurrently
-                let results = futures::future::join_all(flow_futures).await;
-
-                // Collect the successful results
-                // In a real app, you'd want to handle the `Err` cases properly
-                let flows = results.into_iter().map(|res| res.unwrap()).collect();
-
-                // Now we have everything, populate the app
-                self.graphics_flows = flows;
-                self.state = Some(app_state);
-            });
+            let (app_state, flows) = pollster::block_on(init_future);
+            self.graphics_flows = flows;
+            self.state = Some(app_state);
         }
 
         #[cfg(target_arch = "wasm32")]
         {
-            // On wasm, we spawn a task and send a message back when it's done.
             let proxy = event_loop.create_proxy();
             wasm_bindgen_futures::spawn_local(async move {
-                let app_state = AppState::new(window).await;
-
-                let flow_futures: Vec<_> = constructors
-                    .into_iter()
-                    .map(|constructor| constructor(&app_state.ctx))
-                    .collect();
-
-                let results = futures::future::join_all(flow_futures).await;
-                let flows = results.into_iter().map(|res| res.unwrap()).collect();
-
-                // Send one single "Initialized" event back to the event loop
+                let (app_state, flows) = init_future.await;
                 proxy
                     .send_event(FlowEvent::Initialized {
                         state: app_state,
@@ -285,7 +290,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                 // This is the message from our wasm `spawn_local`
                 self.state = Some(state);
                 self.graphics_flows = flows;
-                
+
                 // Important: Trigger a resize and redraw now that we are initialized
                 let state = self.state.as_mut().unwrap();
                 let size = state.ctx.window.inner_size();
@@ -294,13 +299,13 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             }
             FlowEvent::Id(id) => {
                 if let Some(state) = &mut self.state {
-                     self.graphics_flows.iter_mut().for_each(|f| {
+                    self.graphics_flows.iter_mut().for_each(|f| {
                         f.on_click(&state.ctx, &mut state.state, id);
                     });
                 }
             }
             FlowEvent::Custom(custom_event) => {
-                 // handle custom events...
+                // handle custom events...
             }
         }
     }
@@ -398,19 +403,22 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
-type GraphicsFlowFuture<S, E> = Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn GraphicsFlow<S, E>>>>>>;
+pub type SharedContext = Rc<RefCell<Context>>;
 
-pub type AsyncGraphicsFlowConstructor<S, E> = Box<dyn FnOnce(&Context) -> GraphicsFlowFuture<S, E>>;
+// The async constructor now takes this clonable handle.
+pub type AsyncGraphicsFlowConstructor<S, E> = Box<
+    dyn FnOnce(
+        SharedContext,
+    ) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>,
+>;
 
 pub fn run<S: 'static + Default, E: 'static>(
     constructors: Vec<AsyncGraphicsFlowConstructor<S, E>>,
 ) -> anyhow::Result<()> {
-    // ... logger setup ...
+    // TODO: logger setup
 
-    // The EventLoop needs to be created before it's used in App::new for wasm
     let event_loop = EventLoop::with_user_event().build()?;
 
-    // Pass the constructors to the App
     let mut app: App<S, E> = App::new(constructors);
 
     event_loop.run_app(&mut app)?;

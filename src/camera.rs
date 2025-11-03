@@ -136,6 +136,7 @@ impl Camera {
     }
 }
 
+#[derive(Debug)]
 pub struct Projection {
     aspect: f32,
     fovy: Rad<f32>,
@@ -292,6 +293,7 @@ impl CameraController {
     }
 }
 
+#[derive(Debug)]
 pub struct CameraResources {
     pub camera: Camera,
     pub controller: CameraController,

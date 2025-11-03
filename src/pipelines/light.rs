@@ -5,6 +5,7 @@ use crate::data_structures::{
     texture,
 };
 
+#[derive(Debug)]
 pub struct LightResources {
     pub model: Option<Model>,
     pub uniform: LightUniform,

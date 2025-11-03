@@ -55,7 +55,7 @@ impl Vertex for ModelVertex {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Material {
     pub name: String,
     pub bind_group: wgpu::BindGroup,
@@ -124,7 +124,7 @@ impl Material {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Mesh {
     pub name: String,
     pub vertex_buffer: wgpu::Buffer,
@@ -133,6 +133,7 @@ pub struct Mesh {
     pub material: usize,
 }
 
+#[derive(Debug)]
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,

@@ -9,6 +9,7 @@ use crate::{
     pipelines::light::{LightResources, LightUniform},
 };
 
+#[derive(Debug)]
 pub struct Context {
     pub(crate) window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
