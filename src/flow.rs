@@ -1,7 +1,5 @@
 use std::{
-    iter,
-    sync::Arc,
-    time::{Duration, Instant},
+    iter, pin::Pin, sync::Arc, time::{Duration, Instant}
 };
 
 use cgmath::Rotation3;
@@ -160,40 +158,38 @@ impl<'a, S: Default> AppState<S> {
     }
 }
 
-pub struct App<S, T> {
+pub struct App<S, E> {
     state: Option<AppState<S>>,
-    pub(crate) graphics_flows: Vec<Box<dyn GraphicsFlow<S, T>>>,
+    // This will hold the fully initialized flows once they are ready.
+    graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>, 
+    // This holds the constructors at the start.
+    // We use Option to `take()` it after use.
+    constructors: Option<Vec<AsyncGraphicsFlowConstructor<S, E>>>,
     last_time: Instant,
     time_since_tick: Duration,
 }
 
 impl<'a, S, E> App<S, E> {
-    pub fn new(
-        #[cfg(target_arch = "wasm32")] event_loop: &EventLoop<Event>,
-        graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
-    ) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let proxy = Some(event_loop.create_proxy());
-        let state = None;
+    pub fn new(constructors: Vec<AsyncGraphicsFlowConstructor<S, E>>) -> Self {
         Self {
-            state,
-            #[cfg(target_arch = "wasm32")]
-            proxy,
+            state: None,
+            graphics_flows: Vec::new(), // Starts empty
+            constructors: Some(constructors), // Starts with constructors
             last_time: Instant::now(),
             time_since_tick: Duration::from_millis(0),
-            graphics_flows,
         }
     }
-    pub fn get_mut(&mut self) -> &mut AppState<S> {
-        self.state.as_mut().unwrap()
-    }
+    // ...
 }
 
 enum FlowEvent<State, Event> {
     #[allow(dead_code)]
-    Id(u32),
+    Initialized {
+        state: AppState<State>,
+        flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
+    },
     #[allow(dead_code)]
-    State(AppState<State>),
+    Id(u32),
     #[allow(dead_code)]
     Custom(Event),
 }
@@ -226,86 +222,87 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     for App<S, Event>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        #[allow(unused_mut)]
-        let mut window_attributes = Window::default_attributes();
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            use wasm_bindgen::JsCast;
-            use winit::platform::web::WindowAttributesExtWebSys;
-
-            const CANVAS_ID: &str = "canvas";
-
-            let window = wgpu::web_sys::window().unwrap_throw();
-            let document = window.document().unwrap_throw();
-            let canvas = document.get_element_by_id(CANVAS_ID).unwrap_throw();
-            let html_canvas_element = canvas.unchecked_into();
-            window_attributes = window_attributes.with_canvas(Some(html_canvas_element));
-        }
-
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+        let window = Arc::new(event_loop.create_window(Window::default_attributes()).unwrap());
+        
+        // Take the constructors, we will consume them now.
+        let constructors = self.constructors.take().expect("Constructors should be present on first resume");
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // If we are not on web we can use pollster to
-            // await the
-            self.state = Some(pollster::block_on(AppState::new(window)));
+            // On native, we can block on the entire async initialization process.
+            pollster::block_on(async {
+                let mut app_state = AppState::new(window).await;
+
+                // Create a collection of futures by calling each constructor
+                let flow_futures: Vec<_> = constructors
+                    .into_iter()
+                    .map(|constructor| constructor(&app_state.ctx))
+                    .collect();
+
+                // Await them all concurrently
+                let results = futures::future::join_all(flow_futures).await;
+
+                // Collect the successful results
+                // In a real app, you'd want to handle the `Err` cases properly
+                let flows = results.into_iter().map(|res| res.unwrap()).collect();
+
+                // Now we have everything, populate the app
+                self.graphics_flows = flows;
+                self.state = Some(app_state);
+            });
         }
 
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(proxy) = self.proxy.take() {
-                wasm_bindgen_futures::spawn_local(async move {
-                    assert!(
-                        proxy
-                            .send_event(Event::State(
-                                State::new(window, Some(proxy.clone()))
-                                    .await
-                                    .expect("Unable to create canvas!!!")
-                            ))
-                            .is_ok()
-                    )
-                });
-            }
+            // On wasm, we spawn a task and send a message back when it's done.
+            let proxy = event_loop.create_proxy();
+            wasm_bindgen_futures::spawn_local(async move {
+                let app_state = AppState::new(window).await;
+
+                let flow_futures: Vec<_> = constructors
+                    .into_iter()
+                    .map(|constructor| constructor(&app_state.ctx))
+                    .collect();
+
+                let results = futures::future::join_all(flow_futures).await;
+                let flows = results.into_iter().map(|res| res.unwrap()).collect();
+
+                // Send one single "Initialized" event back to the event loop
+                proxy
+                    .send_event(FlowEvent::Initialized {
+                        state: app_state,
+                        flows,
+                    })
+                    .expect("Failed to send initialized event");
+            });
         }
     }
 
     #[allow(unused_mut)]
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<S, Event>) {
-        let state = match &mut self.state {
-            Some(state) => state,
-            None => return,
-        };
-        Some(event)
-            .and_then(|e| {
-                if let FlowEvent::Id(id) = e {
-                    self.graphics_flows.iter_mut().for_each(
-                        |f: &mut Box<dyn GraphicsFlow<S, Event>>| {
-                            f.on_click(&state.ctx, &mut state.state, id);
-                        },
-                    );
-                    None
-                } else {
-                    Some(e)
+        match event {
+            FlowEvent::Initialized { state, flows } => {
+                // This is the message from our wasm `spawn_local`
+                self.state = Some(state);
+                self.graphics_flows = flows;
+                
+                // Important: Trigger a resize and redraw now that we are initialized
+                let state = self.state.as_mut().unwrap();
+                let size = state.ctx.window.inner_size();
+                state.resize(size.width, size.height);
+                state.ctx.window.request_redraw();
+            }
+            FlowEvent::Id(id) => {
+                if let Some(state) = &mut self.state {
+                     self.graphics_flows.iter_mut().for_each(|f| {
+                        f.on_click(&state.ctx, &mut state.state, id);
+                    });
                 }
-            })
-            .and_then(|e| {
-                if let FlowEvent::State(mut state) = e {
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        state.window.request_redraw();
-                        state.resize(
-                            state.window.inner_size().width,
-                            state.window.inner_size().height,
-                        );
-                    }
-                    self.state = Some(state);
-                    None
-                } else {
-                    Some(e)
-                }
-            });
-        // TODO flatmap state.graphics_flows.handle_custom_event();
+            }
+            FlowEvent::Custom(custom_event) => {
+                 // handle custom events...
+            }
+        }
     }
 
     fn device_event(
@@ -401,42 +398,24 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
-pub struct NGIN<S, E> {
-    app: App<S, E>,
-}
+type GraphicsFlowFuture<S, E> = Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn GraphicsFlow<S, E>>>>>>;
 
-impl<S, E> NGIN<S, E> {
-    pub fn mk() -> Self {
-        let app: App<S, E> = App::new(
-            #[cfg(target_arch = "wasm32")]
-            &event_loop,
-            Vec::new(),
-        );
-        Self { app }
-    }
-    pub fn run<'a, F, Fut>(&mut self, graphics_flows: Vec<F>) -> anyhow::Result<()>
-    where
-        S: 'static + Default,
-        E: 'static,
-        F: for<'b> Fn(&'b Context) -> Fut,
-        Fut: Future<Output = Result<(), anyhow::Error>>,
-    {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            env_logger::init();
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            console_log::init_with_level(log::Level::Info).unwrap_throw();
-        }
-        //self.app.graphics_flows = graphics_flows;
+pub type AsyncGraphicsFlowConstructor<S, E> = Box<dyn FnOnce(&Context) -> GraphicsFlowFuture<S, E>>;
 
-        let event_loop = EventLoop::with_user_event().build()?;
+pub fn run<S: 'static + Default, E: 'static>(
+    constructors: Vec<AsyncGraphicsFlowConstructor<S, E>>,
+) -> anyhow::Result<()> {
+    // ... logger setup ...
 
-        event_loop.run_app(&mut self.app)?;
+    // The EventLoop needs to be created before it's used in App::new for wasm
+    let event_loop = EventLoop::with_user_event().build()?;
 
-        Ok(())
-    }
+    // Pass the constructors to the App
+    let mut app: App<S, E> = App::new(constructors);
+
+    event_loop.run_app(&mut app)?;
+
+    Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]

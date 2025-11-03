@@ -70,7 +70,7 @@ impl CameraUniform {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Camera {
     pub position: Point3<f32>,
     yaw: Rad<f32>,
@@ -162,7 +162,7 @@ impl Projection {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CameraController {
     amount_left: f32,
     amount_right: f32,

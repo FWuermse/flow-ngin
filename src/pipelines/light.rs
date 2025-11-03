@@ -20,7 +20,7 @@ impl LightResources {
         model: Option<Model>,
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
-        camera: &wgpu::BindGroupLayout
+        camera: &wgpu::BindGroupLayout,
     ) -> Self {
         let light_buffer = mk_buffer(&device, light_uniform);
         let light_bind_group_layout = mk_bind_group_layout(&device);
@@ -29,12 +29,8 @@ impl LightResources {
             &light_bind_group_layout,
             light_buffer.as_entire_binding(),
         );
-        let light_render_pipeline = mk_render_pipeline(
-            &device,
-            &config,
-            &light_bind_group_layout,
-            &camera,
-        );
+        let light_render_pipeline =
+            mk_render_pipeline(&device, &config, &light_bind_group_layout, &camera);
 
         Self {
             model,

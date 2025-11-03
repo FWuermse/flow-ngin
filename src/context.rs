@@ -1,9 +1,13 @@
 use std::sync::Arc;
 
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, wgc::device::queue};
 use winit::window::Window;
 
-use crate::{camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pipelines::light::{LightResources, LightUniform}};
+use crate::{
+    camera::{self, CameraResources, CameraUniform, Projection},
+    data_structures::texture,
+    pipelines::light::{LightResources, LightUniform},
+};
 
 pub struct Context {
     pub(crate) window: Arc<Window>,
