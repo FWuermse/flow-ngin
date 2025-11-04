@@ -2,7 +2,6 @@ use std::{
     cell::RefCell,
     iter,
     pin::Pin,
-    rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -36,15 +35,12 @@ pub trait GraphicsFlow<State, Event> {
     fn handle_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent);
     fn handle_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent);
     // Events can only be consumed by one GraphicsFlow - non consumed events are returned
-    // TODO: reconsider the Event. Should it be used to carry data? If so, maybe only Clonable data.
     fn handle_custom_events(
         &mut self,
         ctx: &Context,
         state: &mut State,
         event: Event,
     ) -> Option<Event>;
-    // Ctx must live as long as RenderPass while state must live shorter.
-    // TODO: remove state here entirely. It's not self's responsibility to read from state.
     fn on_render<'a>(
         &mut self,
         ctx: &'a Context,
@@ -120,12 +116,7 @@ impl<'a, S: Default> AppState<S> {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             // TODO: make background colour configurable
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.1,
-                                g: 0.2,
-                                b: 0.2,
-                                a: 1.0,
-                            }),
+                            load: wgpu::LoadOp::Clear(self.ctx.clear_colour),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None,
@@ -199,30 +190,6 @@ enum FlowEvent<State, Event> {
     Custom(Event),
 }
 
-fn run_async<F: IntoFuture>(fut: F) -> F::Output {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        pollster::block_on(fut)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(proxy) = self.proxy.take() {
-            wasm_bindgen_futures::spawn_local(async move {
-                assert!(
-                    proxy
-                        .send_event(Event::State(
-                            State::new(window, Some(proxy.clone()))
-                                .await
-                                .expect("Unable to create canvas!!!")
-                        ))
-                        .is_ok()
-                )
-            });
-        }
-    }
-}
-
 impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event>>
     for App<S, Event>
 {
@@ -241,20 +208,19 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             let mut app_state = AppState::new(window).await;
 
             let ctx = app_state.ctx; // Assuming you can extract/replace ctx
-            let ctx_handle = Rc::new(RefCell::new(ctx));
+            let ctx_handle = Arc::new(RefCell::new(ctx));
 
             let flow_futures: Vec<_> = constructors
                 .into_iter()
-                // Each constructor gets a cheap clone of the Rc handle.
+                // Each constructor gets a cheap clone of the Arc handle.
                 .map(|constructor| constructor(ctx_handle.clone()))
                 .collect();
 
             let results = futures::future::join_all(flow_futures).await;
             let flows: Vec<_> = results;
 
-            // 5. Unwrap the Context from the Rc<RefCell<>> to restore original ownership.
-            //    This step ensures we don't have the Rc/RefCell overhead during the main loop.
-            let final_ctx = Rc::try_unwrap(ctx_handle).unwrap().into_inner();
+            // Restore ownership: Unwrap ctx so we don't have the Arc/RefCell overhead during the main loop.
+            let final_ctx = Arc::try_unwrap(ctx_handle).unwrap().into_inner();
 
             app_state.ctx = final_ctx; // Put the context back
 
@@ -263,8 +229,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let (app_state, flows) = pollster::block_on(init_future);
+            let (mut app_state, flows) = pollster::block_on(init_future);
             self.graphics_flows = flows;
+            self.graphics_flows
+                .iter_mut()
+                .for_each(|f| f.on_init(&app_state.ctx, &mut app_state.state));
             self.state = Some(app_state);
         }
 
@@ -403,14 +372,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
-pub type SharedContext = Rc<RefCell<Context>>;
+pub type SharedContext = Arc<RefCell<Context>>;
 
 // The async constructor now takes this clonable handle.
-pub type AsyncGraphicsFlowConstructor<S, E> = Box<
-    dyn FnOnce(
-        SharedContext,
-    ) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>,
->;
+pub type AsyncGraphicsFlowConstructor<S, E> =
+    Box<dyn FnOnce(SharedContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
 pub fn run<S: 'static + Default, E: 'static>(
     constructors: Vec<AsyncGraphicsFlowConstructor<S, E>>,

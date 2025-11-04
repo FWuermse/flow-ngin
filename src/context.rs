@@ -13,6 +13,7 @@ use crate::{
 pub struct Context {
     pub(crate) window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
+    pub clear_colour: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -164,16 +165,24 @@ impl Context {
             &camera_bind_group_layout,
         );
 
+        let clear_colour = wgpu::Color {
+            r: 0.1,
+            g: 0.2,
+            b: 0.2,
+            a: 1.0,
+        };
+
         Self {
-            surface,
-            device,
-            queue,
-            config,
             camera,
-            projection,
-            light,
-            window,
+            clear_colour,
+            config,
             depth_texture,
+            device,
+            light,
+            projection,
+            queue,
+            surface,
+            window,
         }
     }
 }

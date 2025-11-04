@@ -1,16 +1,15 @@
 use crate::{
+    context::Context,
     data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, ModelVertex, Vertex},
         texture::Texture,
-    }, context::Context, pipelines::{basic::mk_render_pipeline, pick}, resources::{
-        self,
-        pick::load_pick_model,
-        texture::diffuse_normal_layout,
-    }
+    },
+    pipelines::{basic::mk_render_pipeline, pick},
+    resources::{self, pick::load_pick_model, texture::diffuse_normal_layout},
 };
 use cgmath::{One, Rotation3, Zero};
-use wgpu::{BindGroupLayout, Device, Queue, SurfaceConfiguration, util::DeviceExt};
+use wgpu::{BindGroupLayout, Device, util::DeviceExt};
 
 /**
  * A `BuildingBlock` is a one-by-one voxel that uses instancing.
@@ -46,15 +45,16 @@ impl BuildingBlocks {
         let obj_model = obj_model.unwrap();
 
         let render_pipeline_layout =
-            ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &diffuse_normal_layout(&ctx.device),
-                    &ctx.camera.bind_group_layout,
-                    &ctx.light.bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
+            ctx.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &diffuse_normal_layout(&ctx.device),
+                        &ctx.camera.bind_group_layout,
+                        &ctx.light.bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
 
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("Normal Shader"),
@@ -89,11 +89,13 @@ impl BuildingBlocks {
             .collect::<Vec<_>>();
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        let instance_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
 
         Self {
             pipeline: render_pipeline,
@@ -181,20 +183,18 @@ impl BuildingBlocks {
      * TODO: use the basic pipeline and configure transparency via unform buffer.
      * It's overkill to set a new pipeline just for that.
      */
-    pub fn to_transparent(
-        &mut self,
-        ctx: &Context
-    ) {
+    pub fn to_transparent(&mut self, ctx: &Context) {
         let render_pipeline_layout =
-            ctx.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &diffuse_normal_layout(&ctx.device),
-                    &ctx.camera.bind_group_layout,
-                    &ctx.light.bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
+            ctx.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Render Pipeline Layout"),
+                    bind_group_layouts: &[
+                        &diffuse_normal_layout(&ctx.device),
+                        &ctx.camera.bind_group_layout,
+                        &ctx.light.bind_group_layout,
+                    ],
+                    push_constant_ranges: &[],
+                });
         let shader = wgpu::ShaderModuleDescriptor {
             label: Some("Normal Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("transparent.wgsl").into()),
@@ -222,5 +222,16 @@ impl BuildingBlocks {
             contents: bytemuck::cast_slice(&instance_data),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
+    }
+
+    pub fn write_to_buffer(&self, ctx: &Context) {
+        let raws = self
+            .instances
+            .iter()
+            .map(Instance::to_raw)
+            .collect::<Vec<_>>();
+        // TODO: track whether size changed 
+        ctx.queue
+            .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
     }
 }
