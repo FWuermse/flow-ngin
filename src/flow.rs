@@ -372,6 +372,8 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
+// TODO: Context should not be used in constructor
+// TODO: Render should not need mut stuff
 pub type SharedContext = Arc<RefCell<Context>>;
 
 // The async constructor now takes this clonable handle.
