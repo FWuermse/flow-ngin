@@ -15,7 +15,7 @@ use winit::{
 };
 
 use crate::{
-    context::Context,
+    context::{Context, InitContext},
     data_structures::{model::DrawLight, texture::Texture},
 };
 
@@ -135,7 +135,7 @@ impl<'a, S: Default> AppState<S> {
 
             // Actual rendering:
             if let Some(_) = self.ctx.light.model {
-                render_pass.set_pipeline(&self.ctx.light.render_pipeline);
+                render_pass.set_pipeline(&self.ctx.pipelines.light);
                 render_pass.draw_light_model(
                     &self.ctx.light.model.as_ref().unwrap(),
                     &self.ctx.camera.bind_group,
@@ -205,24 +205,16 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             .expect("Constructors should be present");
 
         let init_future = async move {
-            let mut app_state = AppState::new(window).await;
-
-            let ctx = app_state.ctx; // Assuming you can extract/replace ctx
-            let ctx_handle = Arc::new(RefCell::new(ctx));
+            let app_state = AppState::new(window).await;
 
             let flow_futures: Vec<_> = constructors
                 .into_iter()
-                // Each constructor gets a cheap clone of the Arc handle.
-                .map(|constructor| constructor(ctx_handle.clone()))
+                // Clone is doing whatever magic Device::Clone and Queue::Clone do internally
+                .map(|constructor| constructor((&app_state.ctx).into()))
                 .collect();
 
             let results = futures::future::join_all(flow_futures).await;
             let flows: Vec<_> = results;
-
-            // Restore ownership: Unwrap ctx so we don't have the Arc/RefCell overhead during the main loop.
-            let final_ctx = Arc::try_unwrap(ctx_handle).unwrap().into_inner();
-
-            app_state.ctx = final_ctx; // Put the context back
 
             (app_state, flows)
         };
@@ -372,13 +364,9 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
-// TODO: Context should not be used in constructor
-// TODO: Render should not need mut stuff
-pub type SharedContext = Arc<RefCell<Context>>;
-
 // The async constructor now takes this clonable handle.
 pub type AsyncGraphicsFlowConstructor<S, E> =
-    Box<dyn FnOnce(SharedContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
+    Box<dyn FnOnce(InitContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
 pub fn run<S: 'static + Default, E: 'static>(
     constructors: Vec<AsyncGraphicsFlowConstructor<S, E>>,
