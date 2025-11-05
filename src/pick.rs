@@ -115,7 +115,7 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: MouseState) {
             timestamp_writes: None,
         });
 
-        let pick_pipeline = pick::mk_render_pipeline(&ctx.device, &ctx.camera.bind_group_layout);
+        let pick_pipeline = pick::mk_pick_pipeline(&ctx.device, &ctx.camera.bind_group_layout);
         render_pass.set_pipeline(&pick_pipeline);
 
         /* TODO: call .draw() on all GraphicsFlows and make sure GraphicsFlows don't set

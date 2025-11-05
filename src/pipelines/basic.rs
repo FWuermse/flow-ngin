@@ -1,3 +1,42 @@
+use crate::{data_structures::{instance::InstanceRaw, model::{self, Vertex}, texture::Texture}, resources::texture::diffuse_normal_layout};
+
+pub fn mk_basic_pipeline(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    light_bind_group_layout: &wgpu::BindGroupLayout,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let render_pipeline_layout =
+        device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &diffuse_normal_layout(&device),
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+
+    let shader = wgpu::ShaderModuleDescriptor {
+        label: Some("Normal Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("block_shader.wgsl").into()),
+    };
+
+    mk_render_pipeline(
+        &device,
+        &render_pipeline_layout,
+        config.format,
+        Some(wgpu::BlendState {
+            alpha: wgpu::BlendComponent::REPLACE,
+            color: wgpu::BlendComponent::REPLACE,
+        }),
+        Some(Texture::DEPTH_FORMAT),
+        &[model::ModelVertex::desc(), InstanceRaw::desc()],
+        shader,
+    )
+}
+
 pub fn mk_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
