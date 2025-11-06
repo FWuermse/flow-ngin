@@ -1,15 +1,35 @@
 use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
-use winit::window::Window;
+use winit::{dpi::PhysicalPosition, window::Window};
 
 use crate::{
     camera::{self, CameraResources, CameraUniform, Projection},
     data_structures::texture,
     pipelines::{
-        basic::mk_basic_pipeline, gui::mk_gui_pipeline, light::{LightResources, LightUniform, mk_light_pipeline}, pick::mk_pick_pipeline, pick_gui::mk_gui_pick_pipelin, terrain::mk_terrain_pipeline, transparent::mk_transparent_pipeline
+        basic::mk_basic_pipeline,
+        gui::mk_gui_pipeline,
+        light::{LightResources, LightUniform, mk_light_pipeline},
+        pick::mk_pick_pipeline,
+        pick_gui::mk_gui_pick_pipelin,
+        terrain::mk_terrain_pipeline,
+        transparent::mk_transparent_pipeline,
     },
 };
+
+#[derive(Debug)]
+pub enum MouseButtonState {
+    Right,
+    Left,
+    None,
+}
+
+#[derive(Debug)]
+pub struct MouseState {
+    pub coords: PhysicalPosition<f64>,
+    pub pressed: MouseButtonState,
+    pub selection: Option<u32>,
+}
 
 #[derive(Debug)]
 pub struct Pipelines {
@@ -30,6 +50,7 @@ pub struct Context {
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    pub mouse: MouseState,
     pub config: wgpu::SurfaceConfiguration,
     pub camera: CameraResources,
     pub projection: Projection,
@@ -217,6 +238,11 @@ impl Context {
             transparent: transparent_pipeline,
             terrain: terrain_pipeline,
         };
+        let mouse = MouseState {
+            coords: (0.0, 0.0).into(),
+            pressed: MouseButtonState::None,
+            selection: None,
+        };
 
         Self {
             camera,
@@ -226,6 +252,7 @@ impl Context {
             device,
             light,
             projection,
+            mouse,
             pipelines,
             queue,
             surface,

@@ -1,25 +1,11 @@
 use std::iter;
 
-use winit::dpi::PhysicalPosition;
-
-use crate::{context::Context, pipelines::pick};
+use crate::{context::{Context, MouseState}, pipelines::pick};
 
 #[cfg(target_arch = "wasm32")]
 use crate::Event;
 
-enum MouseButtonState {
-    Right,
-    Left,
-    None,
-}
-
-struct MouseState {
-    coords: PhysicalPosition<f64>,
-    pressed: MouseButtonState,
-    selection: Option<u32>,
-}
-
-pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: MouseState) {
+pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: &MouseState) -> Option<u32> {
     // Prepare data for picking:
     let u32_size = std::mem::size_of::<u32>() as u32;
     // The img lib requires divisibility of 256...
@@ -175,6 +161,7 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: MouseState) {
         // TODO: predefine some custom events such as Id
         assert!(proxy.send_event(Event::Id(id)).is_ok());
         output_buffer.unmap();
+        None
     });
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -189,8 +176,7 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: MouseState) {
             mouse_coords,
         );
         let id = pollster::block_on(future_id);
-        // TODO: call on_click(id) on all GraphicsFlows.
-        output_buffer.unmap();
+        Some(id)
     }
 }
 
