@@ -1,13 +1,12 @@
 use wgpu::BindGroupLayout;
 
-use crate::{
+use crate::
     data_structures::{
         instance::InstanceRaw,
-        model::{self, ModelVertex, Vertex},
-        texture::{self, Texture},
-    },
-    resources::texture::diffuse_normal_layout,
-};
+        model::{ModelVertex, Vertex},
+        texture::{self},
+    }
+;
 
 // TODO: move to data_structures terrain
 pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {

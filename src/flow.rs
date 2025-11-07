@@ -1,8 +1,6 @@
 use std::{
-    iter,
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, Instant},
+    fmt::Debug,
+    iter, pin::Pin, sync::Arc, time::{Duration, Instant}
 };
 
 use cgmath::Rotation3;
@@ -18,6 +16,9 @@ use crate::{
     data_structures::{model::DrawLight, texture::Texture},
     pick::draw_to_pick_buffer,
 };
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 pub trait GraphicsFlow<State, Event> {
     /**
@@ -55,20 +56,24 @@ pub trait GraphicsFlow<State, Event> {
     );
 }
 
-pub trait AsyncInit {
-    fn new(ctx: InitContext) -> Self;
+// Dummy impl to make wasm work
+impl<State, Event> Debug for (dyn GraphicsFlow<State, Event> + 'static) {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("GraphicsFlow")
+    }
 }
 
 pub type FlowConsturctor<S, E> =
     Box<dyn FnOnce(InitContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
+#[derive(Debug)]
 pub struct AppState<S> {
     pub(crate) ctx: Context,
     state: S,
     is_surface_configured: bool,
 }
 impl<'a, S: Default> AppState<S> {
-    async fn new(window: Arc<Window>) -> Self {
+    async fn new(window: Arc<Window>, ) -> Self {
         let ctx = Context::new(window).await;
         let state = S::default();
         let is_surface_configured = false;
@@ -166,8 +171,10 @@ impl<'a, S: Default> AppState<S> {
     }
 }
 
-pub struct App<S, E> {
+pub struct App<S: 'static, E: 'static> {
     state: Option<AppState<S>>,
+    #[cfg(target_arch = "wasm32")]
+    proxy: Option<winit::event_loop::EventLoopProxy<FlowEvent<S, E>>>,
     // This will hold the fully initialized flows once they are ready.
     graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
     // This holds the constructors at the start.
@@ -177,20 +184,28 @@ pub struct App<S, E> {
     time_since_tick: Duration,
 }
 
-impl<'a, S, E> App<S, E> {
-    pub fn new(constructors: Vec<FlowConsturctor<S, E>>) -> Self {
+impl<'a, S, E> App<S, E> where S: 'static, E: 'static {
+    fn new(
+        #[cfg(target_arch = "wasm32")]
+        event_loop: &EventLoop<FlowEvent<S, E>>,
+        constructors: Vec<FlowConsturctor<S, E>>,
+    ) -> Self {
+        #[cfg(target_arch = "wasm32")]
+        let proxy = Some(event_loop.create_proxy());
         Self {
             state: None,
-            graphics_flows: Vec::new(),       // Starts empty
-            constructors: Some(constructors), // Starts with constructors
+            #[cfg(target_arch = "wasm32")]
+            proxy,
+            graphics_flows: Vec::new(),
+            constructors: Some(constructors),
             last_time: Instant::now(),
             time_since_tick: Duration::from_millis(0),
         }
     }
-    // ...
 }
 
-enum FlowEvent<State, Event> {
+#[derive(Debug)]
+pub(crate) enum FlowEvent<State, Event> {
     #[allow(dead_code)]
     Initialized {
         state: AppState<State>,
@@ -228,10 +243,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
         let constructors = self
             .constructors
             .take()
-            .expect("Constructors should be present");
+            .unwrap();
 
         let init_future = async move {
             let app_state = AppState::new(window).await;
+
             let flow_futures: Vec<_> = constructors
                 .into_iter()
                 // The clone in into() leverages the internal Arcs of Device and Queue and thus only clones the ref
@@ -253,16 +269,17 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
 
         #[cfg(target_arch = "wasm32")]
         {
-            let proxy = event_loop.create_proxy();
-            wasm_bindgen_futures::spawn_local(async move {
-                let (app_state, flows) = init_future.await;
-                proxy
-                    .send_event(FlowEvent::Initialized {
-                        state: app_state,
-                        flows,
-                    })
-                    .expect("Failed to send initialized event");
-            });
+            if let Some(proxy) = self.proxy.take() {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let (app_state, flows) = init_future.await;
+                    assert!(proxy
+                        .send_event(FlowEvent::Initialized {
+                            state: app_state,
+                            flows,
+                        })
+                        .is_ok());
+                });
+            }
         }
     }
 
@@ -408,7 +425,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                     match (button, button_state.is_pressed()) {
                         (MouseButton::Left, true) => {
                             state.ctx.mouse.pressed = MouseButtonState::Left;
-                            if let Some(id) = draw_to_pick_buffer(&state.ctx, &state.ctx.mouse) {
+                            if let Some(id) = draw_to_pick_buffer::<S, Event>(&state.ctx, &state.ctx.mouse, #[cfg(target_arch = "wasm32")] self.proxy.clone().unwrap()) {
                                 // TODO: store flows in a HashMap and only trigger the matching on_click()
                                 self.graphics_flows
                                     .iter_mut()
@@ -443,19 +460,13 @@ pub fn run<S: 'static + Default, E: 'static>(
 
     let event_loop = EventLoop::with_user_event().build()?;
 
-    let mut app: App<S, E> = App::new(constructors);
+    let mut app: App<S, E> = App::new(
+        #[cfg(target_arch = "wasm32")]
+        &event_loop,
+        constructors,
+    );
 
     event_loop.run_app(&mut app)?;
-
-    Ok(())
-}
-
-// TODO: move to client
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(start)]
-pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {
-    console_error_panic_hook::set_once();
-    run().unwrap_throw();
 
     Ok(())
 }

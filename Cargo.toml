@@ -34,3 +34,18 @@ winit = "0.30.12"
 env_logger = "0.10"
 futures-intrusive = "0.5.0"
 futures = "0.3.31"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.6"
+console_log = "1.0"
+instant = { version = "0.1.13", features = ["wasm-bindgen"] }
+wgpu = { version = "26.0.1", features = ["webgl"] }
+wasm-bindgen = "0.2"
+reqwest = { version = "0.11" }
+wasm-bindgen-futures = "0.4.50"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+    "Location",
+] }

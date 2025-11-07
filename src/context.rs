@@ -60,9 +60,6 @@ pub struct Context {
 impl Context {
     pub async fn new(
         window: Arc<Window>,
-        #[cfg(target_arch = "wasm32")] event_proxy: Option<
-            winit::event_loop::EventLoopProxy<Event>,
-        >,
     ) -> Self {
         let size = window.inner_size();
 
