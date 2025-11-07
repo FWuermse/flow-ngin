@@ -1,0 +1,11 @@
+[package]
+name = "space"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flow-ngin = { path = "../../" }
+
+[[bin]]
+name = "space"
+main = "src/main.rs"

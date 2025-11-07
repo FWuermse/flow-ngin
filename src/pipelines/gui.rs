@@ -96,7 +96,31 @@ fn mk_pipeline_layout(
     })
 }
 
-fn mk_pipeline(
+fn mk_texture_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some("Menu texture_bind_group_layout"),
+    })
+}
+
+fn mk_render_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
     render_pipeline_layout: &wgpu::PipelineLayout,
@@ -149,4 +173,14 @@ fn mk_pipeline(
         // Useful for optimizing shader compilation on Android
         cache: None,
     })
+}
+
+pub fn mk_gui_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("icon.wgsl").into()),
+    });
+    let texture_bind_group_layout = mk_texture_bind_group_layout(device);
+    let render_pipeline_layout = &mk_pipeline_layout(device, texture_bind_group_layout);
+    mk_render_pipeline(device, config, render_pipeline_layout, &shader)
 }

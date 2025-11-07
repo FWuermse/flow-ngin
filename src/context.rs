@@ -1,20 +1,61 @@
 use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
-use winit::window::Window;
+use winit::{dpi::PhysicalPosition, window::Window};
 
-use crate::{camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pipelines::light::{LightResources, LightUniform}};
+use crate::{
+    camera::{self, CameraResources, CameraUniform, Projection},
+    data_structures::texture,
+    pipelines::{
+        basic::mk_basic_pipeline,
+        gui::mk_gui_pipeline,
+        light::{LightResources, LightUniform, mk_light_pipeline},
+        pick::mk_pick_pipeline,
+        pick_gui::mk_gui_pick_pipelin,
+        terrain::mk_terrain_pipeline,
+        transparent::mk_transparent_pipeline,
+    },
+};
 
+#[derive(Debug)]
+pub enum MouseButtonState {
+    Right,
+    Left,
+    None,
+}
+
+#[derive(Debug)]
+pub struct MouseState {
+    pub coords: PhysicalPosition<f64>,
+    pub pressed: MouseButtonState,
+    pub selection: Option<u32>,
+}
+
+#[derive(Debug)]
+pub struct Pipelines {
+    pub light: wgpu::RenderPipeline,
+    pub basic: wgpu::RenderPipeline,
+    pub pick: wgpu::RenderPipeline,
+    pub gui: wgpu::RenderPipeline,
+    pub transparent: wgpu::RenderPipeline,
+    pub terrain: wgpu::RenderPipeline,
+    pub gui_pick: wgpu::RenderPipeline,
+}
+
+#[derive(Debug)]
 pub struct Context {
     pub(crate) window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
+    pub clear_colour: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    pub mouse: MouseState,
     pub config: wgpu::SurfaceConfiguration,
     pub camera: CameraResources,
     pub projection: Projection,
     pub light: LightResources,
+    pub pipelines: Pipelines,
 }
 impl Context {
     pub async fn new(
@@ -151,24 +192,86 @@ impl Context {
             _padding2: 0,
         };
 
-        let light = LightResources::new(
-            light_uniform,
-            None,
+        let light = LightResources::new(light_uniform, None, &device);
+
+        let clear_colour = wgpu::Color {
+            r: 0.1,
+            g: 0.2,
+            b: 0.2,
+            a: 1.0,
+        };
+
+        // Generate pipelines once so they can be reused without being initialized every frame
+        let light_pipeline = mk_light_pipeline(
             &device,
             &config,
-            &camera_bind_group_layout,
+            &light.bind_group_layout,
+            &camera.bind_group_layout,
         );
+        let basic_pipeline = mk_basic_pipeline(
+            &device,
+            &config,
+            &light.bind_group_layout,
+            &camera.bind_group_layout,
+        );
+        let pick_pipeline = mk_pick_pipeline(&device, &camera.bind_group_layout);
+        let gui_pipeline = mk_gui_pipeline(&device, &config);
+        let gui_pick_pipeline = mk_gui_pick_pipelin(&device);
+        let transparent_pipeline = mk_transparent_pipeline(
+            &device,
+            &config,
+            &light.bind_group_layout,
+            &camera.bind_group_layout,
+        );
+        let terrain_pipeline = mk_terrain_pipeline(
+            &device,
+            &config,
+            &camera.bind_group_layout,
+            &light.bind_group_layout,
+        );
+        let pipelines = Pipelines {
+            basic: basic_pipeline,
+            gui: gui_pipeline,
+            gui_pick: gui_pick_pipeline,
+            light: light_pipeline,
+            pick: pick_pipeline,
+            transparent: transparent_pipeline,
+            terrain: terrain_pipeline,
+        };
+        let mouse = MouseState {
+            coords: (0.0, 0.0).into(),
+            pressed: MouseButtonState::None,
+            selection: None,
+        };
 
         Self {
-            surface,
-            device,
-            queue,
-            config,
             camera,
-            projection,
-            light,
-            window,
+            clear_colour,
+            config,
             depth_texture,
+            device,
+            light,
+            projection,
+            mouse,
+            pipelines,
+            queue,
+            surface,
+            window,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct InitContext {
+    pub queue: wgpu::Queue,
+    pub device: wgpu::Device,
+}
+impl From<&Context> for InitContext {
+    fn from(ctx: &Context) -> Self {
+        Self {
+            // Queue and Device can be cloned as they're internally handled as Arc
+            queue: ctx.queue.clone(),
+            device: ctx.device.clone(),
         }
     }
 }

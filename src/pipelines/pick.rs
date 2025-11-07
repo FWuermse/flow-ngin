@@ -24,7 +24,7 @@ fn pick_shader(device: &wgpu::Device) -> ShaderModule {
     device.create_shader_module(shader)
 }
 
-pub fn mk_render_pipeline(
+pub fn mk_pick_pipeline(
     device: &wgpu::Device,
     camera_bind_group_layout: &BindGroupLayout,
 ) -> wgpu::RenderPipeline {

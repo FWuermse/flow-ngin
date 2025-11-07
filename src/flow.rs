@@ -1,5 +1,6 @@
 use std::{
     iter,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -7,18 +8,23 @@ use std::{
 use cgmath::Rotation3;
 use winit::{
     application::ApplicationHandler,
-    event::{DeviceEvent, DeviceId, WindowEvent},
+    event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop},
     window::Window,
 };
 
 use crate::{
-    context::Context,
+    context::{Context, InitContext, MouseButtonState},
     data_structures::{model::DrawLight, texture::Texture},
+    pick::draw_to_pick_buffer,
 };
 
 pub trait GraphicsFlow<State, Event> {
-    fn on_init(&mut self, ctx: &Context, state: &mut State);
+    /**
+     * This is the only place to modify the Context and configure things like
+     * the default background colour or camera start position.
+     */
+    fn on_init(&mut self, ctx: &mut Context, state: &mut State);
     /**
      * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
      *
@@ -26,22 +32,21 @@ pub trait GraphicsFlow<State, Event> {
      * It is advised to use a unique u32 id for each element that should be selectable
      * and pass that id to the underlying data structures (see `ScreneGraph` or `block`)
      * and match for it when `on_click` triggers.
+     *
+     * TODO: store flows in a HashMap and only trigger on_click if the key matches
      */
     fn on_click(&mut self, ctx: &Context, state: &mut State, id: u32);
-    fn on_update(&mut self, ctx: &Context, state: &mut State, dt: Duration) -> Vec<u32>;
+    fn on_update(&mut self, ctx: &Context, state: &mut State, dt: Duration);
     fn on_tick(&mut self, ctx: &Context, state: &mut State);
     fn handle_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent);
     fn handle_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent);
     // Events can only be consumed by one GraphicsFlow - non consumed events are returned
-    // TODO: reconsider the Event. Should it be used to carry data? If so, maybe only Clonable data.
     fn handle_custom_events(
         &mut self,
         ctx: &Context,
         state: &mut State,
         event: Event,
     ) -> Option<Event>;
-    // Ctx must live as long as RenderPass while state must live shorter.
-    // TODO: remove state here entirely. It's not self's responsibility to read from state.
     fn on_render<'a>(
         &mut self,
         ctx: &'a Context,
@@ -49,6 +54,13 @@ pub trait GraphicsFlow<State, Event> {
         render_pass: &mut wgpu::RenderPass<'a>,
     );
 }
+
+pub trait AsyncInit {
+    fn new(ctx: InitContext) -> Self;
+}
+
+pub type FlowConsturctor<S, E> =
+    Box<dyn FnOnce(InitContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
 pub struct AppState<S> {
     pub(crate) ctx: Context,
@@ -89,10 +101,10 @@ impl<'a, S: Default> AppState<S> {
         &'a mut self,
         graphics_flows: &mut Vec<Box<dyn GraphicsFlow<S, E>>>,
     ) -> Result<(), wgpu::SurfaceError> {
-        // render stuff
+        // invoke main render loop
         self.ctx.window.request_redraw();
 
-        // We can't render unless the surface is configured
+        // Rendering requires the surface to be configured
         if !self.is_surface_configured {
             return Ok(());
         }
@@ -116,19 +128,13 @@ impl<'a, S: Default> AppState<S> {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            // TODO: make background colour configurable
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.1,
-                                g: 0.2,
-                                b: 0.2,
-                                a: 1.0,
-                            }),
+                            load: wgpu::LoadOp::Clear(self.ctx.clear_colour),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None,
                     })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &view,
+                        view: &self.ctx.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Clear(1.0),
                             store: wgpu::StoreOp::Store,
@@ -141,7 +147,7 @@ impl<'a, S: Default> AppState<S> {
 
             // Actual rendering:
             if let Some(_) = self.ctx.light.model {
-                render_pass.set_pipeline(&self.ctx.light.render_pipeline);
+                render_pass.set_pipeline(&self.ctx.pipelines.light);
                 render_pass.draw_light_model(
                     &self.ctx.light.model.as_ref().unwrap(),
                     &self.ctx.camera.bind_group,
@@ -160,66 +166,40 @@ impl<'a, S: Default> AppState<S> {
     }
 }
 
-pub struct App<S, T> {
+pub struct App<S, E> {
     state: Option<AppState<S>>,
-    pub(crate) graphics_flows: Vec<Box<dyn GraphicsFlow<S, T>>>,
+    // This will hold the fully initialized flows once they are ready.
+    graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
+    // This holds the constructors at the start.
+    // We use Option to `take()` it after use.
+    constructors: Option<Vec<FlowConsturctor<S, E>>>,
     last_time: Instant,
     time_since_tick: Duration,
 }
 
 impl<'a, S, E> App<S, E> {
-    pub fn new(
-        #[cfg(target_arch = "wasm32")] event_loop: &EventLoop<Event>,
-        graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
-    ) -> Self {
-        #[cfg(target_arch = "wasm32")]
-        let proxy = Some(event_loop.create_proxy());
-        let state = None;
+    pub fn new(constructors: Vec<FlowConsturctor<S, E>>) -> Self {
         Self {
-            state,
-            #[cfg(target_arch = "wasm32")]
-            proxy,
+            state: None,
+            graphics_flows: Vec::new(),       // Starts empty
+            constructors: Some(constructors), // Starts with constructors
             last_time: Instant::now(),
             time_since_tick: Duration::from_millis(0),
-            graphics_flows,
         }
     }
-    pub fn get_mut(&mut self) -> &mut AppState<S> {
-        self.state.as_mut().unwrap()
-    }
+    // ...
 }
 
 enum FlowEvent<State, Event> {
     #[allow(dead_code)]
+    Initialized {
+        state: AppState<State>,
+        flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
+    },
+    #[allow(dead_code)]
     Id(u32),
     #[allow(dead_code)]
-    State(AppState<State>),
-    #[allow(dead_code)]
     Custom(Event),
-}
-
-fn run_async<F: IntoFuture>(fut: F) -> F::Output {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        pollster::block_on(fut)
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(proxy) = self.proxy.take() {
-            wasm_bindgen_futures::spawn_local(async move {
-                assert!(
-                    proxy
-                        .send_event(Event::State(
-                            State::new(window, Some(proxy.clone()))
-                                .await
-                                .expect("Unable to create canvas!!!")
-                        ))
-                        .is_ok()
-                )
-            });
-        }
-    }
 }
 
 impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event>>
@@ -245,67 +225,79 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
+        let constructors = self
+            .constructors
+            .take()
+            .expect("Constructors should be present");
+
+        let init_future = async move {
+            let app_state = AppState::new(window).await;
+            let flow_futures: Vec<_> = constructors
+                .into_iter()
+                // The clone in into() leverages the internal Arcs of Device and Queue and thus only clones the ref
+                .map(|constructor| constructor((&app_state.ctx).into()))
+                .collect();
+            let flows: Vec<_> = futures::future::join_all(flow_futures).await;
+            (app_state, flows)
+        };
+
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // If we are not on web we can use pollster to
-            // await the
-            self.state = Some(pollster::block_on(AppState::new(window)));
+            let (mut app_state, flows) = pollster::block_on(init_future);
+            self.graphics_flows = flows;
+            self.graphics_flows
+                .iter_mut()
+                .for_each(|f| f.on_init(&mut app_state.ctx, &mut app_state.state));
+            self.state = Some(app_state);
         }
 
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(proxy) = self.proxy.take() {
-                wasm_bindgen_futures::spawn_local(async move {
-                    assert!(
-                        proxy
-                            .send_event(Event::State(
-                                State::new(window, Some(proxy.clone()))
-                                    .await
-                                    .expect("Unable to create canvas!!!")
-                            ))
-                            .is_ok()
-                    )
-                });
-            }
+            let proxy = event_loop.create_proxy();
+            wasm_bindgen_futures::spawn_local(async move {
+                let (app_state, flows) = init_future.await;
+                proxy
+                    .send_event(FlowEvent::Initialized {
+                        state: app_state,
+                        flows,
+                    })
+                    .expect("Failed to send initialized event");
+            });
         }
     }
 
     #[allow(unused_mut)]
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<S, Event>) {
-        let state = match &mut self.state {
-            Some(state) => state,
-            None => return,
-        };
-        Some(event)
-            .and_then(|e| {
-                if let FlowEvent::Id(id) = e {
-                    self.graphics_flows.iter_mut().for_each(
-                        |f: &mut Box<dyn GraphicsFlow<S, Event>>| {
-                            f.on_click(&state.ctx, &mut state.state, id);
-                        },
-                    );
-                    None
-                } else {
-                    Some(e)
+        match event {
+            FlowEvent::Initialized { state, flows } => {
+                // This is the message from our wasm `spawn_local`
+                self.state = Some(state);
+                self.graphics_flows = flows;
+
+                // Important: Trigger a resize and redraw now that we are initialized
+                let state = self.state.as_mut().unwrap();
+                let size = state.ctx.window.inner_size();
+                state.resize(size.width, size.height);
+                state.ctx.window.request_redraw();
+            }
+            FlowEvent::Id(id) => {
+                if let Some(state) = &mut self.state {
+                    self.graphics_flows.iter_mut().for_each(|f| {
+                        f.on_click(&state.ctx, &mut state.state, id);
+                    });
                 }
-            })
-            .and_then(|e| {
-                if let FlowEvent::State(mut state) = e {
-                    #[cfg(target_arch = "wasm32")]
-                    {
-                        state.window.request_redraw();
-                        state.resize(
-                            state.window.inner_size().width,
-                            state.window.inner_size().height,
-                        );
-                    }
-                    self.state = Some(state);
-                    None
-                } else {
-                    Some(e)
+            }
+            // Events return Option<Event> because they must be consumed (moves contained data)
+            FlowEvent::Custom(custom_event) => {
+                if let Some(state) = &mut self.state {
+                    self.graphics_flows
+                        .iter_mut()
+                        .fold(Some(custom_event), |event, flow| {
+                            flow.handle_custom_events(&state.ctx, &mut state.state, event?)
+                        });
                 }
-            });
-        // TODO flatmap state.graphics_flows.handle_custom_event();
+            }
+        }
     }
 
     fn device_event(
@@ -318,6 +310,17 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             Some(state) => state,
             None => return,
         };
+        if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
+            // TODO: make the below pattern/factor configurable
+            let speed_factor = 5.0;
+            if let MouseButtonState::Right = state.ctx.mouse.pressed {
+                state
+                    .ctx
+                    .camera
+                    .controller
+                    .handle_mouse(dx * speed_factor, dy * speed_factor);
+            }
+        }
         self.graphics_flows
             .iter_mut()
             .for_each(|f| f.handle_device_events(&state.ctx, &mut state.state, &event));
@@ -396,49 +399,58 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                     }
                 }
             }
+            WindowEvent::MouseInput {
+                state: button_state,
+                button,
+                ..
+            } => {
+                if let Some(state) = &mut self.state {
+                    match (button, button_state.is_pressed()) {
+                        (MouseButton::Left, true) => {
+                            state.ctx.mouse.pressed = MouseButtonState::Left;
+                            if let Some(id) = draw_to_pick_buffer(&state.ctx, &state.ctx.mouse) {
+                                // TODO: store flows in a HashMap and only trigger the matching on_click()
+                                self.graphics_flows
+                                    .iter_mut()
+                                    .for_each(|f| f.on_click(&state.ctx, &mut state.state, id));
+                            }
+                        }
+                        (MouseButton::Right, true) => {
+                            state.ctx.mouse.pressed = MouseButtonState::Right;
+                        }
+                        (_, false) => state.ctx.mouse.pressed = MouseButtonState::None,
+                        _ => (),
+                    }
+                }
+            }
             _ => {}
         }
     }
 }
 
-pub struct NGIN<S, E> {
-    app: App<S, E>,
-}
-
-impl<S, E> NGIN<S, E> {
-    pub fn mk() -> Self {
-        let app: App<S, E> = App::new(
-            #[cfg(target_arch = "wasm32")]
-            &event_loop,
-            Vec::new(),
-        );
-        Self { app }
-    }
-    pub fn run<'a, F, Fut>(&mut self, graphics_flows: Vec<F>) -> anyhow::Result<()>
-    where
-        S: 'static + Default,
-        E: 'static,
-        F: for<'b> Fn(&'b Context) -> Fut,
-        Fut: Future<Output = Result<(), anyhow::Error>>,
+pub fn run<S: 'static + Default, E: 'static>(
+    constructors: Vec<FlowConsturctor<S, E>>,
+) -> anyhow::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
     {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            env_logger::init();
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            console_log::init_with_level(log::Level::Info).unwrap_throw();
-        }
-        //self.app.graphics_flows = graphics_flows;
-
-        let event_loop = EventLoop::with_user_event().build()?;
-
-        event_loop.run_app(&mut self.app)?;
-
-        Ok(())
+        env_logger::init();
     }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        console_log::init_with_level(log::Level::Info).unwrap_throw();
+    }
+
+    let event_loop = EventLoop::with_user_event().build()?;
+
+    let mut app: App<S, E> = App::new(constructors);
+
+    event_loop.run_app(&mut app)?;
+
+    Ok(())
 }
 
+// TODO: move to client
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn run_web() -> Result<(), wasm_bindgen::JsValue> {

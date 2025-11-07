@@ -7,7 +7,7 @@ use image::{load_from_memory_with_format, GenericImageView, ImageFormat};
  * The `texture` describes the 
  * 
  */
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Texture {
     #[allow(unused)]
     pub texture: wgpu::Texture,

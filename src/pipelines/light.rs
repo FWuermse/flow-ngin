@@ -5,11 +5,11 @@ use crate::data_structures::{
     texture,
 };
 
+#[derive(Debug)]
 pub struct LightResources {
     pub model: Option<Model>,
     pub uniform: LightUniform,
     pub buffer: wgpu::Buffer,
-    pub render_pipeline: wgpu::RenderPipeline,
     pub bind_group: wgpu::BindGroup,
     pub bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -19,8 +19,6 @@ impl LightResources {
         light_uniform: LightUniform,
         model: Option<Model>,
         device: &wgpu::Device,
-        config: &wgpu::SurfaceConfiguration,
-        camera: &wgpu::BindGroupLayout
     ) -> Self {
         let light_buffer = mk_buffer(&device, light_uniform);
         let light_bind_group_layout = mk_bind_group_layout(&device);
@@ -29,18 +27,10 @@ impl LightResources {
             &light_bind_group_layout,
             light_buffer.as_entire_binding(),
         );
-        let light_render_pipeline = mk_render_pipeline(
-            &device,
-            &config,
-            &light_bind_group_layout,
-            &camera,
-        );
-
         Self {
             model,
             uniform: light_uniform,
             buffer: light_buffer,
-            render_pipeline: light_render_pipeline,
             bind_group: light_bind_group,
             bind_group_layout: light_bind_group_layout.clone(),
         }
@@ -98,7 +88,7 @@ fn mk_bind_group(
     })
 }
 
-fn mk_render_pipeline(
+pub fn mk_light_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
     light_bind_group_layout: &wgpu::BindGroupLayout,
