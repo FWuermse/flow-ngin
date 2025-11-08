@@ -27,6 +27,7 @@ gltf = "1.4.1"
 image = "0.25.8"
 log = "0.4.28"
 pollster = "0.4.0"
+instant = "0.1.13"
 # TOOD: retire this one soon
 tobj = { version = "4.0.3", default-features = false, features = ["async"] }
 wgpu = "26.0.1"

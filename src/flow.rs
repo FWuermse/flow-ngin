@@ -1,10 +1,6 @@
-use std::{
-    fmt::Debug,
-    iter,
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{fmt::Debug, iter, pin::Pin, sync::Arc};
+
+use instant::{Duration, Instant};
 
 use cgmath::Rotation3;
 use winit::{
@@ -200,7 +196,7 @@ impl<'a, State: Default> AppState<State> {
 }
 
 pub struct App<State: 'static, Event: 'static> {
-    proxy: Option<winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>>,
+    proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
     state: Option<AppState<State>>,
     // This will hold the fully initialized flows once they are ready.
     graphics_flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
@@ -220,7 +216,7 @@ where
         event_loop: &EventLoop<FlowEvent<State, Event>>,
         constructors: Vec<FlowConsturctor<State, Event>>,
     ) -> Self {
-        let proxy = Some(event_loop.create_proxy());
+        let proxy = event_loop.create_proxy();
         Self {
             proxy,
             state: None,
@@ -288,7 +284,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             self.graphics_flows = flows;
             self.graphics_flows.iter_mut().for_each(|flow| {
                 let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
-                let proxy = self.proxy.clone().unwrap();
+                let proxy = self.proxy.clone();
                 send(proxy, events);
             });
             self.state = Some(app_state);
@@ -296,19 +292,18 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(proxy) = self.proxy.take() {
-                wasm_bindgen_futures::spawn_local(async move {
-                    let (app_state, flows) = init_future.await;
-                    assert!(
-                        proxy
-                            .send_event(FlowEvent::Initialized {
-                                state: app_state,
-                                flows,
-                            })
-                            .is_ok()
-                    );
-                });
-            }
+            let proxy = self.proxy.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let (app_state, flows) = init_future.await;
+                assert!(
+                    proxy
+                        .send_event(FlowEvent::Initialized {
+                            state: app_state,
+                            flows,
+                        })
+                        .is_ok()
+                );
+            });
         }
     }
 
@@ -374,7 +369,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
         }
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.handle_device_events(&state.ctx, &mut state.state, &event);
-            let proxy = self.proxy.clone().unwrap();
+            let proxy = self.proxy.clone();
             send(proxy, events);
         });
     }
@@ -395,7 +390,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.handle_window_events(&state.ctx, &mut state.state, &event);
-            let proxy = self.proxy.clone().unwrap();
+            let proxy = self.proxy.clone();
             send(proxy, events);
         });
 
@@ -412,7 +407,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                         if self.time_since_tick >= Duration::from_millis(500) {
                             self.graphics_flows.iter_mut().for_each(|f| {
                                 let events = f.on_tick(&state.ctx, &mut state.state);
-                                let proxy = self.proxy.clone().unwrap();
+                                let proxy = self.proxy.clone();
                                 send(proxy, events);
                             });
                             self.time_since_tick = Duration::from_millis(0);
@@ -469,12 +464,12 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                 &state.ctx,
                                 &state.ctx.mouse,
                                 #[cfg(target_arch = "wasm32")]
-                                self.proxy.clone().unwrap(),
+                                self.proxy.clone(),
                             ) {
                                 // TODO: store flows in a HashMap and only trigger the matching on_click()
                                 self.graphics_flows.iter_mut().for_each(|f| {
                                     let events = f.on_click(&state.ctx, &mut state.state, id);
-                                    let proxy = self.proxy.clone().unwrap();
+                                    let proxy = self.proxy.clone();
                                     send(proxy, events);
                                 });
                             }

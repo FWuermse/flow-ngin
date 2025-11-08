@@ -1,7 +1,8 @@
 use std::{
     ops::BitAnd,
-    time::{Duration, Instant},
 };
+
+use instant::{Duration, Instant};
 
 use cgmath::AbsDiffEq;
 
