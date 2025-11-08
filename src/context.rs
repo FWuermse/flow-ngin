@@ -4,9 +4,7 @@ use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalPosition, window::Window};
 
 use crate::{
-    camera::{self, CameraResources, CameraUniform, Projection},
-    data_structures::texture,
-    pipelines::{
+    camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pipelines::{
         basic::mk_basic_pipeline,
         gui::mk_gui_pipeline,
         light::{LightResources, LightUniform, mk_light_pipeline},
@@ -14,7 +12,7 @@ use crate::{
         pick_gui::mk_gui_pick_pipelin,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
-    },
+    }
 };
 
 #[derive(Debug)]
@@ -58,7 +56,7 @@ pub struct Context {
     pub pipelines: Pipelines,
 }
 impl Context {
-    pub async fn new(
+    pub(crate) async fn new(
         window: Arc<Window>,
     ) -> Self {
         let size = window.inner_size();
@@ -248,9 +246,9 @@ impl Context {
             depth_texture,
             device,
             light,
-            projection,
             mouse,
             pipelines,
+            projection,
             queue,
             surface,
             window,

@@ -1,6 +1,9 @@
 use std::{
     fmt::Debug,
-    iter, pin::Pin, sync::Arc, time::{Duration, Instant}
+    iter,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use cgmath::Rotation3;
@@ -25,7 +28,11 @@ pub trait GraphicsFlow<State, Event> {
      * This is the only place to modify the Context and configure things like
      * the default background colour or camera start position.
      */
-    fn on_init(&mut self, ctx: &mut Context, state: &mut State);
+    fn on_init(
+        &mut self,
+        ctx: &mut Context,
+        state: &mut State,
+    ) -> Vec<Box<dyn Future<Output = Event>>>;
     /**
      * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
      *
@@ -36,11 +43,32 @@ pub trait GraphicsFlow<State, Event> {
      *
      * TODO: store flows in a HashMap and only trigger on_click if the key matches
      */
-    fn on_click(&mut self, ctx: &Context, state: &mut State, id: u32);
-    fn on_update(&mut self, ctx: &Context, state: &mut State, dt: Duration);
-    fn on_tick(&mut self, ctx: &Context, state: &mut State);
-    fn handle_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent);
-    fn handle_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent);
+    fn on_click(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        id: u32,
+    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    fn on_update(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        dt: Duration,
+    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    fn on_tick(&mut self, ctx: &Context, state: &mut State)
+    -> Vec<Box<dyn Future<Output = Event>>>;
+    fn handle_device_events(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        event: &DeviceEvent,
+    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    fn handle_window_events(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        event: &WindowEvent,
+    ) -> Vec<Box<dyn Future<Output = Event>>>;
     // Events can only be consumed by one GraphicsFlow - non consumed events are returned
     fn handle_custom_events(
         &mut self,
@@ -67,15 +95,15 @@ pub type FlowConsturctor<S, E> =
     Box<dyn FnOnce(InitContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
 #[derive(Debug)]
-pub struct AppState<S> {
+pub struct AppState<State: 'static> {
     pub(crate) ctx: Context,
-    state: S,
+    state: State,
     is_surface_configured: bool,
 }
-impl<'a, S: Default> AppState<S> {
-    async fn new(window: Arc<Window>, ) -> Self {
+impl<'a, State: Default> AppState<State> {
+    async fn new(window: Arc<Window>) -> Self {
         let ctx = Context::new(window).await;
-        let state = S::default();
+        let state = State::default();
         let is_surface_configured = false;
         Self {
             ctx,
@@ -102,9 +130,9 @@ impl<'a, S: Default> AppState<S> {
         }
     }
 
-    fn render<E>(
+    fn render<Event>(
         &'a mut self,
-        graphics_flows: &mut Vec<Box<dyn GraphicsFlow<S, E>>>,
+        graphics_flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
     ) -> Result<(), wgpu::SurfaceError> {
         // invoke main render loop
         self.ctx.window.request_redraw();
@@ -171,31 +199,31 @@ impl<'a, S: Default> AppState<S> {
     }
 }
 
-pub struct App<S: 'static, E: 'static> {
-    state: Option<AppState<S>>,
-    #[cfg(target_arch = "wasm32")]
-    proxy: Option<winit::event_loop::EventLoopProxy<FlowEvent<S, E>>>,
+pub struct App<State: 'static, Event: 'static> {
+    proxy: Option<winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>>,
+    state: Option<AppState<State>>,
     // This will hold the fully initialized flows once they are ready.
-    graphics_flows: Vec<Box<dyn GraphicsFlow<S, E>>>,
-    // This holds the constructors at the start.
+    graphics_flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
+    // This holds the constructors at the star.
     // We use Option to `take()` it after use.
-    constructors: Option<Vec<FlowConsturctor<S, E>>>,
+    constructors: Option<Vec<FlowConsturctor<State, Event>>>,
     last_time: Instant,
     time_since_tick: Duration,
 }
 
-impl<'a, S, E> App<S, E> where S: 'static, E: 'static {
+impl<'a, State, Event> App<State, Event>
+where
+    State: 'static,
+    Event: 'static,
+{
     fn new(
-        #[cfg(target_arch = "wasm32")]
-        event_loop: &EventLoop<FlowEvent<S, E>>,
-        constructors: Vec<FlowConsturctor<S, E>>,
+        event_loop: &EventLoop<FlowEvent<State, Event>>,
+        constructors: Vec<FlowConsturctor<State, Event>>,
     ) -> Self {
-        #[cfg(target_arch = "wasm32")]
         let proxy = Some(event_loop.create_proxy());
         Self {
-            state: None,
-            #[cfg(target_arch = "wasm32")]
             proxy,
+            state: None,
             graphics_flows: Vec::new(),
             constructors: Some(constructors),
             last_time: Instant::now(),
@@ -205,7 +233,7 @@ impl<'a, S, E> App<S, E> where S: 'static, E: 'static {
 }
 
 #[derive(Debug)]
-pub(crate) enum FlowEvent<State, Event> {
+pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     #[allow(dead_code)]
     Initialized {
         state: AppState<State>,
@@ -217,8 +245,8 @@ pub(crate) enum FlowEvent<State, Event> {
     Custom(Event),
 }
 
-impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event>>
-    for App<S, Event>
+impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<State, Event>>
+    for App<State, Event>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         #[allow(unused_mut)]
@@ -240,10 +268,7 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        let constructors = self
-            .constructors
-            .take()
-            .unwrap();
+        let constructors = self.constructors.take().unwrap();
 
         let init_future = async move {
             let app_state = AppState::new(window).await;
@@ -261,9 +286,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
         {
             let (mut app_state, flows) = pollster::block_on(init_future);
             self.graphics_flows = flows;
-            self.graphics_flows
-                .iter_mut()
-                .for_each(|f| f.on_init(&mut app_state.ctx, &mut app_state.state));
+            self.graphics_flows.iter_mut().for_each(|flow| {
+                let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
+                let proxy = self.proxy.clone().unwrap();
+                send(proxy, events);
+            });
             self.state = Some(app_state);
         }
 
@@ -272,19 +299,21 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             if let Some(proxy) = self.proxy.take() {
                 wasm_bindgen_futures::spawn_local(async move {
                     let (app_state, flows) = init_future.await;
-                    assert!(proxy
-                        .send_event(FlowEvent::Initialized {
-                            state: app_state,
-                            flows,
-                        })
-                        .is_ok());
+                    assert!(
+                        proxy
+                            .send_event(FlowEvent::Initialized {
+                                state: app_state,
+                                flows,
+                            })
+                            .is_ok()
+                    );
                 });
             }
         }
     }
 
     #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<S, Event>) {
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<State, Event>) {
         match event {
             FlowEvent::Initialized { state, flows } => {
                 // This is the message from our wasm `spawn_local`
@@ -307,11 +336,16 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
             // Events return Option<Event> because they must be consumed (moves contained data)
             FlowEvent::Custom(custom_event) => {
                 if let Some(state) = &mut self.state {
-                    self.graphics_flows
-                        .iter_mut()
-                        .fold(Some(custom_event), |event, flow| {
-                            flow.handle_custom_events(&state.ctx, &mut state.state, event?)
-                        });
+                    let result =
+                        self.graphics_flows
+                            .iter_mut()
+                            .fold(Some(custom_event), |event, flow| {
+                                flow.handle_custom_events(&state.ctx, &mut state.state, event?)
+                            });
+                    if result.is_some() {
+                        println!("Warning! Custom event was not consumed this cycle");
+                        log::warn!("Warning! Custom event was not consumed this cycle");
+                    }
                 }
             }
         }
@@ -338,9 +372,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                     .handle_mouse(dx * speed_factor, dy * speed_factor);
             }
         }
-        self.graphics_flows
-            .iter_mut()
-            .for_each(|f| f.handle_device_events(&state.ctx, &mut state.state, &event));
+        self.graphics_flows.iter_mut().for_each(|f| {
+            let events = f.handle_device_events(&state.ctx, &mut state.state, &event);
+            let proxy = self.proxy.clone().unwrap();
+            send(proxy, events);
+        });
     }
 
     fn window_event(
@@ -357,9 +393,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
         // general stuff
         state.ctx.camera.controller.handle_window_events(&event);
 
-        self.graphics_flows
-            .iter_mut()
-            .for_each(|f| f.handle_window_events(&state.ctx, &mut state.state, &event));
+        self.graphics_flows.iter_mut().for_each(|f| {
+            let events = f.handle_window_events(&state.ctx, &mut state.state, &event);
+            let proxy = self.proxy.clone().unwrap();
+            send(proxy, events);
+        });
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -372,9 +410,11 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                 match state.render(&mut self.graphics_flows) {
                     Ok(_) => {
                         if self.time_since_tick >= Duration::from_millis(500) {
-                            self.graphics_flows
-                                .iter_mut()
-                                .for_each(|f| f.on_tick(&state.ctx, &mut state.state));
+                            self.graphics_flows.iter_mut().for_each(|f| {
+                                let events = f.on_tick(&state.ctx, &mut state.state);
+                                let proxy = self.proxy.clone().unwrap();
+                                send(proxy, events);
+                            });
                             self.time_since_tick = Duration::from_millis(0);
                         }
                         // Update the camera
@@ -425,11 +465,18 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
                     match (button, button_state.is_pressed()) {
                         (MouseButton::Left, true) => {
                             state.ctx.mouse.pressed = MouseButtonState::Left;
-                            if let Some(id) = draw_to_pick_buffer::<S, Event>(&state.ctx, &state.ctx.mouse, #[cfg(target_arch = "wasm32")] self.proxy.clone().unwrap()) {
+                            if let Some(id) = draw_to_pick_buffer::<State, Event>(
+                                &state.ctx,
+                                &state.ctx.mouse,
+                                #[cfg(target_arch = "wasm32")]
+                                self.proxy.clone().unwrap(),
+                            ) {
                                 // TODO: store flows in a HashMap and only trigger the matching on_click()
-                                self.graphics_flows
-                                    .iter_mut()
-                                    .for_each(|f| f.on_click(&state.ctx, &mut state.state, id));
+                                self.graphics_flows.iter_mut().for_each(|f| {
+                                    let events = f.on_click(&state.ctx, &mut state.state, id);
+                                    let proxy = self.proxy.clone().unwrap();
+                                    send(proxy, events);
+                                });
                             }
                         }
                         (MouseButton::Right, true) => {
@@ -445,8 +492,39 @@ impl<S: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<S, Event
     }
 }
 
-pub fn run<S: 'static + Default, E: 'static>(
-    constructors: Vec<FlowConsturctor<S, E>>,
+fn send<State, Event>(
+    proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
+    events: Vec<Box<dyn Future<Output = Event>>>,
+) {
+    let events: Vec<Pin<Box<dyn Future<Output = Event>>>> =
+        events.into_iter().map(Pin::from).collect();
+    let events = async move { futures::future::join_all(events.into_iter()).await };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let resolved = pollster::block_on(events);
+        resolved.into_iter().for_each(|event| {
+            let err = proxy.send_event(FlowEvent::Custom(event));
+            if let Err(err) = err {
+                log::error!("{}", err);
+                panic!("Event loop was cloesed before all `on_init` events could be processed.")
+            }
+        });
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        wasm_bindgen_futures::spawn_local(async move {
+            let resolved = events.await;
+            for event in resolved {
+                assert!(proxy.send_event(FlowEvent::Custom(event)).is_ok());
+            }
+        });
+    }
+}
+
+pub fn run<State: 'static + Default, Event: 'static>(
+    constructors: Vec<FlowConsturctor<State, Event>>,
 ) -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -458,13 +536,9 @@ pub fn run<S: 'static + Default, E: 'static>(
         console_log::init_with_level(log::Level::Info).unwrap_throw();
     }
 
-    let event_loop = EventLoop::with_user_event().build()?;
+    let event_loop: EventLoop<FlowEvent<State, Event>> = EventLoop::with_user_event().build()?;
 
-    let mut app: App<S, E> = App::new(
-        #[cfg(target_arch = "wasm32")]
-        &event_loop,
-        constructors,
-    );
+    let mut app: App<State, Event> = App::new(&event_loop, constructors);
 
     event_loop.run_app(&mut app)?;
 

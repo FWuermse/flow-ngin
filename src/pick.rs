@@ -7,11 +7,11 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use crate::flow::FlowEvent;
 
-pub fn draw_to_pick_buffer<S, E>(
+pub fn draw_to_pick_buffer<State, Event>(
     ctx: &Context,
     mouse_state: &MouseState,
     #[cfg(target_arch = "wasm32")] proxy: winit::event_loop::EventLoopProxy<
-        crate::flow::FlowEvent<S, E>,
+        crate::flow::FlowEvent<State, Event>,
     >,
 ) -> Option<u32> {
     // Prepare data for picking:
@@ -178,6 +178,7 @@ pub fn draw_to_pick_buffer<S, E>(
             height,
             mouse_coords,
         );
+        // Depending on the average timing this hould not block but rather always send an event
         let id = pollster::block_on(future_id);
         return Some(id);
     }
