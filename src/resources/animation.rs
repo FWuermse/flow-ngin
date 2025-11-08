@@ -1,7 +1,8 @@
 use std::{
     ops::BitAnd,
-    time::{Duration, Instant},
 };
+
+use instant::{Duration, Instant};
 
 use cgmath::AbsDiffEq;
 
@@ -45,8 +46,8 @@ impl<'a> Animation {
         &mut self,
         graph: &'a mut Box<dyn SceneNode>,
         anim_idx: usize,
-        queue: &wgpu::Queue,
-        device: &wgpu::Device,
+        _: &wgpu::Queue,
+        _: &wgpu::Device,
     ) {
         let current_time = &mut self.time;
         animate_graph(graph, anim_idx, current_time, self.speed);

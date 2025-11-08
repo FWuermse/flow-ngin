@@ -1,11 +1,19 @@
 use std::iter;
 
-use crate::{context::{Context, MouseState}, pipelines::pick};
+use crate::{
+    context::{Context, MouseState}, pipelines::pick
+};
 
 #[cfg(target_arch = "wasm32")]
-use crate::Event;
+use crate::flow::FlowEvent;
 
-pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: &MouseState) -> Option<u32> {
+pub fn draw_to_pick_buffer<State, Event>(
+    ctx: &Context,
+    mouse_state: &MouseState,
+    #[cfg(target_arch = "wasm32")] proxy: winit::event_loop::EventLoopProxy<
+        crate::flow::FlowEvent<State, Event>,
+    >,
+) -> Option<u32> {
     // Prepare data for picking:
     let u32_size = std::mem::size_of::<u32>() as u32;
     // The img lib requires divisibility of 256...
@@ -105,7 +113,7 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: &MouseState) -> Option<u3
         render_pass.set_pipeline(&pick_pipeline);
 
         /* TODO: call .draw() on all GraphicsFlows and make sure GraphicsFlows don't set
-         pipelines themselves. */
+        pipelines themselves. */
     }
 
     let output_buffer_size = (u32_size * (width) * (height)) as wgpu::BufferAddress;
@@ -140,11 +148,6 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: &MouseState) -> Option<u3
     ctx.queue.submit(iter::once(encoder.finish()));
     let binding = ctx.device.clone();
     let mouse_coords = mouse_state.coords.clone();
-    // Try this:     proxy: Option<winit::event_loop::EventLoopProxy<State>>,
-    #[cfg(target_arch = "wasm32")]
-    // TODO: introduce event proxy for WASM
-    let proxy = event_proxy.clone().unwrap();
-
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
         let buffer_slice = output_buffer.slice(..);
@@ -158,11 +161,11 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: &MouseState) -> Option<u3
             mouse_coords,
         );
         let id = future_id.await;
-        // TODO: predefine some custom events such as Id
-        assert!(proxy.send_event(Event::Id(id)).is_ok());
+        assert!(proxy.send_event(FlowEvent::Id(id)).is_ok());
         output_buffer.unmap();
-        None
     });
+    #[cfg(target_arch = "wasm32")]
+    return None;
     #[cfg(not(target_arch = "wasm32"))]
     {
         let buffer_slice = output_buffer.slice(..);
@@ -175,8 +178,9 @@ pub fn draw_to_pick_buffer(ctx: &Context, mouse_state: &MouseState) -> Option<u3
             height,
             mouse_coords,
         );
+        // Depending on the average timing this hould not block but rather always send an event
         let id = pollster::block_on(future_id);
-        Some(id)
+        return Some(id);
     }
 }
 
