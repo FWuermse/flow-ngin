@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ops::Range};
+use std::{collections::HashMap, convert::identity, ops::Range};
 
 use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
@@ -8,6 +8,7 @@ use crate::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
     },
+    flow::{Instanced, Render},
     resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
 };
 
@@ -325,6 +326,8 @@ pub trait SceneNode {
     fn clone_instance(&mut self, i: usize) -> usize;
 
     fn get_animation(&self) -> &Vec<ModelAnimation>;
+
+    fn get_render(&self) -> Vec<Instanced>;
 }
 
 pub struct ContainerNode {
@@ -499,6 +502,13 @@ impl SceneNode for ContainerNode {
     fn get_animation(&self) -> &Vec<ModelAnimation> {
         &self.animations
     }
+
+    fn get_render(&self) -> Vec<Instanced> {
+        self.children
+            .iter()
+            .flat_map(|child| child.get_render())
+            .collect()
+    }
 }
 
 pub struct ModelNode {
@@ -507,7 +517,7 @@ pub struct ModelNode {
     instances: Vec<(Instance, Instance)>,
     animations: Vec<ModelAnimation>,
     buffer_size_needs_change: bool,
-    obj_model: model::Model,
+    model: model::Model,
 }
 
 impl ModelNode {
@@ -549,7 +559,7 @@ impl ModelNode {
             children: vec![],
             instance_buffer,
             instances,
-            obj_model,
+            model: obj_model,
             buffer_size_needs_change: size_changed,
             animations,
         }
@@ -677,7 +687,7 @@ impl SceneNode for ModelNode {
         if !instances.is_empty() {
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.draw_model_instanced(
-                &self.obj_model,
+                &self.model,
                 0..instances.len() as u32,
                 &camera_bind_group,
                 &light_bind_group,
@@ -693,7 +703,7 @@ impl SceneNode for ModelNode {
     }
 
     fn to_clickable(&self, device: &wgpu::Device, id: u32) -> Box<dyn SceneNode> {
-        let obj_model = load_pick_model(&device, id, self.obj_model.meshes.clone()).unwrap();
+        let obj_model = load_pick_model(&device, id, self.model.meshes.clone()).unwrap();
 
         let children = self
             .children
@@ -706,7 +716,7 @@ impl SceneNode for ModelNode {
             instance_buffer: self.instance_buffer.clone(),
             instances: self.instances.clone(),
             buffer_size_needs_change: false,
-            obj_model,
+            model: obj_model,
             animations: Vec::new(),
         })
     }
@@ -737,6 +747,19 @@ impl SceneNode for ModelNode {
 
     fn get_animation(&self) -> &Vec<ModelAnimation> {
         &self.animations
+    }
+
+    fn get_render(&self) -> Vec<Instanced> {
+        self.children
+            .iter()
+            .flat_map(|child| child.get_render())
+            .chain([Instanced {
+                instance: &self.instance_buffer,
+                model: &self.model,
+                amount: self.instances.len(),
+                id: 0,
+            }])
+            .collect()
     }
 }
 

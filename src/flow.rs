@@ -3,6 +3,7 @@ use std::{fmt::Debug, iter, pin::Pin, sync::Arc};
 use instant::{Duration, Instant};
 
 use cgmath::Rotation3;
+use wgpu::RenderPass;
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
@@ -12,23 +13,68 @@ use winit::{
 
 use crate::{
     context::{Context, InitContext, MouseButtonState},
-    data_structures::{model::DrawLight, texture::Texture},
+    data_structures::{
+        block::BuildingBlocks,
+        model::{DrawLight, DrawModel, Model},
+        scene_graph::SceneNode,
+        texture::Texture,
+    },
     pick::draw_to_pick_buffer,
 };
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-pub trait GraphicsFlow<State, Event> {
+pub struct Instanced<'a> {
+    pub instance: &'a wgpu::Buffer,
+    pub model: &'a Model,
+    pub amount: usize,
+    pub id: u32,
+}
+
+pub struct Flat<'a> {
+    pub vertex: &'a wgpu::Buffer,
+    pub index: &'a wgpu::Buffer,
+    pub group: &'a wgpu::BindGroup,
+    pub amount: usize,
+    pub id: u32,
+}
+
+pub enum Render<'a, 'pass>
+where
+    'pass: 'a,
+{
+    None,
+    Default(Instanced<'a>),
+    Defaults(Vec<Instanced<'a>>),
+    Transparent(Instanced<'a>),
+    GUI(Flat<'a>),
+    Terrain(Flat<'a>),
+    Composed(Vec<Render<'a, 'pass>>),
+    Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
+}
+impl<'a, 'pass> From<&'a dyn SceneNode> for Render<'a, 'pass> {
+    fn from(sn: &'a dyn SceneNode) -> Self {
+        Render::Defaults(sn.get_render())
+    }
+}
+impl<'a, 'pass> From<&'a BuildingBlocks> for Render<'a, 'pass> {
+    fn from(blocks: &'a BuildingBlocks) -> Self {
+        Render::Default(Instanced {
+            instance: &blocks.instance_buffer,
+            model: &blocks.obj_model,
+            amount: blocks.instances.len(),
+            id: blocks.id,
+        })
+    }
+}
+
+pub trait GraphicsFlow<S, E> {
     /**
      * This is the only place to modify the Context and configure things like
      * the default background colour or camera start position.
      */
-    fn on_init(
-        &mut self,
-        ctx: &mut Context,
-        state: &mut State,
-    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Vec<Box<dyn Future<Output = E>>>;
     /**
      * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
      *
@@ -42,42 +88,31 @@ pub trait GraphicsFlow<State, Event> {
     fn on_click(
         &mut self,
         ctx: &Context,
-        state: &mut State,
+        state: &mut S,
         id: u32,
-    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    ) -> Vec<Box<dyn Future<Output = E>>>;
     fn on_update(
         &mut self,
         ctx: &Context,
-        state: &mut State,
+        state: &mut S,
         dt: Duration,
-    ) -> Vec<Box<dyn Future<Output = Event>>>;
-    fn on_tick(&mut self, ctx: &Context, state: &mut State)
-    -> Vec<Box<dyn Future<Output = Event>>>;
+    ) -> Vec<Box<dyn Future<Output = E>>>;
+    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Vec<Box<dyn Future<Output = E>>>;
     fn handle_device_events(
         &mut self,
         ctx: &Context,
-        state: &mut State,
+        state: &mut S,
         event: &DeviceEvent,
-    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    ) -> Vec<Box<dyn Future<Output = E>>>;
     fn handle_window_events(
         &mut self,
         ctx: &Context,
-        state: &mut State,
+        state: &mut S,
         event: &WindowEvent,
-    ) -> Vec<Box<dyn Future<Output = Event>>>;
+    ) -> Vec<Box<dyn Future<Output = E>>>;
     // Events can only be consumed by one GraphicsFlow - non consumed events are returned
-    fn handle_custom_events(
-        &mut self,
-        ctx: &Context,
-        state: &mut State,
-        event: Event,
-    ) -> Option<Event>;
-    fn on_render<'a>(
-        &mut self,
-        ctx: &'a Context,
-        state: &mut State,
-        render_pass: &mut wgpu::RenderPass<'a>,
-    );
+    fn handle_custom_events(&mut self, ctx: &Context, state: &mut S, event: E) -> Option<E>;
+    fn on_render<'pass>(&self) -> Render<'_, 'pass>;
 }
 
 // Dummy impl to make wasm work
@@ -183,15 +218,72 @@ impl<'a, State: Default> AppState<State> {
                     &self.ctx.light.bind_group,
                 );
             }
-            // TODO: sort by type and use appropriate pipeline (GraphicsFlow should'nt care about the pipeline)
-            graphics_flows
-                .iter_mut()
-                .for_each(|f| f.on_render(&self.ctx, &mut self.state, &mut render_pass));
+            let mut basics: Vec<Instanced> = Vec::new();
+            let mut trans: Vec<Instanced> = Vec::new();
+            let mut guis: Vec<Flat> = Vec::new();
+            let mut terrain: Vec<Flat> = Vec::new();
+            graphics_flows.iter_mut().for_each(|flow| {
+                let render = flow.on_render();
+                set_pipelines(
+                    render,
+                    &self.ctx,
+                    &mut render_pass,
+                    &mut basics,
+                    &mut trans,
+                    &mut guis,
+                    &mut terrain,
+                );
+            });
+
+            render_pass.set_pipeline(&self.ctx.pipelines.basic);
+            for instanced in basics {
+                render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
+                render_pass.draw_model_instanced(
+                    &instanced.model,
+                    0..instanced.amount as u32,
+                    &self.ctx.camera.bind_group,
+                    &self.ctx.light.bind_group,
+                );
+            }
+
+            render_pass.set_pipeline(&self.ctx.pipelines.gui);
+            for button in guis {
+                render_pass.set_bind_group(0, button.group, &[]);
+                render_pass.set_vertex_buffer(0, button.vertex.slice(..));
+                render_pass.set_index_buffer(button.index.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..button.amount as u32, 0, 0..1);
+            }
         }
         self.ctx.queue.submit(iter::once(encoder.finish()));
         output.present();
         // done with render stuff
         Ok(())
+    }
+}
+
+fn set_pipelines<'a, 'pass>(
+    render: Render<'a, 'pass>,
+    ctx: &Context,
+    render_pass: &mut RenderPass<'pass>,
+    basics: &mut Vec<Instanced<'a>>,
+    trans: &mut Vec<Instanced<'a>>,
+    guis: &mut Vec<Flat<'a>>,
+    terrain: &mut Vec<Flat<'a>>,
+) {
+    match render {
+        Render::Default(instanced) => {
+            basics.push(instanced);
+        }
+        Render::Defaults(mut vec) => basics.append(&mut vec),
+        Render::Transparent(instanced) => trans.push(instanced),
+        Render::GUI(flat) => guis.push(flat),
+        Render::Terrain(flat) => terrain.push(flat),
+        Render::Composed(renders) => renders
+            .into_iter()
+            .map(|render| set_pipelines(render, ctx, render_pass, basics, trans, guis, terrain))
+            .collect(),
+        Render::Custom(f) => f(ctx, render_pass),
+        Render::None => (),
     }
 }
 
@@ -316,10 +408,15 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 self.graphics_flows = flows;
 
                 // Important: Trigger a resize and redraw now that we are initialized
-                let state = self.state.as_mut().unwrap();
-                let size = state.ctx.window.inner_size();
-                state.resize(size.width, size.height);
-                state.ctx.window.request_redraw();
+                let app_state = self.state.as_mut().unwrap();
+                let size = app_state.ctx.window.inner_size();
+                app_state.resize(size.width, size.height);
+                self.graphics_flows.iter_mut().for_each(|flow| {
+                    let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
+                    let proxy = self.proxy.clone();
+                    send(proxy, events);
+                });
+                app_state.ctx.window.request_redraw();
             }
             FlowEvent::Id(id) => {
                 if let Some(state) = &mut self.state {

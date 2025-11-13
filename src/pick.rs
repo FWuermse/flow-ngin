@@ -1,8 +1,6 @@
 use std::iter;
 
-use crate::{
-    context::{Context, MouseState}, pipelines::pick
-};
+use crate::context::{Context, MouseState};
 
 #[cfg(target_arch = "wasm32")]
 use crate::flow::FlowEvent;
@@ -109,9 +107,9 @@ pub fn draw_to_pick_buffer<State, Event>(
             timestamp_writes: None,
         });
 
-        let pick_pipeline = pick::mk_pick_pipeline(&ctx.device, &ctx.camera.bind_group_layout);
-        render_pass.set_pipeline(&pick_pipeline);
+        render_pass.set_pipeline(&ctx.pipelines.pick);
 
+        render_pass.set_pipeline(&ctx.pipelines.flat_pick);
         /* TODO: call .draw() on all GraphicsFlows and make sure GraphicsFlows don't set
         pipelines themselves. */
     }

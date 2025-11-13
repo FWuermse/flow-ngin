@@ -37,7 +37,7 @@ pub struct Pipelines {
     pub gui: wgpu::RenderPipeline,
     pub transparent: wgpu::RenderPipeline,
     pub terrain: wgpu::RenderPipeline,
-    pub gui_pick: wgpu::RenderPipeline,
+    pub flat_pick: wgpu::RenderPipeline,
 }
 
 #[derive(Debug)]
@@ -227,7 +227,7 @@ impl Context {
         let pipelines = Pipelines {
             basic: basic_pipeline,
             gui: gui_pipeline,
-            gui_pick: gui_pick_pipeline,
+            flat_pick: gui_pick_pipeline,
             light: light_pipeline,
             pick: pick_pipeline,
             transparent: transparent_pipeline,
