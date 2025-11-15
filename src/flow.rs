@@ -55,7 +55,7 @@ where
 }
 impl<'a, 'pass> From<&'a dyn SceneNode> for Render<'a, 'pass> {
     fn from(sn: &'a dyn SceneNode) -> Self {
-        Render::Defaults(sn.get_render())
+        Render::Defaults(sn.get_render(Default::default()))
     }
 }
 impl<'a, 'pass> From<&'a BuildingBlocks> for Render<'a, 'pass> {
@@ -246,6 +246,17 @@ impl<'a, State: Default> AppState<State> {
                 );
             }
 
+            render_pass.set_pipeline(&self.ctx.pipelines.transparent);
+            for instanced in trans {
+                render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
+                render_pass.draw_model_instanced(
+                    &instanced.model,
+                    0..instanced.amount as u32,
+                    &self.ctx.camera.bind_group,
+                    &self.ctx.light.bind_group,
+                );
+            }
+
             render_pass.set_pipeline(&self.ctx.pipelines.gui);
             for button in guis {
                 render_pass.set_bind_group(0, button.group, &[]);
@@ -261,7 +272,7 @@ impl<'a, State: Default> AppState<State> {
     }
 }
 
-fn set_pipelines<'a, 'pass>(
+pub(crate) fn set_pipelines<'a, 'pass>(
     render: Render<'a, 'pass>,
     ctx: &Context,
     render_pass: &mut RenderPass<'pass>,
@@ -558,6 +569,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                         (MouseButton::Left, true) => {
                             state.ctx.mouse.pressed = MouseButtonState::Left;
                             if let Some(id) = draw_to_pick_buffer::<State, Event>(
+                                &mut self.graphics_flows,
                                 &state.ctx,
                                 &state.ctx.mouse,
                                 #[cfg(target_arch = "wasm32")]

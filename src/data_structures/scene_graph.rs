@@ -327,7 +327,7 @@ pub trait SceneNode {
 
     fn get_animation(&self) -> &Vec<ModelAnimation>;
 
-    fn get_render(&self) -> Vec<Instanced>;
+    fn get_render(&self, id: u32) -> Vec<Instanced>;
 }
 
 pub struct ContainerNode {
@@ -503,10 +503,10 @@ impl SceneNode for ContainerNode {
         &self.animations
     }
 
-    fn get_render(&self) -> Vec<Instanced> {
+    fn get_render(&self, id: u32) -> Vec<Instanced> {
         self.children
             .iter()
-            .flat_map(|child| child.get_render())
+            .flat_map(|child| child.get_render(id))
             .collect()
     }
 }
@@ -749,10 +749,10 @@ impl SceneNode for ModelNode {
         &self.animations
     }
 
-    fn get_render(&self) -> Vec<Instanced> {
+    fn get_render(&self, id: u32) -> Vec<Instanced> {
         self.children
             .iter()
-            .flat_map(|child| child.get_render())
+            .flat_map(|child| child.get_render(id))
             .chain([Instanced {
                 instance: &self.instance_buffer,
                 model: &self.model,

@@ -1,11 +1,19 @@
 use std::iter;
 
-use crate::context::{Context, MouseState};
+use wgpu::RenderPass;
+
+use crate::{
+    context::{Context, MouseState},
+    data_structures::model::{DrawModel, Material},
+    flow::{Flat, GraphicsFlow, Instanced, Render},
+    resources::pick::{load_pick_model, load_pick_texture},
+};
 
 #[cfg(target_arch = "wasm32")]
 use crate::flow::FlowEvent;
 
 pub fn draw_to_pick_buffer<State, Event>(
+    flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
     ctx: &Context,
     mouse_state: &MouseState,
     #[cfg(target_arch = "wasm32")] proxy: winit::event_loop::EventLoopProxy<
@@ -107,11 +115,34 @@ pub fn draw_to_pick_buffer<State, Event>(
             timestamp_writes: None,
         });
 
+        let mut basics: Vec<Instanced> = Vec::new();
+        let mut flats: Vec<Flat> = Vec::new();
+        flows.iter_mut().for_each(|flow| {
+            let render = flow.on_render();
+            set_pipelines(render, &ctx, &mut render_pass, &mut basics, &mut flats);
+        });
+
         render_pass.set_pipeline(&ctx.pipelines.pick);
+        for instanced in basics.iter_mut() {
+            let pick_model =
+                load_pick_model(&ctx.device, instanced.id, instanced.model.meshes.clone()).unwrap();
+            render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
+            render_pass.draw_model_instanced(
+                &pick_model,
+                0..instanced.amount as u32,
+                &ctx.camera.bind_group,
+                &ctx.light.bind_group,
+            );
+        }
 
         render_pass.set_pipeline(&ctx.pipelines.flat_pick);
-        /* TODO: call .draw() on all GraphicsFlows and make sure GraphicsFlows don't set
-        pipelines themselves. */
+        for flat in flats {
+            let pick_group = load_pick_texture(flat.id, &ctx.device);
+            render_pass.set_bind_group(0, &pick_group, &[]);
+            render_pass.set_vertex_buffer(0, flat.vertex.slice(..));
+            render_pass.set_index_buffer(flat.index.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(0..flat.amount as u32, 0, 0..1);
+        }
     }
 
     let output_buffer_size = (u32_size * (width) * (height)) as wgpu::BufferAddress;
@@ -179,6 +210,31 @@ pub fn draw_to_pick_buffer<State, Event>(
         // Depending on the average timing this hould not block but rather always send an event
         let id = pollster::block_on(future_id);
         return Some(id);
+    }
+}
+
+pub(crate) fn set_pipelines<'a, 'pass>(
+    render: Render<'a, 'pass>,
+    ctx: &Context,
+    render_pass: &mut RenderPass<'pass>,
+    basics: &mut Vec<Instanced<'a>>,
+    flats: &mut Vec<Flat<'a>>,
+) {
+    match render {
+        Render::Default(instanced) => {
+            basics.push(instanced);
+        }
+        Render::Defaults(mut vec) => basics.append(&mut vec),
+        Render::Transparent(instanced) => basics.push(instanced),
+        Render::GUI(flat) => flats.push(flat),
+        Render::Terrain(flat) => flats.push(flat),
+        Render::Composed(renders) => renders
+            .into_iter()
+            .map(|render| set_pipelines(render, ctx, render_pass, basics, flats))
+            .collect(),
+        // Picking is not supported for custom renders
+        Render::Custom(_) => (),
+        Render::None => (),
     }
 }
 

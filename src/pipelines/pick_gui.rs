@@ -11,7 +11,7 @@ fn render_pipeline_layout(
     })
 }
 
-fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,

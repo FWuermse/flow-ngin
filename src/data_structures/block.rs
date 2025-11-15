@@ -6,7 +6,7 @@ use crate::{
     },
     resources::{self, pick::load_pick_model},
 };
-use cgmath::{One, Rotation3, Zero};
+use cgmath::{One, Quaternion, Rotation3, Zero};
 use wgpu::{Device, util::DeviceExt};
 
 /**
@@ -29,6 +29,7 @@ pub struct BuildingBlocks {
 
 impl BuildingBlocks {
     pub async fn new(
+        id: u32,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         start_position: cgmath::Vector3<f32>,
@@ -82,23 +83,12 @@ impl BuildingBlocks {
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         amount: u32,
-        obj_files: &[&'static str],
+        descr: &[(u32, &'static str)],
     ) -> Vec<BuildingBlocks> {
-        let mut output = vec![];
-        for obj_file in obj_files {
-            output.push(
-                BuildingBlocks::new(
-                    queue,
-                    device,
-                    cgmath::Vector3::zero(),
-                    cgmath::Quaternion::one(),
-                    amount,
-                    obj_file,
-                )
-                .await,
-            );
-        }
-        output
+        let futures = descr.into_iter().map(|(id, file_name)| {
+            BuildingBlocks::new(*id, queue, device, cgmath::Vector3::zero(), cgmath::Quaternion::one(), amount, file_name)
+        });
+        futures::future::join_all(futures).await
     }
 
     /**

@@ -1,6 +1,6 @@
-use crate::data_structures::model;
+use crate::{data_structures::model, pipelines::{gui, pick_gui::mk_bind_group_layout}};
 
-use wgpu::util::DeviceExt;
+use wgpu::{BindGroupLayout, util::DeviceExt};
 
 pub(crate) fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -49,4 +49,35 @@ pub fn load_pick_model(
 
     let model = model::Model { meshes, materials };
     Ok(model)
+}
+
+pub fn load_pick_texture(id: u32, device: &wgpu::Device) -> wgpu::BindGroup {
+    let texture_bind_group_layout = mk_bind_group_layout(device);
+    let color = id;
+    let r = color as u8;
+    let g = (color >> 8) as u8;
+    let b = (color >> 16) as u8;
+    let a = (color >> 24) as u8;
+    let mut buf = [0; 16];
+    buf[..4].copy_from_slice(&[r, g, b, a]);
+    let pick_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Pick color buffer"),
+        contents: bytemuck::cast_slice(&buf),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &texture_bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &pick_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+        ],
+        label: Some("GUI pick bind_group"),
+    })
 }
