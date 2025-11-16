@@ -511,6 +511,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                 #[cfg(target_arch = "wasm32")]
                                 self.proxy.clone(),
                             ) {
+                                if flow_ids.len() > 1 {
+                                    log::warn!(
+                                        "Multiple flows (incides {:?}) want to react to the render ID {}.",
+                                        flow_ids,
+                                        pick_id
+                                    );
+                                }
                                 flow_ids.into_iter().for_each(|flow_id| {
                                     self.graphics_flows.get_mut(flow_id).map(|flow| {
                                         flow.on_click(&state.ctx, &mut state.state, pick_id)
