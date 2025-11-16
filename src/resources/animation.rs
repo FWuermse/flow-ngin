@@ -93,7 +93,7 @@ impl<'a> Animation {
                     scene_node.set_local_transform(idx, new_transform);
                 }
             } else {
-                println!("Warning, animation with index {} not found.", idx)
+                log::warn!("Warning, animation with index {} not found.", idx)
             }
         }
         all_lts.into_iter().fold(true, BitAnd::bitand)

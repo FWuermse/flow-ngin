@@ -1,9 +1,8 @@
-use std::{fmt::Debug, iter, pin::Pin, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, iter, pin::Pin, sync::Arc};
 
 use instant::{Duration, Instant};
 
 use cgmath::Rotation3;
-use wgpu::RenderPass;
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
@@ -14,60 +13,15 @@ use winit::{
 use crate::{
     context::{Context, InitContext, MouseButtonState},
     data_structures::{
-        block::BuildingBlocks,
-        model::{DrawLight, DrawModel, Model},
-        scene_graph::SceneNode,
+        model::{DrawLight, DrawModel},
         texture::Texture,
     },
     pick::draw_to_pick_buffer,
+    render::{Flat, Instanced, Render},
 };
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-
-pub struct Instanced<'a> {
-    pub instance: &'a wgpu::Buffer,
-    pub model: &'a Model,
-    pub amount: usize,
-    pub id: u32,
-}
-
-pub struct Flat<'a> {
-    pub vertex: &'a wgpu::Buffer,
-    pub index: &'a wgpu::Buffer,
-    pub group: &'a wgpu::BindGroup,
-    pub amount: usize,
-    pub id: u32,
-}
-
-pub enum Render<'a, 'pass>
-where
-    'pass: 'a,
-{
-    None,
-    Default(Instanced<'a>),
-    Defaults(Vec<Instanced<'a>>),
-    Transparent(Instanced<'a>),
-    GUI(Flat<'a>),
-    Terrain(Flat<'a>),
-    Composed(Vec<Render<'a, 'pass>>),
-    Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
-}
-impl<'a, 'pass> From<&'a dyn SceneNode> for Render<'a, 'pass> {
-    fn from(sn: &'a dyn SceneNode) -> Self {
-        Render::Defaults(sn.get_render(Default::default()))
-    }
-}
-impl<'a, 'pass> From<&'a BuildingBlocks> for Render<'a, 'pass> {
-    fn from(blocks: &'a BuildingBlocks) -> Self {
-        Render::Default(Instanced {
-            instance: &blocks.instance_buffer,
-            model: &blocks.obj_model,
-            amount: blocks.instances.len(),
-            id: blocks.id,
-        })
-    }
-}
 
 pub trait GraphicsFlow<S, E> {
     /**
@@ -224,8 +178,7 @@ impl<'a, State: Default> AppState<State> {
             let mut terrain: Vec<Flat> = Vec::new();
             graphics_flows.iter_mut().for_each(|flow| {
                 let render = flow.on_render();
-                set_pipelines(
-                    render,
+                render.set_pipelines(
                     &self.ctx,
                     &mut render_pass,
                     &mut basics,
@@ -272,32 +225,6 @@ impl<'a, State: Default> AppState<State> {
     }
 }
 
-pub(crate) fn set_pipelines<'a, 'pass>(
-    render: Render<'a, 'pass>,
-    ctx: &Context,
-    render_pass: &mut RenderPass<'pass>,
-    basics: &mut Vec<Instanced<'a>>,
-    trans: &mut Vec<Instanced<'a>>,
-    guis: &mut Vec<Flat<'a>>,
-    terrain: &mut Vec<Flat<'a>>,
-) {
-    match render {
-        Render::Default(instanced) => {
-            basics.push(instanced);
-        }
-        Render::Defaults(mut vec) => basics.append(&mut vec),
-        Render::Transparent(instanced) => trans.push(instanced),
-        Render::GUI(flat) => guis.push(flat),
-        Render::Terrain(flat) => terrain.push(flat),
-        Render::Composed(renders) => renders
-            .into_iter()
-            .map(|render| set_pipelines(render, ctx, render_pass, basics, trans, guis, terrain))
-            .collect(),
-        Render::Custom(f) => f(ctx, render_pass),
-        Render::None => (),
-    }
-}
-
 pub struct App<State: 'static, Event: 'static> {
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
     state: Option<AppState<State>>,
@@ -339,7 +266,7 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
         flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
     },
     #[allow(dead_code)]
-    Id(u32),
+    Id((u32, HashSet<usize>)),
     #[allow(dead_code)]
     Custom(Event),
 }
@@ -429,10 +356,12 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 });
                 app_state.ctx.window.request_redraw();
             }
-            FlowEvent::Id(id) => {
+            FlowEvent::Id((pick_id, flow_ids)) => {
                 if let Some(state) = &mut self.state {
-                    self.graphics_flows.iter_mut().for_each(|f| {
-                        f.on_click(&state.ctx, &mut state.state, id);
+                    flow_ids.into_iter().for_each(|flow_id| {
+                        self.graphics_flows
+                            .get_mut(flow_id)
+                            .map(|flow| flow.on_click(&state.ctx, &mut state.state, pick_id));
                     });
                 }
             }
@@ -446,7 +375,6 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                 flow.handle_custom_events(&state.ctx, &mut state.state, event?)
                             });
                     if result.is_some() {
-                        println!("Warning! Custom event was not consumed this cycle");
                         log::warn!("Warning! Custom event was not consumed this cycle");
                     }
                 }
@@ -495,6 +423,14 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
         // general stuff
         state.ctx.camera.controller.handle_window_events(&event);
+
+        if let WindowEvent::CursorMoved {
+            device_id: _,
+            position,
+        } = event
+        {
+            state.ctx.mouse.coords = position;
+        };
 
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.handle_window_events(&state.ctx, &mut state.state, &event);
@@ -568,18 +504,17 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                     match (button, button_state.is_pressed()) {
                         (MouseButton::Left, true) => {
                             state.ctx.mouse.pressed = MouseButtonState::Left;
-                            if let Some(id) = draw_to_pick_buffer::<State, Event>(
+                            if let Some((pick_id, flow_ids)) = draw_to_pick_buffer::<State, Event>(
                                 &mut self.graphics_flows,
                                 &state.ctx,
                                 &state.ctx.mouse,
                                 #[cfg(target_arch = "wasm32")]
                                 self.proxy.clone(),
                             ) {
-                                // TODO: store flows in a HashMap and only trigger the matching on_click()
-                                self.graphics_flows.iter_mut().for_each(|f| {
-                                    let events = f.on_click(&state.ctx, &mut state.state, id);
-                                    let proxy = self.proxy.clone();
-                                    send(proxy, events);
+                                flow_ids.into_iter().for_each(|flow_id| {
+                                    self.graphics_flows.get_mut(flow_id).map(|flow| {
+                                        flow.on_click(&state.ctx, &mut state.state, pick_id)
+                                    });
                                 });
                             }
                         }

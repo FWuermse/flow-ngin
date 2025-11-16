@@ -1,6 +1,6 @@
 use crate::{data_structures::model, pipelines::{gui, pick_gui::mk_bind_group_layout}};
 
-use wgpu::{BindGroupLayout, util::DeviceExt};
+use wgpu::util::DeviceExt;
 
 pub(crate) fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -28,6 +28,7 @@ pub fn load_pick_model(
     color: u32,
     meshes: Vec<model::Mesh>,
 ) -> anyhow::Result<model::Model> {
+    // cutting the significant bits is intended in this conversion
     let r = color as u8;
     let g = (color >> 8) as u8;
     let b = (color >> 16) as u8;
@@ -54,6 +55,7 @@ pub fn load_pick_model(
 pub fn load_pick_texture(id: u32, device: &wgpu::Device) -> wgpu::BindGroup {
     let texture_bind_group_layout = mk_bind_group_layout(device);
     let color = id;
+    // cutting the significant bits is intended in this conversion
     let r = color as u8;
     let g = (color >> 8) as u8;
     let b = (color >> 16) as u8;

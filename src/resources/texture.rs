@@ -151,9 +151,7 @@ pub async fn load_textures(
                 layout,
             ));
         } else {
-            // TODO: create cross-plattform abstraction
             log::error!("This material's mtl ({file_name}) references no texture.");
-            println!("This material's mtl ({file_name}) references no texture.");
         }
     }
     Ok((materials, models))

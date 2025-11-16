@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::identity, ops::Range};
+use std::{collections::HashMap, ops::Range};
 
 use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
@@ -8,7 +8,7 @@ use crate::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
     },
-    flow::{Instanced, Render},
+    render::Instanced,
     resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
 };
 
@@ -171,7 +171,7 @@ fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnima
     let s_len = state.scals.len();
     let max_len = t_len.max(r_len.max(s_len));
     if t_len != r_len || r_len != s_len {
-        println!(
+        log::warn!(
             "warning, animation track len() doesn't match and will matched with defaults. previous animation: {}, current: {}",
             state.current_clip, clip.name
         );
@@ -390,21 +390,10 @@ impl SceneNode for ContainerNode {
                 parents_world_transform.len(),
                 self.instances.len()
             );
-            println!(
-                "You tried to transform with len {}, but there are only {} instances to transform.",
-                parents_world_transform.len(),
-                self.instances.len()
-            );
             return;
         }
         if let None = self.instances.get(range.clone()) {
             warn!(
-                "You tried to transform range {}..{}, which is out of bounds for parent len {}.",
-                range.clone().start,
-                range.end,
-                self.instances.len(),
-            );
-            println!(
                 "You tried to transform range {}..{}, which is out of bounds for parent len {}.",
                 range.clone().start,
                 range.end,
@@ -606,21 +595,10 @@ impl SceneNode for ModelNode {
                 parents_world_transform.len(),
                 self.instances.len()
             );
-            println!(
-                "You tried to transform with len {}, but there are only {} instances to transform.",
-                parents_world_transform.len(),
-                self.instances.len()
-            );
             return;
         }
         if let None = self.instances.get(range.clone()) {
             warn!(
-                "you tried to transform range {}..{}, which is out of bounds for parent len {}.",
-                range.clone().start,
-                range.end,
-                self.instances.len(),
-            );
-            println!(
                 "you tried to transform range {}..{}, which is out of bounds for parent len {}.",
                 range.clone().start,
                 range.end,
@@ -757,7 +735,7 @@ impl SceneNode for ModelNode {
                 instance: &self.instance_buffer,
                 model: &self.model,
                 amount: self.instances.len(),
-                id: 0,
+                id,
             }])
             .collect()
     }

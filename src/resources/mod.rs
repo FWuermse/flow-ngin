@@ -78,7 +78,7 @@ pub async fn load_model_gltf(
                     }
                 }
             } else {
-                println!("No animation found in channel {}", channel.index());
+                log::warn!("No animation found in channel {}", channel.index());
                 let times: Vec<f32> = Vec::new();
                 times
             };
@@ -115,7 +115,7 @@ pub async fn load_model_gltf(
                     gltf::animation::util::ReadOutputs::MorphTargetWeights(_) => Keyframes::Other,
                 }
             } else {
-                println!("No Keyframes found in channel {}", channel.index());
+                log::warn!("No Keyframes found in channel {}", channel.index());
                 Keyframes::Other
             };
             let name = animation.name().unwrap_or("Default").to_string();
