@@ -19,6 +19,15 @@ pub async fn load_model_obj(
 
     let (materials, models) = texture::load_textures(file_name, queue, device, &bind_group_layout).await?;
     let meshes = mesh::load_meshes(&models, file_name, device);
+    let meshes = meshes.into_iter().enumerate().filter_map(|(idx, result)| {
+        match result {
+            Ok(mesh) => Some(mesh),
+            Err(_) => {
+                log::warn!("Mesh at index {} in file {} could not be loaded due to overflows. Make sure you use the right scale in your .obj export settings.", idx, file_name);
+                None
+            },
+        }
+    }).collect();
 
     let model = model::Model {
         meshes,

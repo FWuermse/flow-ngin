@@ -1,10 +1,11 @@
+use cgmath::num_traits::ToPrimitive;
 use cgmath::*;
+use core::f32;
 use std::f32::consts::FRAC_PI_2;
 use std::time::Duration;
 use winit::event::*;
 use winit::keyboard::KeyCode;
 use winit::{dpi::PhysicalPosition, keyboard::PhysicalKey};
-
 
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_cols(
@@ -146,8 +147,11 @@ pub struct Projection {
 
 impl Projection {
     pub fn new<F: Into<Rad<f32>>>(width: u32, height: u32, fovy: F, znear: f32, zfar: f32) -> Self {
+        let width = width.to_f32().unwrap_or(f32::MAX);
+        let height = height.to_f32().unwrap_or(f32::MAX);
+        let aspect = width / height;
         Self {
-            aspect: width as f32 / height as f32,
+            aspect,
             fovy: fovy.into(),
             znear,
             zfar,
@@ -155,6 +159,8 @@ impl Projection {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
+        let width = width.to_f32().unwrap_or(f32::MAX);
+        let height = height.to_f32().unwrap_or(f32::MAX);
         self.aspect = width as f32 / height as f32;
     }
 
@@ -240,8 +246,20 @@ impl CameraController {
     }
 
     pub fn handle_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
-        self.rotate_horizontal = mouse_dx as f32;
-        self.rotate_vertical = mouse_dy as f32;
+        let dx = mouse_dx as f32;
+        let dy = mouse_dy as f32;
+        // handle f32 to f64 conversion without panicing:
+        if dx.is_finite() && dy.is_finite() {
+            self.rotate_horizontal = dx;
+            self.rotate_vertical = dy;
+        } else {
+            log::warn!(
+                "Mouse coordinates of ({}, {}) are out of bounds and are not updated. The maximum supported coordinate value is {}.",
+                mouse_dx,
+                mouse_dy,
+                f32::MAX
+            );
+        }
     }
 
     pub fn handle_scroll(&mut self, delta: &MouseScrollDelta) {

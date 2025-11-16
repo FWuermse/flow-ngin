@@ -1,3 +1,7 @@
+use core::f32;
+use std::num::TryFromIntError;
+
+use cgmath::num_traits::ToPrimitive;
 use wgpu::util::DeviceExt;
 
 use crate::data_structures::model;
@@ -5,14 +9,14 @@ use crate::data_structures::model;
 /**
  * Obj files don't come with tangents and bitangents so they have to be calculated for
  * normal maps to work correctly.
- * 
+ *
  * TODO: retire once file-types are supported that come with calculated tangents (bitangents are easy to get from tangents)
  */
 pub fn load_meshes(
     models: &Vec<tobj::Model>,
     file_name: &str,
     device: &wgpu::Device,
-) -> Vec<model::Mesh> {
+) -> Vec<Result<model::Mesh, TryFromIntError>> {
     models
         .into_iter()
         .map(|m| {
@@ -45,9 +49,9 @@ pub fn load_meshes(
             // use the triangles, so we need to loop through the
             // indices in chunks of 3
             for c in indices.chunks(3) {
-                let v0 = vertices[c[0] as usize];
-                let v1 = vertices[c[1] as usize];
-                let v2 = vertices[c[2] as usize];
+                let v0 = vertices[usize::try_from(c[0])?];
+                let v1 = vertices[usize::try_from(c[1])?];
+                let v2 = vertices[usize::try_from(c[2])?];
 
                 let pos0: cgmath::Vector3<_> = v0.position.into();
                 let pos1: cgmath::Vector3<_> = v1.position.into();
@@ -70,8 +74,6 @@ pub fn load_meshes(
                 // give us the tangent and bitangent.
                 //     delta_pos1 = delta_uv1.x * T + delta_u.y * B
                 //     delta_pos2 = delta_uv2.x * T + delta_uv2.y * B
-                // Luckily, the place I found this equation provided
-                // the solution!
                 let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
                 let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
                 // We flip the bitangent to enable right-handed normal
@@ -79,28 +81,28 @@ pub fn load_meshes(
                 let bitangent = (delta_pos2 * delta_uv1.x - delta_pos1 * delta_uv2.x) * -r;
 
                 // We'll use the same tangent/bitangent for each vertex in the triangle
-                vertices[c[0] as usize].tangent =
-                    (tangent + cgmath::Vector3::from(vertices[c[0] as usize].tangent)).into();
-                vertices[c[1] as usize].tangent =
-                    (tangent + cgmath::Vector3::from(vertices[c[1] as usize].tangent)).into();
-                vertices[c[2] as usize].tangent =
-                    (tangent + cgmath::Vector3::from(vertices[c[2] as usize].tangent)).into();
-                vertices[c[0] as usize].bitangent =
-                    (bitangent + cgmath::Vector3::from(vertices[c[0] as usize].bitangent)).into();
-                vertices[c[1] as usize].bitangent =
-                    (bitangent + cgmath::Vector3::from(vertices[c[1] as usize].bitangent)).into();
-                vertices[c[2] as usize].bitangent =
-                    (bitangent + cgmath::Vector3::from(vertices[c[2] as usize].bitangent)).into();
+                vertices[usize::try_from(c[0])?].tangent =
+                    (tangent + cgmath::Vector3::from(vertices[usize::try_from(c[0])?].tangent)).into();
+                vertices[usize::try_from(c[1])?].tangent =
+                    (tangent + cgmath::Vector3::from(vertices[usize::try_from(c[1])?].tangent)).into();
+                vertices[usize::try_from(c[2])?].tangent =
+                    (tangent + cgmath::Vector3::from(vertices[usize::try_from(c[2])?].tangent)).into();
+                vertices[usize::try_from(c[0])?].bitangent =
+                    (bitangent + cgmath::Vector3::from(vertices[usize::try_from(c[0])?].bitangent)).into();
+                vertices[usize::try_from(c[1])?].bitangent =
+                    (bitangent + cgmath::Vector3::from(vertices[usize::try_from(c[1])?].bitangent)).into();
+                vertices[usize::try_from(c[2])?].bitangent =
+                    (bitangent + cgmath::Vector3::from(vertices[usize::try_from(c[2])?].bitangent)).into();
 
                 // Used to average the tangents/bitangents
-                triangles_included[c[0] as usize] += 1;
-                triangles_included[c[1] as usize] += 1;
-                triangles_included[c[2] as usize] += 1;
+                triangles_included[usize::try_from(c[0])?] += 1;
+                triangles_included[usize::try_from(c[1])?] += 1;
+                triangles_included[usize::try_from(c[2])?] += 1;
             }
 
             // Average the tangents/bitangents
             for (i, n) in triangles_included.into_iter().enumerate() {
-                let denom = 1.0 / n as f32;
+                let denom = 1.0 / n.to_f32().unwrap_or(f32::MAX);
                 let v = &mut vertices[i];
                 v.tangent = (cgmath::Vector3::from(v.tangent) * denom).into();
                 v.bitangent = (cgmath::Vector3::from(v.bitangent) * denom).into();
@@ -119,13 +121,13 @@ pub fn load_meshes(
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-            model::Mesh {
+            Ok(model::Mesh {
                 name: file_name.to_string(),
                 vertex_buffer,
                 index_buffer,
-                num_elements: m.mesh.indices.len() as u32,
+                num_elements: u32::try_from(m.mesh.indices.len())?,
                 material: m.mesh.material_id.unwrap_or(0),
-            }
+            })
         })
         .collect::<Vec<_>>()
 }
