@@ -23,6 +23,13 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+// This will be the future output
+enum Out<S, E> {
+    Fut(Vec<Box<dyn Future<Output = E>>>),
+    Mut(Vec<Box<dyn Future<Output = dyn FnMut(S)>>>),
+    None,
+}
+
 pub trait GraphicsFlow<S, E> {
     /**
      * This is the only place to modify the Context and configure things like
@@ -358,6 +365,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             }
             FlowEvent::Id((pick_id, flow_ids)) => {
                 if let Some(state) = &mut self.state {
+                    state.ctx.mouse.toggle(pick_id);
                     flow_ids.into_iter().for_each(|flow_id| {
                         self.graphics_flows
                             .get_mut(flow_id)
@@ -482,7 +490,9 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                             .into();
                         // Update custom stuff
                         self.graphics_flows.iter_mut().for_each(|f| {
-                            let _ = f.on_update(&state.ctx, &mut state.state, dt);
+                            let events = f.on_update(&state.ctx, &mut state.state, dt);
+                            let proxy = self.proxy.clone();
+                            send(proxy, events);
                         });
                     }
                     // Reconfigure the surface if it's lost or outdated
@@ -511,6 +521,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                 #[cfg(target_arch = "wasm32")]
                                 self.proxy.clone(),
                             ) {
+                                state.ctx.mouse.toggle(pick_id);
                                 if flow_ids.len() > 1 {
                                     log::warn!(
                                         "Multiple flows (incides {:?}) want to react to the render ID {}.",
@@ -520,7 +531,10 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                 }
                                 flow_ids.into_iter().for_each(|flow_id| {
                                     self.graphics_flows.get_mut(flow_id).map(|flow| {
-                                        flow.on_click(&state.ctx, &mut state.state, pick_id)
+                                        let events =
+                                            flow.on_click(&state.ctx, &mut state.state, pick_id);
+                                        let proxy = self.proxy.clone();
+                                        send(proxy, events);
                                     });
                                 });
                             }

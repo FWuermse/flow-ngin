@@ -30,6 +30,7 @@ where
     Default(Instanced<'a>),
     Defaults(Vec<Instanced<'a>>),
     Transparent(Instanced<'a>),
+    Transparents(Vec<Instanced<'a>>),
     GUI(Flat<'a>),
     Terrain(Flat<'a>),
     Composed(Vec<Render<'a, 'pass>>),
@@ -49,6 +50,13 @@ impl<'a, 'pass> Render<'a, 'pass> {
                     .or_insert([flow_id].into());
             }
             Render::Defaults(vec) => vec.into_iter().for_each(|instanced| {
+                map.entry(instanced.id)
+                    .and_modify(|flows| {
+                        flows.insert(flow_id);
+                    })
+                    .or_insert([flow_id].into());
+            }),
+            Render::Transparents(vec) => vec.into_iter().for_each(|instanced| {
                 map.entry(instanced.id)
                     .and_modify(|flows| {
                         flows.insert(flow_id);
@@ -91,6 +99,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
             }
             Render::Defaults(mut vec) => basics.append(&mut vec),
             Render::Transparent(instanced) => trans.push(instanced),
+            Render::Transparents(mut vec) => trans.append(&mut vec),
             Render::GUI(flat) => guis.push(flat),
             Render::Terrain(flat) => terrain.push(flat),
             Render::Composed(renders) => renders
@@ -114,6 +123,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
             }
             Render::Defaults(mut vec) => basics.append(&mut vec),
             Render::Transparent(instanced) => basics.push(instanced),
+            Render::Transparents(mut vec) => basics.append(&mut vec),
             Render::GUI(flat) => flats.push(flat),
             Render::Terrain(flat) => flats.push(flat),
             Render::Composed(renders) => renders

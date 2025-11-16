@@ -4,7 +4,9 @@ use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalPosition, window::Window};
 
 use crate::{
-    camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pipelines::{
+    camera::{self, CameraResources, CameraUniform, Projection},
+    data_structures::texture,
+    pipelines::{
         basic::mk_basic_pipeline,
         gui::mk_gui_pipeline,
         light::{LightResources, LightUniform, mk_light_pipeline},
@@ -12,7 +14,7 @@ use crate::{
         pick_gui::mk_gui_pick_pipelin,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
-    }
+    },
 };
 
 #[derive(Debug)]
@@ -27,6 +29,14 @@ pub struct MouseState {
     pub coords: PhysicalPosition<f64>,
     pub pressed: MouseButtonState,
     pub selection: Option<u32>,
+}
+impl MouseState {
+    pub(crate) fn toggle(&mut self, pick_id: u32) {
+        self.selection = self
+            .selection
+            .is_none_or(|id| id != pick_id)
+            .then_some(pick_id);
+    }
 }
 
 #[derive(Debug)]
@@ -56,9 +66,7 @@ pub struct Context {
     pub pipelines: Pipelines,
 }
 impl Context {
-    pub(crate) async fn new(
-        window: Arc<Window>,
-    ) -> Self {
+    pub(crate) async fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
