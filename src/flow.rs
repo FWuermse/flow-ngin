@@ -23,11 +23,33 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-// This will be the future output
-enum Out<S, E> {
-    Fut(Vec<Box<dyn Future<Output = E>>>),
-    Mut(Vec<Box<dyn Future<Output = dyn FnMut(S)>>>),
-    None,
+/**
+ * This is the Output Type for every lifecycle hook where the user can pass async events that are
+ * handled according to the platform you're running on.
+ * 
+ * `Out::FutEvent` can be used to resolve a future of an Event that is put in the Event Queue after
+ * being resolved. The caller is responsible for handling the event later on and it will have no
+ * side effects unless handled.
+ * 
+ * `Out::FutFn` can be used to directly modify the state and the mutation is handled internally with
+ * no further action required by the callee.
+ * 
+ * `Out::Configure` can be used to modify the Context during runtime for instance to change the tick
+ * speed or the clear colour.
+ * 
+ * `Empty` is the default output used when no eventing/futures need to be handled.
+ */
+pub enum Out<S, E> {
+    FutEvent(Vec<Box<dyn Future<Output = E>>>),
+    FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
+    Configure(Box<dyn FnOnce(&mut Context)>),
+    Empty,
+}
+
+impl<S, E> Default for Out<S, E> {
+    fn default() -> Self {
+        Self::Empty
+    }
 }
 
 pub trait GraphicsFlow<S, E> {
@@ -35,44 +57,30 @@ pub trait GraphicsFlow<S, E> {
      * This is the only place to modify the Context and configure things like
      * the default background colour or camera start position.
      */
-    fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Vec<Box<dyn Future<Output = E>>>;
+    fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E>;
     /**
-     * `on_click` is triggered for all GraphicsFlows whenever the user clicks in the scene.
+     * `on_click` is triggered when something on the screen was clicked that has been rendered by `self`.
      *
-     * `id` is the ID in the picking buffer that corresponds to an object.
+     * `id` is the ID that correlates to a specific mesh set via `on_render`.
      * It is advised to use a unique u32 id for each element that should be selectable
-     * and pass that id to the underlying data structures (see `ScreneGraph` or `block`)
-     * and match for it when `on_click` triggers.
      *
-     * TODO: store flows in a HashMap and only trigger on_click if the key matches
+     * When the render type `Custom` is used then also picking has to be implemented by the caller.
+     * See `flow_ngin::pick::draw_to_pick_buffer` for more information about custom picking.
      */
-    fn on_click(
-        &mut self,
-        ctx: &Context,
-        state: &mut S,
-        id: u32,
-    ) -> Vec<Box<dyn Future<Output = E>>>;
-    fn on_update(
-        &mut self,
-        ctx: &Context,
-        state: &mut S,
-        dt: Duration,
-    ) -> Vec<Box<dyn Future<Output = E>>>;
-    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Vec<Box<dyn Future<Output = E>>>;
-    fn handle_device_events(
-        &mut self,
-        ctx: &Context,
-        state: &mut S,
-        event: &DeviceEvent,
-    ) -> Vec<Box<dyn Future<Output = E>>>;
-    fn handle_window_events(
-        &mut self,
-        ctx: &Context,
-        state: &mut S,
-        event: &WindowEvent,
-    ) -> Vec<Box<dyn Future<Output = E>>>;
+    fn on_click(&mut self, ctx: &Context, state: &mut S, id: u32) -> Out<S, E>;
+    /**
+     * `on_update` is invoked on every frame and can be used to progress animations or timers in the scene.
+     */
+    fn on_update(&mut self, ctx: &Context, state: &mut S, dt: Duration) -> Out<S, E>;
+    /**
+     * `on_tick` is invoked every `tick_duration_millis` milliseconds and the duration can be configured
+     * initially in the `Context` during `on_init` or during runtime via setting the `Out::Configure` output.
+     */
+    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Out<S, E>;
+    fn on_device_events(&mut self, ctx: &Context, state: &mut S, event: &DeviceEvent) -> Out<S, E>;
+    fn on_window_events(&mut self, ctx: &Context, state: &mut S, event: &WindowEvent) -> Out<S, E>;
     // Events can only be consumed by one GraphicsFlow - non consumed events are returned
-    fn handle_custom_events(&mut self, ctx: &Context, state: &mut S, event: E) -> Option<E>;
+    fn on_custom_events(&mut self, ctx: &Context, state: &mut S, event: E) -> Option<E>;
     fn on_render<'pass>(&self) -> Render<'_, 'pass>;
 }
 
@@ -265,7 +273,6 @@ where
     }
 }
 
-#[derive(Debug)]
 pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     #[allow(dead_code)]
     Initialized {
@@ -275,7 +282,21 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     #[allow(dead_code)]
     Id((u32, HashSet<usize>)),
     #[allow(dead_code)]
+    Mut(Box<dyn FnOnce(&mut State)>),
+    #[allow(dead_code)]
     Custom(Event),
+}
+impl<State, Event> Debug for FlowEvent<State, Event> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Initialized { state: _, flows } => {
+                f.debug_struct("Initialized").field("flows", flows).finish()
+            }
+            Self::Id(arg0) => f.debug_tuple("Id").field(arg0).finish(),
+            Self::Mut(_) => f.write_str("Mut(|&mut State| -> {...})"),
+            Self::Custom(_) => f.write_str("Custom(E)"),
+        }
+    }
 }
 
 impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<State, Event>>
@@ -322,7 +343,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             self.graphics_flows.iter_mut().for_each(|flow| {
                 let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                 let proxy = self.proxy.clone();
-                send(proxy, events);
+                handle_flow_output(&mut app_state.state, &mut app_state.ctx, proxy, events);
             });
             self.state = Some(app_state);
         }
@@ -359,7 +380,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 self.graphics_flows.iter_mut().for_each(|flow| {
                     let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                     let proxy = self.proxy.clone();
-                    send(proxy, events);
+                    handle_flow_output(&mut app_state.state, &mut app_state.ctx, proxy, events);
                 });
                 app_state.ctx.window.request_redraw();
             }
@@ -373,18 +394,22 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                     });
                 }
             }
-            // Events return Option<Event> because they must be consumed (moves contained data)
             FlowEvent::Custom(custom_event) => {
                 if let Some(state) = &mut self.state {
-                    let result =
-                        self.graphics_flows
-                            .iter_mut()
-                            .fold(Some(custom_event), |event, flow| {
-                                flow.handle_custom_events(&state.ctx, &mut state.state, event?)
-                            });
+                    let result = self
+                        .graphics_flows
+                        .iter_mut()
+                        .fold(Some(custom_event), |event, flow| {
+                            flow.on_custom_events(&state.ctx, &mut state.state, event?)
+                        });
                     if result.is_some() {
                         log::warn!("Warning! Custom event was not consumed this cycle");
                     }
+                }
+            }
+            FlowEvent::Mut(fn_once) => {
+                if let Some(state) = &mut self.state {
+                    fn_once(&mut state.state);
                 }
             }
         }
@@ -412,9 +437,9 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             }
         }
         self.graphics_flows.iter_mut().for_each(|f| {
-            let events = f.handle_device_events(&state.ctx, &mut state.state, &event);
+            let events = f.on_device_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
-            send(proxy, events);
+            handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
         });
     }
 
@@ -441,9 +466,9 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
         };
 
         self.graphics_flows.iter_mut().for_each(|f| {
-            let events = f.handle_window_events(&state.ctx, &mut state.state, &event);
+            let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
-            send(proxy, events);
+            handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
         });
 
         match event {
@@ -456,11 +481,11 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
                 match state.render(&mut self.graphics_flows) {
                     Ok(_) => {
-                        if self.time_since_tick >= Duration::from_millis(500) {
+                        if self.time_since_tick >= Duration::from_millis(state.ctx.tick_duration_millis) {
                             self.graphics_flows.iter_mut().for_each(|f| {
                                 let events = f.on_tick(&state.ctx, &mut state.state);
                                 let proxy = self.proxy.clone();
-                                send(proxy, events);
+                                handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
                             });
                             self.time_since_tick = Duration::from_millis(0);
                         }
@@ -492,7 +517,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                         self.graphics_flows.iter_mut().for_each(|f| {
                             let events = f.on_update(&state.ctx, &mut state.state, dt);
                             let proxy = self.proxy.clone();
-                            send(proxy, events);
+                            handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
                         });
                     }
                     // Reconfigure the surface if it's lost or outdated
@@ -534,7 +559,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                         let events =
                                             flow.on_click(&state.ctx, &mut state.state, pick_id);
                                         let proxy = self.proxy.clone();
-                                        send(proxy, events);
+                                        handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
                                     });
                                 });
                             }
@@ -552,34 +577,65 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
     }
 }
 
-fn send<State, Event>(
+fn handle_flow_output<State, Event>(
+    state: &mut State,
+    ctx: &mut Context,
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
-    events: Vec<Box<dyn Future<Output = Event>>>,
+    out: Out<State, Event>,
 ) {
-    let events: Vec<Pin<Box<dyn Future<Output = Event>>>> =
-        events.into_iter().map(Pin::from).collect();
-    let events = async move { futures::future::join_all(events.into_iter()).await };
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let resolved = pollster::block_on(events);
-        resolved.into_iter().for_each(|event| {
-            let err = proxy.send_event(FlowEvent::Custom(event));
-            if let Err(err) = err {
-                log::error!("{}", err);
-                panic!("Event loop was cloesed before all `on_init` events could be processed.")
+    match out {
+        // Send the events passed by the user to winit
+        Out::FutEvent(futures) => {
+            let events: Vec<Pin<Box<dyn Future<Output = Event>>>> =
+                futures.into_iter().map(Pin::from).collect();
+            let fut = async move { futures::future::join_all(events.into_iter()).await };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let resolved = pollster::block_on(fut);
+                resolved.into_iter().for_each(|event| {
+                    let err = proxy.send_event(FlowEvent::Custom(event));
+                    if let Err(err) = err {
+                        log::error!("{}", err);
+                        panic!("Event loop was cloesed before all events could be processed.")
+                    }
+                });
             }
-        });
-    }
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        wasm_bindgen_futures::spawn_local(async move {
-            let resolved = events.await;
-            for event in resolved {
-                assert!(proxy.send_event(FlowEvent::Custom(event)).is_ok());
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let resolved = events.await;
+                    for event in resolved {
+                        assert!(proxy.send_event(FlowEvent::Custom(event)).is_ok());
+                    }
+                });
             }
-        });
+        }
+        // Mutate the state if the arch supports async, create an event otherwise
+        Out::FutFn(futures) => {
+            let events: Vec<Pin<Box<dyn Future<Output = Box<dyn FnOnce(&mut State)>>>>> =
+                futures.into_iter().map(Pin::from).collect();
+            let fut = async move { futures::future::join_all(events.into_iter()).await };
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let resolved: Vec<Box<dyn FnOnce(&mut State)>> = pollster::block_on(fut);
+                resolved.into_iter().for_each(|mutation| {
+                    mutation(state);
+                });
+            }
+
+            #[cfg(target_arch = "wasm32")]
+            {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let resolved = events.await;
+                    for mutation in resolved {
+                        assert!(proxy.send_event(lowEvent::Mut(mutation)).is_ok());
+                    }
+                });
+            }
+        }
+        Out::Configure(f) => f(ctx),
+        Out::Empty => (),
     }
 }
 

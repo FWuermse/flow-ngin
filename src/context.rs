@@ -54,6 +54,7 @@ pub struct Pipelines {
 pub struct Context {
     pub(crate) window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
+    pub tick_duration_millis: u64,
     pub clear_colour: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
@@ -246,6 +247,7 @@ impl Context {
             pressed: MouseButtonState::None,
             selection: None,
         };
+        let tick_duration_millis = 500;
 
         Self {
             camera,
@@ -259,6 +261,7 @@ impl Context {
             projection,
             queue,
             surface,
+            tick_duration_millis,
             window,
         }
     }
