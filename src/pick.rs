@@ -15,6 +15,7 @@ use crate::{
 use crate::flow::FlowEvent;
 
 pub fn draw_to_pick_buffer<State, Event>(
+    #[cfg(not(target_arch = "wasm32"))] async_runtime: &tokio::runtime::Runtime,
     flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
     ctx: &Context,
     mouse_state: &MouseState,
@@ -222,7 +223,11 @@ pub fn draw_to_pick_buffer<State, Event>(
         );
         let id = future_id.await;
         if let Some(flow_ids) = translation.get(&id) {
-            assert!(proxy.send_event(FlowEvent::Id((id, flow_ids.clone()))).is_ok());
+            assert!(
+                proxy
+                    .send_event(FlowEvent::Id((id, flow_ids.clone())))
+                    .is_ok()
+            );
             output_buffer.unmap();
         };
     });
@@ -241,7 +246,7 @@ pub fn draw_to_pick_buffer<State, Event>(
             mouse_coords,
         );
         // Depending on the average timing this hould not block but rather always send an event
-        let id = pollster::block_on(future_id);
+        let id = async_runtime.block_on(future_id);
         return translation.get(&id).map(|flow_ids| (id, flow_ids.clone()));
     }
 }

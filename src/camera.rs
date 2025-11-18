@@ -146,16 +146,30 @@ pub struct Projection {
 }
 
 impl Projection {
-    pub fn new<F: Into<Rad<f32>>>(width: u32, height: u32, fovy: F, znear: f32, zfar: f32) -> Self {
-        let width = width.to_f32().unwrap_or(f32::MAX);
-        let height = height.to_f32().unwrap_or(f32::MAX);
+    pub fn new<F: Into<Rad<f32>>>(
+        width: u32,
+        height: u32,
+        fovy: F,
+        znear: f32,
+        zfar: f32,
+    ) -> Result<Self, anyhow::Error> {
+        let width = width.to_f32().ok_or(anyhow::anyhow!(
+            "Width value {} is too large to be represented as f32.",
+            width
+        ))?;
+        let height = height.to_f32().ok_or(
+            anyhow::anyhow!(
+                "Height value {} is too large to be represented as f32.",
+                height
+            )
+        )?;
         let aspect = width / height;
-        Self {
+        Ok(Self {
             aspect,
             fovy: fovy.into(),
             znear,
             zfar,
-        }
+        })
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

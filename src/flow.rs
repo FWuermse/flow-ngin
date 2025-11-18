@@ -26,17 +26,17 @@ use wasm_bindgen::prelude::*;
 /**
  * This is the Output Type for every lifecycle hook where the user can pass async events that are
  * handled according to the platform you're running on.
- * 
+ *
  * `Out::FutEvent` can be used to resolve a future of an Event that is put in the Event Queue after
  * being resolved. The caller is responsible for handling the event later on and it will have no
  * side effects unless handled.
- * 
+ *
  * `Out::FutFn` can be used to directly modify the state and the mutation is handled internally with
  * no further action required by the callee.
- * 
+ *
  * `Out::Configure` can be used to modify the Context during runtime for instance to change the tick
  * speed or the clear colour.
- * 
+ *
  * `Empty` is the default output used when no eventing/futures need to be handled.
  */
 pub enum Out<S, E> {
@@ -103,6 +103,13 @@ pub struct AppState<State: 'static> {
 impl<'a, State: Default> AppState<State> {
     async fn new(window: Arc<Window>) -> Self {
         let ctx = Context::new(window).await;
+        let ctx = match ctx {
+            Ok(ctx) => ctx,
+            Err(e) => panic!(
+                "App initialization failed. Cannot create the main context: {}",
+                e
+            ),
+        };
         let state = State::default();
         let is_surface_configured = false;
         Self {
@@ -142,7 +149,11 @@ impl<'a, State: Default> AppState<State> {
             return Ok(());
         }
 
-        let output = self.ctx.surface.get_current_texture().unwrap();
+        let output = self
+            .ctx
+            .surface
+            .get_current_texture()
+            .expect("Failed to create surface.");
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -349,7 +360,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             self.graphics_flows.iter_mut().for_each(|flow| {
                 let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                 let proxy = self.proxy.clone();
-                handle_flow_output(&self.async_runtime, &mut app_state.state, &mut app_state.ctx, proxy, events);
+                handle_flow_output(
+                    &self.async_runtime,
+                    &mut app_state.state,
+                    &mut app_state.ctx,
+                    proxy,
+                    events,
+                );
             });
             self.state = Some(app_state);
         }
@@ -386,7 +403,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 self.graphics_flows.iter_mut().for_each(|flow| {
                     let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                     let proxy = self.proxy.clone();
-                    handle_flow_output(&self.async_runtime, &mut app_state.state, &mut app_state.ctx, proxy, events);
+                    handle_flow_output(
+                        &self.async_runtime,
+                        &mut app_state.state,
+                        &mut app_state.ctx,
+                        proxy,
+                        events,
+                    );
                 });
                 app_state.ctx.window.request_redraw();
             }
@@ -445,7 +468,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.on_device_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
-            handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
+            handle_flow_output(
+                &self.async_runtime,
+                &mut state.state,
+                &mut state.ctx,
+                proxy,
+                events,
+            );
         });
     }
 
@@ -474,7 +503,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
-            handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
+            handle_flow_output(
+                &self.async_runtime,
+                &mut state.state,
+                &mut state.ctx,
+                proxy,
+                events,
+            );
         });
 
         match event {
@@ -487,11 +522,19 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
                 match state.render(&mut self.graphics_flows) {
                     Ok(_) => {
-                        if self.time_since_tick >= Duration::from_millis(state.ctx.tick_duration_millis) {
+                        if self.time_since_tick
+                            >= Duration::from_millis(state.ctx.tick_duration_millis)
+                        {
                             self.graphics_flows.iter_mut().for_each(|f| {
                                 let events = f.on_tick(&state.ctx, &mut state.state);
                                 let proxy = self.proxy.clone();
-                                handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
+                                handle_flow_output(
+                                    &self.async_runtime,
+                                    &mut state.state,
+                                    &mut state.ctx,
+                                    proxy,
+                                    events,
+                                );
                             });
                             self.time_since_tick = Duration::from_millis(0);
                         }
@@ -523,7 +566,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                         self.graphics_flows.iter_mut().for_each(|f| {
                             let events = f.on_update(&state.ctx, &mut state.state, dt);
                             let proxy = self.proxy.clone();
-                            handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
+                            handle_flow_output(
+                                &self.async_runtime,
+                                &mut state.state,
+                                &mut state.ctx,
+                                proxy,
+                                events,
+                            );
                         });
                     }
                     // Reconfigure the surface if it's lost or outdated
@@ -546,6 +595,8 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                         (MouseButton::Left, true) => {
                             state.ctx.mouse.pressed = MouseButtonState::Left;
                             if let Some((pick_id, flow_ids)) = draw_to_pick_buffer::<State, Event>(
+                                #[cfg(not(target_arch = "wasm32"))]
+                                &self.async_runtime,
                                 &mut self.graphics_flows,
                                 &state.ctx,
                                 &state.ctx.mouse,
@@ -565,7 +616,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                         let events =
                                             flow.on_click(&state.ctx, &mut state.state, pick_id);
                                         let proxy = self.proxy.clone();
-                                        handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
+                                        handle_flow_output(
+                                            &self.async_runtime,
+                                            &mut state.state,
+                                            &mut state.ctx,
+                                            proxy,
+                                            events,
+                                        );
                                     });
                                 });
                             }
@@ -584,8 +641,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 }
 
 fn handle_flow_output<State, Event>(
-    #[cfg(not(target_arch = "wasm32"))]
-    async_runtime: &tokio::runtime::Runtime,
+    #[cfg(not(target_arch = "wasm32"))] async_runtime: &tokio::runtime::Runtime,
     state: &mut State,
     ctx: &mut Context,
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
@@ -594,9 +650,8 @@ fn handle_flow_output<State, Event>(
     match out {
         // Send the events passed by the user to winit
         Out::FutEvent(futures) => {
-            let events: Vec<Pin<Box<dyn Future<Output = Event>>>> =
-                futures.into_iter().map(Pin::from).collect();
-            let fut = async move { futures::future::join_all(events.into_iter()).await };
+            let fut =
+                async move { futures::future::join_all(futures.into_iter().map(Pin::from)).await };
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let resolved = async_runtime.block_on(fut);

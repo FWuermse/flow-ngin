@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{data_structures::texture, resources::pick::pick_layout};
+use crate::{data_structures::texture::{self, create_default_sampler}, resources::pick::pick_layout};
 
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
@@ -68,9 +68,13 @@ impl Material {
         diffuse_texture: texture::Texture,
         normal_texture: texture::Texture,
         layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let diffuse_texture_sampler = diffuse_texture.sampler.as_ref().unwrap();
-        let normal_texture_sampler = normal_texture.sampler.as_ref().unwrap();
+    ) -> Result<Self, anyhow::Error> {
+        let diffuse_texture_sampler = diffuse_texture
+            .sampler
+            .ok_or(anyhow::anyhow!("Diffuse texture missing sampler"))?;
+        let normal_texture_sampler = normal_texture
+            .sampler
+            .unwrap_or(create_default_sampler(device));
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
@@ -94,10 +98,10 @@ impl Material {
             ],
             label: Some(name),
         });
-        Self {
+        Ok(Self {
             name: String::from(name),
             bind_group,
-        }
+        })
     }
 
     pub fn new_pick_material(device: &wgpu::Device, name: &str, buffer: wgpu::Buffer) -> Self {

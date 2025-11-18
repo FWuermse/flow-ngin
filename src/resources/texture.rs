@@ -143,13 +143,17 @@ pub async fn load_textures(
                 },
                 None => texture::Texture::create_default_normal_map(1, 1, device, queue)
             };
-            materials.push(model::Material::new(
+            if let Ok(model) = model::Material::new(
                 device,
                 &m.name,
                 diffuse_texture,
                 normal_texture,
                 layout,
-            ));
+            ) {
+                materials.push(model);
+            } else {
+                log::warn!("Failed to create material for mtl ({}) in obj ({})", m.name, file_name);
+            }
         } else {
             log::error!("This material's mtl ({file_name}) references no texture.");
         }

@@ -1,11 +1,11 @@
 use anyhow::*;
-use image::{load_from_memory_with_format, GenericImageView, ImageFormat};
+use image::{GenericImageView, ImageFormat, load_from_memory_with_format};
 
 /**
  * Txtures can be loaded from a file or webserver path.
- * 
- * The `texture` describes the 
- * 
+ *
+ * The `texture` describes the
+ *
  */
 #[derive(Clone, Debug)]
 pub struct Texture {
@@ -107,15 +107,7 @@ impl Texture {
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        }));
+        let sampler = Some(create_default_sampler(device));
         Texture {
             texture,
             view,
@@ -133,7 +125,9 @@ impl Texture {
     ) -> Result<Self> {
         let img = match format {
             None => image::load_from_memory(bytes)?,
-            Some(fmt) => load_from_memory_with_format(bytes, ImageFormat::from_extension(fmt).unwrap())?
+            Some(fmt) => {
+                load_from_memory_with_format(bytes, ImageFormat::from_extension(fmt).unwrap())?
+            }
         };
         Self::from_image(device, queue, &img, Some(label), is_normal_map)
     }
@@ -204,3 +198,14 @@ impl Texture {
     }
 }
 
+pub fn create_default_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        address_mode_w: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    })
+}

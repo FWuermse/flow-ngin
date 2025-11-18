@@ -67,7 +67,7 @@ pub struct Context {
     pub pipelines: Pipelines,
 }
 impl Context {
-    pub(crate) async fn new(window: Arc<Window>) -> Self {
+    pub(crate) async fn new(window: Arc<Window>) -> Result<Self, anyhow::Error> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -81,7 +81,7 @@ impl Context {
             ..Default::default()
         });
 
-        let surface = instance.create_surface(window.clone()).unwrap();
+        let surface = instance.create_surface(window.clone())?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -89,8 +89,7 @@ impl Context {
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
-            .await
-            .unwrap();
+            .await?;
         log::warn!("device and queue");
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -106,8 +105,7 @@ impl Context {
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
             })
-            .await
-            .unwrap();
+            .await?;
 
         log::warn!("Surface");
         let surface_caps = surface.get_capabilities(&adapter);
@@ -134,7 +132,7 @@ impl Context {
         // right/left, height, forward/backward - y axis rotation (turn head left/right) - x axis rotation (head up/down)
         let camera = camera::Camera::new((0.0, 30.0, 20.0), cgmath::Deg(-90.0), cgmath::Deg(-60.0));
         let projection =
-            camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 500.0);
+            camera::Projection::new(config.width, config.height, cgmath::Deg(45.0), 0.1, 500.0)?;
         let camera_controller = camera::CameraController::new(10.0, 0.4);
 
         let mut camera_uniform = CameraUniform::new();
@@ -249,7 +247,7 @@ impl Context {
         };
         let tick_duration_millis = 500;
 
-        Self {
+        Ok(Self {
             camera,
             clear_colour,
             config,
@@ -263,7 +261,7 @@ impl Context {
             surface,
             tick_duration_millis,
             window,
-        }
+        })
     }
 }
 
