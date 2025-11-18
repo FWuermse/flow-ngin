@@ -10,7 +10,7 @@
 //! 2. Read the pixel at the mouse cursor position (scaled according to platform limitations on texture sizes)
 //! 3. Map the pick ID back to the flow that owns the object (determined by the render tree)
 //! 4. Return the selected object ID and owning flows
-//! 
+//!
 //! Especially step 4 makes sure that only those flows are invoked that were responsible for selected object.
 
 use std::{
@@ -30,7 +30,7 @@ use crate::{
 use crate::flow::FlowEvent;
 
 /// Render all flows to pick texture and determine which object was clicked.
-/// 
+///
 /// # Arguments
 ///
 /// * `async_runtime` using the tokio runtime for async resource loading if not on WASM
@@ -297,7 +297,12 @@ async fn read_texture_buffer(
     #[cfg(target_arch = "wasm32")]
     device.poll(wgpu::PollType::Poll).unwrap();
     #[cfg(not(target_arch = "wasm32"))]
-    device.poll(wgpu::PollType::Wait).unwrap();
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        })
+        .unwrap();
     rx.receive().await.unwrap().unwrap();
 
     let data = buffer_slice.get_mapped_range();

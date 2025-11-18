@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use wgpu::util::DeviceExt;
+use wgpu::{ExperimentalFeatures, util::DeviceExt};
 use winit::{dpi::PhysicalPosition, window::Window};
 
 use crate::{
@@ -104,6 +104,7 @@ impl Context {
                 },
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
+                experimental_features: ExperimentalFeatures::disabled(),
             })
             .await?;
 
