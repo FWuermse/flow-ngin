@@ -2,6 +2,13 @@
 
 A simple cross-plattform instancing-oriented game engine with focus on full WASM-compatibility.
 
+You may want to use this engine if:
+- You heavily rely on instancing (many instances of the same model)
+- You need full browser compatibility
+- You like to use Rust exclusively for all platforms
+- You don't need a GUI for game development
+- You prefer code over low-code
+
 ## Features
 
 - [x] Model loading:
