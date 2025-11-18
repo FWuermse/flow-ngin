@@ -1,3 +1,26 @@
+//! Flow control and application event loop.
+//!
+//! This module provides the main event loop and flow abstraction for the game engine.
+//! A "flow" represents a scene or game state that handles user input, updates simulation,
+//! and provides renderable objects each frame. The engine manages multiple active flows
+//! and coordinates rendering, picking, and event distribution.
+//!
+//! # User-facing types
+//!
+//! - [`GraphicsFlow<S, E>`] is the trait for scenes/states that handle events and rendering
+//! - [`Out<S, E>`] is the output type for async event handling and context configuration
+//!
+//! # Lifetimes and architecture
+//!
+//! The event loop follows this pattern each frame:
+//! 1. Collect window/device events
+//! 2. Call `on_<device/window/custom>_event` on all flows for event distribution
+//! 3. Update flow state (via `on_update` / `on_tick`)
+//! 4. Call flows' `get_render()` to collect renderable objects
+//! 5. Perform picking if mouse clicked
+//! 6. Render to frame buffer using batched pipelines
+//! 7. Present frame
+
 use std::{collections::HashSet, fmt::Debug, iter, pin::Pin, sync::Arc};
 
 use instant::{Duration, Instant};
@@ -23,22 +46,22 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-/**
- * This is the Output Type for every lifecycle hook where the user can pass async events that are
- * handled according to the platform you're running on.
- *
- * `Out::FutEvent` can be used to resolve a future of an Event that is put in the Event Queue after
- * being resolved. The caller is responsible for handling the event later on and it will have no
- * side effects unless handled.
- *
- * `Out::FutFn` can be used to directly modify the state and the mutation is handled internally with
- * no further action required by the callee.
- *
- * `Out::Configure` can be used to modify the Context during runtime for instance to change the tick
- * speed or the clear colour.
- *
- * `Empty` is the default output used when no eventing/futures need to be handled.
- */
+///
+/// This is the Output Type for every lifecycle hook where the user can pass async events that are
+/// handled according to the platform you're running on.
+///
+/// `Out::FutEvent` can be used to resolve a future of an Event that is put in the Event Queue after
+/// being resolved. The caller is responsible for handling the event later on and it will have no
+/// side effects unless handled.
+///
+/// `Out::FutFn` can be used to directly modify the state and the mutation is handled internally with
+/// no further action required by the callee.
+///
+/// `Out::Configure` can be used to modify the Context during runtime for instance to change the tick
+/// speed or the clear colour.
+///
+/// `Empty` is the default output used when no eventing/futures need to be handled.
+///
 pub enum Out<S, E> {
     FutEvent(Vec<Box<dyn Future<Output = E>>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
@@ -52,35 +75,71 @@ impl<S, E> Default for Out<S, E> {
     }
 }
 
+/// Trait for implementing a renderable scene or game state.
+///
+/// A `GraphicsFlow` manages a self-contained portion of the application:
+/// rendering, input handling, animations, and state updates. The engine
+/// coordinates multiple flows, passes events to them, and composes their renders.
+///
+/// # Lifecycle
+///
+/// 1. `on_init()` is called once when the flow is created; configure context (camera, clear color, etc.)
+/// 2. `on_window_events()` and `on_device_events()` are called for each winit input event
+/// 3. `on_update()` is called every frame
+/// 4. `on_tick()` is called every `tick_duration_millis`
+/// 5. `on_click()` is called when an object with this flow's ID is clicked
+/// 6. `on_custom_events()` is called for custom application events
+/// 7. `on_render()` is called each frame and specifies how to render `self`
+///
 pub trait GraphicsFlow<S, E> {
-    /**
-     * This is the only place to modify the Context and configure things like
-     * the default background colour or camera start position.
-     */
+    /// Initialize the flow and configure the context.
+    ///
+    /// This is the only place to modify the Context and configure things such as the default 
+    /// background colour or camera start position.
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E>;
-    /**
-     * `on_click` is triggered when something on the screen was clicked that has been rendered by `self`.
-     *
-     * `id` is the ID that correlates to a specific mesh set via `on_render`.
-     * It is advised to use a unique u32 id for each element that should be selectable
-     *
-     * When the render type `Custom` is used then also picking has to be implemented by the caller.
-     * See `flow_ngin::pick::draw_to_pick_buffer` for more information about custom picking.
-     */
+
+    /// Handle a click on an object rendered by this flow.
+    ///
+    ///
+    /// `on_click` is triggered when something on the screen (rendered by `self`) was clicked on.
+    ///
+    /// `id` is the ID that correlates to a specific mesh set via `on_render`.
+    /// It is advised to use a unique u32 id for each element that should be selectable
+    ///
+    /// When the render type `Custom` is used then also picking has to be implemented by the caller.
+    /// See `flow_ngin::pick::draw_to_pick_buffer` for more information about custom picking.
+    ////
+    /// picking; see [`crate::pick::draw_to_pick_buffer`] for details.
     fn on_click(&mut self, ctx: &Context, state: &mut S, id: u32) -> Out<S, E>;
-    /**
-     * `on_update` is invoked on every frame and can be used to progress animations or timers in the scene.
-     */
+
+    /// Update state every frame.
+    ///
+    /// Called every frame with the elapsed time `dt`. Use for animations,
+    /// physics updates, and other per-frame logic.
     fn on_update(&mut self, ctx: &Context, state: &mut S, dt: Duration) -> Out<S, E>;
-    /**
-     * `on_tick` is invoked every `tick_duration_millis` milliseconds and the duration can be configured
-     * initially in the `Context` during `on_init` or during runtime via setting the `Out::Configure` output.
-     */
+
+    /// Update state periodically.
+    ///
+    /// Called every `tick_duration_millis` milliseconds (configurable via context).
+    /// Use for discrete game logic that doesn't need to run every frame.
     fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Out<S, E>;
+
+    /// Handle raw device events (keyboard, mouse hardware input).
     fn on_device_events(&mut self, ctx: &Context, state: &mut S, event: &DeviceEvent) -> Out<S, E>;
+
+    /// Handle window events (keyboard, mouse, window resizing, etc.).
     fn on_window_events(&mut self, ctx: &Context, state: &mut S, event: &WindowEvent) -> Out<S, E>;
-    // Events can only be consumed by one GraphicsFlow - non consumed events are returned
+
+    /// Handle custom application events.
+    ///
+    /// Returns the event if it was not consumed, allowing it to be passed to
+    /// the next flow. Returning `None` means the event was consumed.
     fn on_custom_events(&mut self, ctx: &Context, state: &mut S, event: E) -> Option<E>;
+
+    /// Return renderable objects for this flow.
+    ///
+    /// Called each frame. Collect your objects into a [`Render`] and return it.
+    /// The engine will batch and render all flows' renders in optimal order.
     fn on_render<'pass>(&self) -> Render<'_, 'pass>;
 }
 
@@ -91,9 +150,14 @@ impl<State, Event> Debug for (dyn GraphicsFlow<State, Event> + 'static) {
     }
 }
 
+/// Type alias for a flow constructor (factory function).
+///
+/// A flow constructor takes an `InitContext` and asynchronously returns a
+/// boxed `GraphicsFlow`. This allows lazy initialization and resource loading.
 pub type FlowConsturctor<S, E> =
     Box<dyn FnOnce(InitContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
+/// Application state bundle: GPU context, app state, and surface status.
 #[derive(Debug)]
 pub struct AppState<State: 'static> {
     pub(crate) ctx: Context,

@@ -1,5 +1,14 @@
+//! Basic phong/standard lighting pipeline with diffuse and normal map support.
+//!
+//! This is the primary pipeline for rendering opaque objects. It combines
+//! diffuse textures and normal maps for per-pixel lighting calculations.
+
 use crate::{data_structures::{instance::InstanceRaw, model::{self, Vertex}, texture::Texture}, resources::texture::diffuse_normal_layout};
 
+/// Create the basic lighting pipeline for opaque 3D objects.
+///
+/// The basic pipeline renders models with phong/standard lighting, supporting
+/// both diffuse textures and normal maps.
 pub fn mk_basic_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
@@ -37,6 +46,9 @@ pub fn mk_basic_pipeline(
     )
 }
 
+/// Generic helper to create a render pipeline with custom layout and shaders.
+///
+/// Handles boilerplate for creating WGPU render pipelines.
 pub fn mk_render_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,

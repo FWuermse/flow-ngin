@@ -1,14 +1,28 @@
-use std::{collections::HashMap, convert::identity, io::{BufReader, Cursor}};
+use std::{
+    collections::HashMap,
+    convert::identity,
+    io::{BufReader, Cursor},
+};
 
-use crate::{data_structures::{model::{self}, scene_graph::{to_scene_node, AnimationClip, ContainerNode, SceneNode}, texture::Texture}, resources::{animation::Keyframes, texture::{diffuse_normal_layout, load_binary, load_texture}}};
+use crate::{
+    data_structures::{
+        model::{self},
+        scene_graph::{AnimationClip, ContainerNode, SceneNode, to_scene_node},
+        texture::Texture,
+    },
+    resources::{
+        animation::Keyframes,
+        texture::{diffuse_normal_layout, load_binary, load_texture},
+    },
+};
 
 /**
  * This module contains all logic for loading mesh/textures/etc. from external files.
  */
 pub mod animation;
-pub mod texture;
 pub mod mesh;
 pub mod pick;
+pub mod texture;
 
 pub async fn load_model_obj(
     file_name: &str,
@@ -17,7 +31,8 @@ pub async fn load_model_obj(
 ) -> anyhow::Result<model::Model> {
     let bind_group_layout = diffuse_normal_layout(device);
 
-    let (materials, models) = texture::load_textures(file_name, queue, device, &bind_group_layout).await?;
+    let (materials, models) =
+        texture::load_textures(file_name, queue, device, &bind_group_layout).await?;
     let meshes = mesh::load_meshes(&models, file_name, device);
     let meshes = meshes.into_iter().enumerate().filter_map(|(idx, result)| {
         match result {
@@ -29,10 +44,7 @@ pub async fn load_model_obj(
         }
     }).collect();
 
-    let model = model::Model {
-        meshes,
-        materials,
-    };
+    let model = model::Model { meshes, materials };
     Ok(model)
 }
 
@@ -94,12 +106,13 @@ pub async fn load_model_gltf(
                         Keyframes::Translation(translation_vec)
                     }
                     gltf::animation::util::ReadOutputs::Rotations(rotation) => {
-                        let quaternions: Vec<cgmath::Quaternion<f32>> = rotation.into_f32()
+                        let quaternions: Vec<cgmath::Quaternion<f32>> = rotation
+                            .into_f32()
                             .map(|quat| {
                                 let quat = quat.into();
                                 quat
                             })
-                            .collect(); 
+                            .collect();
                         Keyframes::Rotation(quaternions)
                     }
                     gltf::animation::util::ReadOutputs::Scales(scales) => {
@@ -108,7 +121,7 @@ pub async fn load_model_gltf(
                                 let sc = sc.into();
                                 sc
                             })
-                            .collect(); 
+                            .collect();
                         Keyframes::Scale(quaternion)
                     }
                     // TODO: implement morphing
@@ -124,7 +137,10 @@ pub async fn load_model_gltf(
                 keyframes,
                 timestamps,
             };
-            animations.entry(channel.target().node().index()).and_modify(|v | v.push(animation.clone())).or_insert(vec![animation]);
+            animations
+                .entry(channel.target().node().index())
+                .and_modify(|v| v.push(animation.clone()))
+                .or_insert(vec![animation]);
         }
     }
     // Load materials
@@ -133,9 +149,7 @@ pub async fn load_model_gltf(
         let pbr = material.pbr_metallic_roughness();
         let texture_source = &pbr
             .base_color_texture()
-            .map(|tex| {
-                tex.texture().source().source()
-            })
+            .map(|tex| tex.texture().source().source())
             .expect("texture");
         let diffuse_texture = match texture_source {
             gltf::image::Source::View { view, mime_type } => {
@@ -188,13 +202,13 @@ pub async fn load_model_gltf(
         let name = format!("{}.gltf", file_name);
         let name = name.as_str();
         let layout = &diffuse_normal_layout(device);
-        materials.push(model::Material::new(
-            device,
-            name,
-            diffuse_texture,
-            normal_texture,
-            layout,
-        ));
+        if let Ok(material) =
+            model::Material::new(device, name, diffuse_texture, normal_texture, layout)
+        {
+            materials.push(material);
+        } else {
+            log::warn!("Failed to create material for gltf ({})", file_name);
+        }
     }
 
     let mut models = Vec::new();

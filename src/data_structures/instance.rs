@@ -1,14 +1,19 @@
+//! Instance transformation data for GPU rendering.
+//!
+//! Per-instance data like position, rotation, and scale is stored as
+//! GPU buffers and passed to shaders for efficient multi-draw instancing.
+
 use std::ops::{Add, Mul};
 
 use cgmath::One;
 
 use crate::data_structures::model;
 
-/**
- * An instance is only holds the basic transformations.
- * 
- * This struct may be abused in other places where such transformations are needed.
- */
+/// Per-instance transformation: position, rotation (as quaternion), and scale.
+///
+/// Used for GPU instancing: multiple copies of the same model can be rendered
+/// with different transforms in a single draw call. The instance data is packed
+/// into a GPU buffer and accessible to vertex shaders.
 #[derive(Clone, Debug)]
 pub struct Instance {
     pub position: cgmath::Vector3<f32>,
@@ -17,6 +22,7 @@ pub struct Instance {
 }
 
 impl Instance {
+    /// Create a new instance with identity transformation (no move, rotate, or scale).
     pub fn new() -> Self {
         Self {
             position: cgmath::Vector3::new(0.0, 0.0, 0.0),

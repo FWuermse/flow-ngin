@@ -29,6 +29,7 @@ impl Vertex {
     }
 }
 
+#[allow(dead_code)]
 fn mk_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Shader"),
@@ -36,6 +37,7 @@ fn mk_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     })
 }
 
+#[allow(dead_code)]
 fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
@@ -64,6 +66,7 @@ fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
  * Warning: make sure the texture atlas is smaller than 2048x2048 bytes as not all browsers
  * support graphics APIs that can handle larger images.
  */
+#[allow(dead_code)]
 fn mk_bind_group(
     device: &wgpu::Device,
     texture_atlas: Texture,

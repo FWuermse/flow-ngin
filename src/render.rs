@@ -1,3 +1,17 @@
+//! Render composition and pipeline batching.
+//!
+//! This module defines the [`Render`] enum, which is used by scene nodes to specify
+//! how they should be rendered. The engine uses `Render` to sort objects into batches
+//! for different pipelines (basic, transparent, GUI, terrain, picking, etc.) and to
+//! support custom per-object render passes.
+//!
+//! # Key types
+//!
+//! - [`Render<'a, 'pass>`] is the primary enum describing render operations
+//! - [`Instanced<'a>`] contains data for instanced rendering (model + instance buffer)
+//! - [`Flat<'a>`] contains data for flat (2D / GUI) rendering (vertex + index buffers)
+//!
+
 use std::collections::{HashMap, HashSet};
 
 use wgpu::RenderPass;
@@ -7,6 +21,10 @@ use crate::{
     data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode},
 };
 
+/// Data for instanced object rendering: a model, instance buffer, and pick ID.
+///
+/// Used for 3D objects rendered with GPU instancing. The instance buffer contains
+/// per-instance transformation data and other per-instance attributes.
 pub struct Instanced<'a> {
     pub instance: &'a wgpu::Buffer,
     pub model: &'a Model,
@@ -14,6 +32,10 @@ pub struct Instanced<'a> {
     pub id: u32,
 }
 
+/// Data for flat (2D / GUI) object rendering: vertex and index buffers with a bind group.
+///
+/// Used for 2D GUI elements, terrain, or other flat geometry. The bind group
+/// contains textures and samplers for the rendered objects.
 pub struct Flat<'a> {
     pub vertex: &'a wgpu::Buffer,
     pub index: &'a wgpu::Buffer,
@@ -22,6 +44,25 @@ pub struct Flat<'a> {
     pub id: u32,
 }
 
+/// Specifies how a scene object should be rendered.
+///
+/// `Render` is an enum that allows flexible composition of render operations.
+/// It can represent a single instanced object, a batch of objects, transparent
+/// objects, GUI elements, terrain, a composite of multiple renders, or a custom
+/// render closure for special effects.
+///
+/// # Variants
+///
+/// - `None` renders nothing
+/// - `Default(Instanced)` renders a single opaque instanced object
+/// - `Defaults(Vec<Instanced>)` renders a batch of opaque instanced objects
+/// - `Transparent(Instanced)` renders a single transparent instanced object
+/// - `Transparents(Vec<Instanced>)` renders a batch of transparent objects
+/// - `GUI(Flat)` renders 2D elements (flat geometry)
+/// - `Terrain(Flat)` renders terrain mesh
+/// - `Composed(Vec<Render>)` recursively renders composition of multiple renders
+/// - `Custom(...)` invokes a user-defined closure for custom rendering
+///
 pub enum Render<'a, 'pass>
 where
     'pass: 'a,
@@ -37,6 +78,11 @@ where
     Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
 }
 impl<'a, 'pass> Render<'a, 'pass> {
+    /// Map object IDs to flow IDs for picking and selection.
+    ///
+    /// Internal helper used during picking setup to associate which flow owns
+    /// which object IDs. Walks the render tree and populates a map of object ID
+    /// to set of flow IDs.
     pub(crate) fn map_ids(
         &self,
         // TODO: introduce id caching in ctx
@@ -84,6 +130,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
             Render::None | Render::Custom(_) => (),
         }
     }
+
     pub(crate) fn set_pipelines(
         self,
         ctx: &Context,
@@ -110,6 +157,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
             Render::None => (),
         }
     }
+
     pub(crate) fn set_pick_pipelines(
         self,
         ctx: &Context,

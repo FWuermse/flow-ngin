@@ -1,3 +1,9 @@
+//! Building blocks implemented via GPU instancing.
+//!
+//! Provides [`BuildingBlocks`], a collection of identically-shaped objects
+//! (e.g., construction blocks or crowds) rendered efficiently using GPU instancing. Note that
+//! hidden blocks are not culled, so this may not be optimal for large voxel worlds.
+
 use crate::{
     context::Context,
     data_structures::{
@@ -6,16 +12,14 @@ use crate::{
     },
     resources::{self, pick::load_pick_model},
 };
-use cgmath::{One, Quaternion, Rotation3, Zero};
+use cgmath::{One, Rotation3, Zero};
 use wgpu::{Device, util::DeviceExt};
 
-/**
- * A `BuildingBlock` is a one-by-one voxel that uses instancing.
- *
- * I don't recommend it for building entire voxel worlds similar to Minecraft at
- * this point as "hidden" blocks are still progressing through the pipeline until
- * the depth-buffer.
- */
+/// A collection of identically-shaped building blocks.
+///
+/// Uses GPU instancing to efficiently render many copies of the same model
+/// with different transformations. Currently does not perform frustum culling
+/// or occlusion culling, so performance may degrade with very large numbers of blocks.
 pub struct BuildingBlocks {
     // TODO: create apis and make fields private
     pub id: u32,
@@ -29,6 +33,7 @@ pub struct BuildingBlocks {
 
 impl BuildingBlocks {
     pub async fn new(
+        #[allow(unused)]
         id: u32,
         queue: &wgpu::Queue,
         device: &wgpu::Device,

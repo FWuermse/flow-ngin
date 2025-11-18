@@ -1,4 +1,4 @@
-use crate::{data_structures::model, pipelines::{gui, pick_gui::mk_bind_group_layout}};
+use crate::{data_structures::model, pipelines::pick_gui::mk_bind_group_layout};
 
 use wgpu::util::DeviceExt;
 

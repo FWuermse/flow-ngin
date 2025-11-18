@@ -1,3 +1,9 @@
+//! Scene graph and hierarchical scene organization.
+//!
+//! Provides traits and structures for building a scene graph: a hierarchical
+//! representation of objects in a scene, including animation support and
+//! renderable object composition.
+
 use std::{collections::HashMap, ops::Range};
 
 use log::warn;
@@ -12,6 +18,7 @@ use crate::{
     resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
 };
 
+/// An animation clip: a named animation with keyframes and timing.
 #[derive(Clone, Debug)]
 pub struct AnimationClip {
     pub name: String,

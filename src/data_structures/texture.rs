@@ -1,12 +1,18 @@
+//! GPU textures and texture creation utilities.
+//!
+//! This module provides [`Texture`], a wrapper around WGPU GPU texture resources,
+//! and helper methods for creating depth textures, normal maps, and loading textures
+//! from image data.
+
 use anyhow::*;
 use image::{GenericImageView, ImageFormat, load_from_memory_with_format};
 
-/**
- * Txtures can be loaded from a file or webserver path.
- *
- * The `texture` describes the
- *
- */
+/// A GPU texture with a view and optional sampler.
+///
+/// Wraps WGPU texture objects along with associated views and samplers.
+/// Textures are used for color maps, normal maps, depth, and other data
+/// bound to shaders. Typically created via [`from_bytes`](Self::from_bytes) or
+/// via [`create_depth_texture`](Self::create_depth_texture).
 #[derive(Clone, Debug)]
 pub struct Texture {
     #[allow(unused)]
@@ -16,11 +22,19 @@ pub struct Texture {
 }
 
 impl Texture {
+    /// Standard depth buffer texture format (32-bit float).
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-    /**
-     * The depth texture is required for the depthbuffer to check which objects are hidden behind others
-     */
+    /// Create a depth texture for depth-testing during rendering.
+    ///
+    /// Depth textures are required for proper depth-testing to determine which objects
+    /// are in front of others. The returned texture is suitable for use as a
+    /// `RENDER_ATTACHMENT` in render passes.
+    ///
+    /// # Arguments
+    ///
+    /// * `size` is [width, height] of the texture in pixels
+    /// * `label` is used as a debug label for the GPU resource
     pub fn create_depth_texture(device: &wgpu::Device, size: [u32; 2], label: &str) -> Self {
         let size = wgpu::Extent3d {
             width: size[0].max(1),
@@ -59,6 +73,10 @@ impl Texture {
         }
     }
 
+    /// Create a default normal map (neutral blue, representing no deformation).
+    ///
+    /// Returns a solid blue texture suitable as a default when no normal map is provided.
+    /// This avoids the need to change shaders when normal maps are optional.
     pub fn create_default_normal_map(
         width: u32,
         height: u32,
@@ -115,6 +133,14 @@ impl Texture {
         }
     }
 
+    /// Load a texture from raw byte data (image file contents).
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` represent raw image file data (PNG, JPEG, etc.)
+    /// * `label` is used as a debug name for the GPU resource
+    /// * `format`  is an optional file format hint (e.g., "png"). If None, auto-detect.
+    /// * `is_normal_map` toggles between sRGB (false) and linear (true) color space
     pub fn from_bytes(
         device: &wgpu::Device,
         queue: &wgpu::Queue,

@@ -1,11 +1,25 @@
+//! 3D models: vertices, materials, meshes, and GPU-uploadable data.
+//!
+//! This module provides types for loading and managing 3D models:
+//!
+//! - [`ModelVertex`] holds position, normals, tangents, and texture coordinates
+//! - [`Material`] is the material with diffuse and normal textures and samplers
+//! - [`Mesh`] is a single mesh (vertices, indices, material)
+//! - [`Model`] is a collection of meshes with shared materials
+
 use std::ops::Range;
 
 use crate::{data_structures::texture::{self, create_default_sampler}, resources::pick::pick_layout};
 
+/// Trait for types that describe their GPU vertex layout.
 pub trait Vertex {
     fn desc() -> wgpu::VertexBufferLayout<'static>;
 }
 
+/// A 3D model vertex with position, texture coordinates, and normal/tangent data.
+///
+/// Used for normal-mapped surfaces. Stores position, UV coordinates, and the
+/// normal + tangent vectors needed for per-pixel normal mapping.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable, PartialEq)]
 pub struct ModelVertex {

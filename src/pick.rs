@@ -1,3 +1,18 @@
+//! Object picking and selection.
+//!
+//! This module implements GPU-based object picking: rendering scene objects with
+//! unique IDs to an offscreen texture, then reading the pixel under the mouse cursor
+//! to determine which object was clicked. Supports picking for both 3D (instanced)
+//! and 2D (GUI/flat) objects.
+//!
+//! The picking pipeline works as follows:
+//! 1. Render all objects to an offscreen texture using unique IDs as RGBA values for the fragment shader
+//! 2. Read the pixel at the mouse cursor position (scaled according to platform limitations on texture sizes)
+//! 3. Map the pick ID back to the flow that owns the object (determined by the render tree)
+//! 4. Return the selected object ID and owning flows
+//! 
+//! Especially step 4 makes sure that only those flows are invoked that were responsible for selected object.
+
 use std::{
     collections::{HashMap, HashSet},
     iter,
@@ -14,6 +29,19 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use crate::flow::FlowEvent;
 
+/// Render all flows to pick texture and determine which object was clicked.
+/// 
+/// # Arguments
+///
+/// * `async_runtime` using the tokio runtime for async resource loading if not on WASM
+/// * `flows` represent all active graphics flows with their renderable objects
+/// * `ctx` is the rendering context
+/// * `mouse_state` is required for getting the mouse coordinates at the time of picking
+/// * `proxy` WASM futures can only resolve using the winit event loop proxy by sending events
+///
+/// # Returns
+///
+/// `Some((pick_id, flow_ids))` if an object was picked, or `None` picking is done via the event loop.
 pub fn draw_to_pick_buffer<State, Event>(
     #[cfg(not(target_arch = "wasm32"))] async_runtime: &tokio::runtime::Runtime,
     flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
