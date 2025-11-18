@@ -241,6 +241,8 @@ impl<'a, State: Default> AppState<State> {
 }
 
 pub struct App<State: 'static, Event: 'static> {
+    #[cfg(not(target_arch = "wasm32"))]
+    async_runtime: tokio::runtime::Runtime,
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
     state: Option<AppState<State>>,
     // This will hold the fully initialized flows once they are ready.
@@ -262,7 +264,11 @@ where
         constructors: Vec<FlowConsturctor<State, Event>>,
     ) -> Self {
         let proxy = event_loop.create_proxy();
+        #[cfg(not(target_arch = "wasm32"))]
+        let async_runtime = tokio::runtime::Runtime::new().unwrap();
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            async_runtime,
             proxy,
             state: None,
             graphics_flows: Vec::new(),
@@ -338,12 +344,12 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let (mut app_state, flows) = pollster::block_on(init_future);
+            let (mut app_state, flows) = self.async_runtime.block_on(init_future);
             self.graphics_flows = flows;
             self.graphics_flows.iter_mut().for_each(|flow| {
                 let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                 let proxy = self.proxy.clone();
-                handle_flow_output(&mut app_state.state, &mut app_state.ctx, proxy, events);
+                handle_flow_output(&self.async_runtime, &mut app_state.state, &mut app_state.ctx, proxy, events);
             });
             self.state = Some(app_state);
         }
@@ -380,7 +386,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 self.graphics_flows.iter_mut().for_each(|flow| {
                     let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                     let proxy = self.proxy.clone();
-                    handle_flow_output(&mut app_state.state, &mut app_state.ctx, proxy, events);
+                    handle_flow_output(&self.async_runtime, &mut app_state.state, &mut app_state.ctx, proxy, events);
                 });
                 app_state.ctx.window.request_redraw();
             }
@@ -439,7 +445,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.on_device_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
-            handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
+            handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
         });
     }
 
@@ -468,7 +474,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
-            handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
+            handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
         });
 
         match event {
@@ -485,7 +491,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                             self.graphics_flows.iter_mut().for_each(|f| {
                                 let events = f.on_tick(&state.ctx, &mut state.state);
                                 let proxy = self.proxy.clone();
-                                handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
+                                handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
                             });
                             self.time_since_tick = Duration::from_millis(0);
                         }
@@ -517,7 +523,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                         self.graphics_flows.iter_mut().for_each(|f| {
                             let events = f.on_update(&state.ctx, &mut state.state, dt);
                             let proxy = self.proxy.clone();
-                            handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
+                            handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
                         });
                     }
                     // Reconfigure the surface if it's lost or outdated
@@ -559,7 +565,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                         let events =
                                             flow.on_click(&state.ctx, &mut state.state, pick_id);
                                         let proxy = self.proxy.clone();
-                                        handle_flow_output(&mut state.state, &mut state.ctx, proxy, events);
+                                        handle_flow_output(&self.async_runtime, &mut state.state, &mut state.ctx, proxy, events);
                                     });
                                 });
                             }
@@ -578,6 +584,8 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 }
 
 fn handle_flow_output<State, Event>(
+    #[cfg(not(target_arch = "wasm32"))]
+    async_runtime: &tokio::runtime::Runtime,
     state: &mut State,
     ctx: &mut Context,
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
@@ -591,7 +599,7 @@ fn handle_flow_output<State, Event>(
             let fut = async move { futures::future::join_all(events.into_iter()).await };
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let resolved = pollster::block_on(fut);
+                let resolved = async_runtime.block_on(fut);
                 resolved.into_iter().for_each(|event| {
                     let err = proxy.send_event(FlowEvent::Custom(event));
                     if let Err(err) = err {
@@ -604,7 +612,7 @@ fn handle_flow_output<State, Event>(
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let resolved = events.await;
+                    let resolved = fut.await;
                     for event in resolved {
                         assert!(proxy.send_event(FlowEvent::Custom(event)).is_ok());
                     }
@@ -618,7 +626,7 @@ fn handle_flow_output<State, Event>(
             let fut = async move { futures::future::join_all(events.into_iter()).await };
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let resolved: Vec<Box<dyn FnOnce(&mut State)>> = pollster::block_on(fut);
+                let resolved: Vec<Box<dyn FnOnce(&mut State)>> = async_runtime.block_on(fut);
                 resolved.into_iter().for_each(|mutation| {
                     mutation(state);
                 });
@@ -627,9 +635,9 @@ fn handle_flow_output<State, Event>(
             #[cfg(target_arch = "wasm32")]
             {
                 wasm_bindgen_futures::spawn_local(async move {
-                    let resolved = events.await;
+                    let resolved = fut.await;
                     for mutation in resolved {
-                        assert!(proxy.send_event(lowEvent::Mut(mutation)).is_ok());
+                        assert!(proxy.send_event(FlowEvent::Mut(mutation)).is_ok());
                     }
                 });
             }

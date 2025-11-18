@@ -222,7 +222,7 @@ pub fn draw_to_pick_buffer<State, Event>(
         );
         let id = future_id.await;
         if let Some(flow_ids) = translation.get(&id) {
-            assert!(proxy.send_event(FlowEvent::Id((id, flow_ids))).is_ok());
+            assert!(proxy.send_event(FlowEvent::Id((id, flow_ids.clone()))).is_ok());
             output_buffer.unmap();
         };
     });
