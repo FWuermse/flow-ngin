@@ -31,4 +31,4 @@ pub use winit::dpi::PhysicalPosition;
 pub use cgmath::*;
 pub use winit::event::DeviceEvent;
 pub use winit::event::WindowEvent;
-pub use wgpu::RenderPass;
+pub use wgpu::*;
