@@ -48,7 +48,15 @@ You may want to use this engine if:
   - [ ] Icons (including transparency)
   - [ ] Responsiveness
 
-## Supported backends
+## Running Integration Tests
+
+Note: integrations tests with golden-image-tests can currently only be executed on Wayland and Windows.
+
+```sh
+cargo test --features integration-tests
+```
+
+## Supported Backends
 
 + Vulkan
 + Metal

@@ -58,6 +58,7 @@ pub fn draw_to_pick_buffer<State, Event>(
     let height = ctx.config.height;
     let width_offset = 256 - (width % 256);
     let height_offset = 256 - (height % 256);
+    // TODO: if on wasm max at 2048 and keep ratio
     let width_factor = (f64::from(width) + f64::from(width_offset)) / f64::from(width);
     let height_factor = (f64::from(height) + f64::from(height_offset)) / f64::from(height);
     let width = width + width_offset;
@@ -235,7 +236,7 @@ pub fn draw_to_pick_buffer<State, Event>(
     );
 
     ctx.queue.submit(iter::once(encoder.finish()));
-    let binding = ctx.device.clone();
+    let device = ctx.device.clone();
     let mouse_coords = mouse_state.coords.clone();
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_futures::spawn_local(async move {
@@ -266,7 +267,7 @@ pub fn draw_to_pick_buffer<State, Event>(
         let buffer_slice = output_buffer.slice(..);
         let future_id = read_texture_buffer(
             buffer_slice,
-            &binding,
+            &device,
             width_factor,
             height_factor,
             width,

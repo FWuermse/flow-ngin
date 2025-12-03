@@ -52,7 +52,7 @@ pub struct Pipelines {
 
 #[derive(Debug)]
 pub struct Context {
-    pub(crate) window: Arc<Window>,
+    pub window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
     pub tick_duration_millis: u64,
     pub clear_colour: wgpu::Color,
