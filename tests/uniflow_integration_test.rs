@@ -1,3 +1,5 @@
+#[cfg(feature = "integration-tests")]
+use flow_ngin::flow::ImageTestResult;
 use flow_ngin::{
     context::Context,
     flow::{FlowConsturctor, GraphicsFlow, Out}, render::Render,
@@ -104,13 +106,14 @@ impl GraphicsFlow<State, Event> for GraphicsElement {
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
         Render::None
     }
-    
+
     fn render_to_texture(
         &self,
+        _: &Context,
         _: &mut State,
         _: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
-    ) -> Result<(), anyhow::Error> {
-        Ok(())
+    ) -> std::result::Result<ImageTestResult, anyhow::Error> {
+        Ok(ImageTestResult::Passed)
     }
 }
 
