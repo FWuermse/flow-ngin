@@ -14,7 +14,7 @@ enum Event {
     Test,
 }
 
-struct GraphicsElement(u32);
+struct GraphicsElement();
 
 #[cfg(feature = "integration-tests")]
 impl GraphicsFlow<State, Event> for GraphicsElement {
@@ -122,7 +122,7 @@ impl GraphicsFlow<State, Event> for GraphicsElement {
 fn should_not_be_emty_after_render() {
     let model_constructor: FlowConsturctor<State, Event> = Box::new(|_| {
         Box::pin(async move {
-            Box::new(GraphicsElement(0)) as Box<dyn GraphicsFlow<_, _>>
+            Box::new(GraphicsElement()) as Box<dyn GraphicsFlow<_, _>>
         })
     });
 
