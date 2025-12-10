@@ -8,12 +8,12 @@ use crate::{
     context::Context,
     data_structures::{
         instance::Instance,
-        model::{self},
+        model::{self, Model},
     },
     resources::{self, pick::load_pick_model},
 };
 use cgmath::{One, Rotation3, Zero};
-use wgpu::{Device, util::DeviceExt};
+use wgpu::{Buffer, Device, util::DeviceExt};
 
 /// A collection of identically-shaped building blocks.
 ///
@@ -31,10 +31,15 @@ pub struct BuildingBlocks {
     pub instance_buffer: wgpu::Buffer,
 }
 
+impl AsRef<BuildingBlocks> for BuildingBlocks {
+    fn as_ref(&self) -> &BuildingBlocks {
+        self
+    }
+}
+
 impl BuildingBlocks {
     pub async fn new(
-        #[allow(unused)]
-        id: u32,
+        #[allow(unused)] id: u32,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         start_position: cgmath::Vector3<f32>,
@@ -91,7 +96,15 @@ impl BuildingBlocks {
         descr: &[(u32, &'static str)],
     ) -> Vec<BuildingBlocks> {
         let futures = descr.into_iter().map(|(id, file_name)| {
-            BuildingBlocks::new(*id, queue, device, cgmath::Vector3::zero(), cgmath::Quaternion::one(), amount, file_name)
+            BuildingBlocks::new(
+                *id,
+                queue,
+                device,
+                cgmath::Vector3::zero(),
+                cgmath::Quaternion::one(),
+                amount,
+                file_name,
+            )
         });
         futures::future::join_all(futures).await
     }

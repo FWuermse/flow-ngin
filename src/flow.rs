@@ -220,7 +220,6 @@ impl<'a, State: Default> AppState<State> {
     }
 
     fn get_surface_texture(&self) -> wgpu::SurfaceTexture {
-        //#[cfg(not(feature = "integration-tests"))]
         self.ctx
             .surface
             .get_current_texture()
@@ -234,7 +233,7 @@ impl<'a, State: Default> AppState<State> {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            format: self.ctx.config.format,
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         })
@@ -291,6 +290,7 @@ impl<'a, State: Default> AppState<State> {
 
         let output = self.get_surface_texture();
         // TODO: different view for golden img testing
+        #[cfg(not(feature = "integration-tests"))]
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());

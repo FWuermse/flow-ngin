@@ -1,10 +1,18 @@
 #[cfg(feature = "integration-tests")]
-use flow_ngin::flow::ImageTestResult;
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
+
 use flow_ngin::{
     context::Context,
     flow::{GraphicsFlow, Out},
     render::Render,
 };
+#[cfg(feature = "integration-tests")]
+use flow_ngin::{data_structures::block::BuildingBlocks, flow::ImageTestResult};
+#[cfg(feature = "integration-tests")]
+use wgpu::RenderPass;
 
 pub(crate) struct State {
     frame_counter: u32,
@@ -65,121 +73,68 @@ impl Default for State {
     }
 }
 
-#[cfg(feature = "integration-tests")]
-pub(crate) trait ImageFlow<S, E> {
-    fn test_setup(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E>;
-    fn render_test<'pass>(&self) -> Render<'_, 'pass>;
-    fn validate_render_output(
-        &self,
-        ctx: &Context,
-        state: &mut S,
-        texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
-    ) -> Result<ImageTestResult, anyhow::Error>;
+pub(crate) struct FrameCounter {
+    id: u32,
 }
 
-#[cfg(feature = "integration-tests")]
-pub(crate) struct Flow<S, T>(pub(crate) Box<dyn ImageFlow<S, T>>);
-
-#[cfg(feature = "integration-tests")]
-impl<S, E> GraphicsFlow<S, E> for Flow<S, E> {
-    fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
-        self.0.test_setup(ctx, state)
-    }
-
-    fn on_click(&mut self, _: &Context, _: &mut S, _: u32) -> Out<S, E> {
-        Out::Empty
-    }
-
-    fn on_update(&mut self, _: &Context, _: &mut S, _: std::time::Duration) -> Out<S, E> {
-        Out::Empty
-    }
-
-    fn on_tick(&mut self, _: &Context, _: &mut S) -> Out<S, E> {
-        Out::Empty
-    }
-
-    fn on_device_events(
-        &mut self,
-        _: &Context,
-        _: &mut S,
-        _: &flow_ngin::DeviceEvent,
-    ) -> Out<S, E> {
-        Out::Empty
-    }
-
-    fn on_window_events(
-        &mut self,
-        _: &Context,
-        _: &mut S,
-        _: &flow_ngin::WindowEvent,
-    ) -> Out<S, E> {
-        Out::Empty
-    }
-
-    fn on_custom_events(&mut self, _: &Context, _: &mut S, event: E) -> Option<E> {
-        Some(event)
-    }
-
-    fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        self.0.render_test()
-    }
-
-    fn render_to_texture(
-        &self,
-        ctx: &Context,
-        state: &mut S,
-        texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
-    ) -> Result<ImageTestResult, anyhow::Error> {
-        self.0.validate_render_output(ctx, state, texture)
-    }
-}
-
-pub(crate) struct FrameCounter(pub(crate) u32);
-impl Default for FrameCounter {
-    fn default() -> Self {
-        Self(0)
-    }
-}
 impl FrameCounter {
     pub(crate) fn frame(&self) -> u32 {
-        return self.0;
+        return self.id;
     }
 
     pub(crate) fn progress(&mut self) {
-        self.0 += 1;
+        self.id += 1;
+    }
+}
+
+impl Default for FrameCounter {
+    fn default() -> Self {
+        Self {
+            id: Default::default(),
+        }
+    }
+}
+
+/// This is a simplified flow that uses closures to represent lifecycle hook functions making construction
+/// more convenient in test files.
+#[cfg(feature = "integration-tests")]
+pub(crate) struct TestRender<'a> {
+    pub(crate) data: BuildingBlocks,
+    pub(crate) setup: &'a dyn Fn(&mut Context),
+    pub(crate) validate: &'a dyn Fn(
+        &Context,
+        &mut FrameCounter,
+        &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+    ) -> Result<ImageTestResult, anyhow::Error>,
+}
+impl<'a> TestRender<'a> {
+    pub(crate) fn new(
+        data: BuildingBlocks,
+        setup: &'a dyn Fn(&mut Context),
+        validate: &'a dyn Fn(
+            &Context,
+            &mut FrameCounter,
+            &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+        ) -> Result<ImageTestResult, anyhow::Error>,
+    ) -> Self {
+        Self {
+            data,
+            setup,
+            validate,
+        }
     }
 }
 
 #[cfg(feature = "integration-tests")]
-pub(crate) struct TestRender<'a, 'pass> {
-    pub(crate) setup: &'a dyn Fn(&mut Context, &mut FrameCounter),
-    pub(crate) render: Render<'a, 'pass>,
-    pub(crate) validate:
-        &'a dyn Fn(&Context, &mut FrameCounter, &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>) -> Result<ImageTestResult, anyhow::Error>,
-}
-
-#[cfg(feature = "integration-tests")]
-impl<'a, 'b> GraphicsFlow<FrameCounter, ()> for TestRender<'a, 'b>
-where
-    'b: 'a,
-{
+impl<'a> GraphicsFlow<FrameCounter, ()> for TestRender<'a> {
     fn on_init(&mut self, ctx: &mut Context, s: &mut FrameCounter) -> Out<FrameCounter, ()> {
-        (self.setup)(ctx, s);
+        let f = self.setup;
+        f(ctx);
         Out::Empty
     }
 
-    fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
-        match &self.render {
-            Render::None => Render::None,
-            Render::Default(instanced) => Render::Default(instanced.clone()),
-            Render::Defaults(instanceds) => Render::Defaults(instanceds.clone()),
-            Render::Transparent(instanced) => Render::Transparent(instanced.clone()),
-            Render::Transparents(instanceds) => Render::Transparents(instanceds.clone()),
-            Render::GUI(flat) => Render::GUI(flat.clone()),
-            Render::Terrain(flat) => Render::Terrain(flat.clone()),
-            Render::Composed(_) => panic!("Custom not supported in Integration Tests"),
-            Render::Custom(_) => panic!("Custom not supported in Integration Tests"),
-        }
+    fn on_render<'pass>(&self) -> Render<'_, 'pass> {
+        (&self.data).into()
     }
 
     fn render_to_texture(
@@ -188,31 +143,50 @@ where
         s: &mut FrameCounter,
         texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> Result<ImageTestResult, anyhow::Error> {
+        if format!("{:?}", ctx.config.format).starts_with('B') {
+            // TODO: convert [Bgra8UnormSrgb, Rgba8UnormSrgb, Rgb10a2Unorm, Bgra8Unorm, Rgba8Unorm]
+        }
         (self.validate)(ctx, s, texture)
     }
-    
-    fn on_click(&mut self, ctx: &Context, state: &mut FrameCounter, id: u32) -> Out<FrameCounter, ()> {
+
+    fn on_click(&mut self, _: &Context, _: &mut FrameCounter, _: u32) -> Out<FrameCounter, ()> {
         Out::Empty
     }
-    
-    fn on_update(&mut self, ctx: &Context, state: &mut FrameCounter, dt: std::time::Duration) -> Out<FrameCounter, ()> {
+
+    fn on_update(
+        &mut self,
+        ctx: &Context,
+        state: &mut FrameCounter,
+        _: std::time::Duration,
+    ) -> Out<FrameCounter, ()> {
         state.progress();
+        self.data.write_to_buffer(ctx);
         Out::Empty
     }
-    
-    fn on_tick(&mut self, ctx: &Context, state: &mut FrameCounter) -> Out<FrameCounter, ()> {
+
+    fn on_tick(&mut self, _: &Context, _: &mut FrameCounter) -> Out<FrameCounter, ()> {
         Out::Empty
     }
-    
-    fn on_device_events(&mut self, ctx: &Context, state: &mut FrameCounter, event: &flow_ngin::DeviceEvent) -> Out<FrameCounter, ()> {
+
+    fn on_device_events(
+        &mut self,
+        _: &Context,
+        _: &mut FrameCounter,
+        _: &flow_ngin::DeviceEvent,
+    ) -> Out<FrameCounter, ()> {
         Out::Empty
     }
-    
-    fn on_window_events(&mut self, ctx: &Context, state: &mut FrameCounter, event: &flow_ngin::WindowEvent) -> Out<FrameCounter, ()> {
+
+    fn on_window_events(
+        &mut self,
+        _: &Context,
+        _: &mut FrameCounter,
+        _: &flow_ngin::WindowEvent,
+    ) -> Out<FrameCounter, ()> {
         Out::Empty
     }
-    
-    fn on_custom_events(&mut self, ctx: &Context, state: &mut FrameCounter, event: ()) -> Option<()> {
+
+    fn on_custom_events(&mut self, _: &Context, _: &mut FrameCounter, event: ()) -> Option<()> {
         Some(event)
     }
 }
@@ -223,11 +197,10 @@ macro_rules! golden_image_test {
         use crate::common::test_utils::FrameCounter;
         use flow_ngin::flow::FlowConsturctor;
         use flow_ngin::flow::GraphicsFlow;
-        let model_constructor: FlowConsturctor<FrameCounter, ()> = Box::new(|_| {
-            Box::pin(async move {
-                let g_flow: Box<dyn GraphicsFlow<FrameCounter, ()>> = Box::new($graphics_elem);
-                g_flow
-            })
+        let model_constructor: FlowConsturctor<FrameCounter, ()> = Box::new(|ctx| {
+            Box::pin(
+                async move { Box::new($graphics_elem(ctx).await) as Box<dyn GraphicsFlow<_, _>> },
+            )
         });
 
         flow_ngin::flow::run(vec![model_constructor])

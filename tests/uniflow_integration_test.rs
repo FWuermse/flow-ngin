@@ -36,7 +36,7 @@ impl GraphicsFlow<State, Event> for GraphicsElement {
 
     fn on_update(
         &mut self,
-        ctx: &Context,
+        _: &Context,
         state: &mut State,
         _: std::time::Duration,
     ) -> Out<State, Event> {

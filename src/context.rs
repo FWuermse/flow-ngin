@@ -117,7 +117,9 @@ impl Context {
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            // Preferrably choose Rgba over Bgra because the image library can only handle Rgba natively (conversion is somewhat expensive in integration tests)
+            .find(|f| f.is_srgb() && format!("{:?}", f).starts_with('R'))
+            .or(surface_caps.formats.iter().copied().find(|f| f.is_srgb()))
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
