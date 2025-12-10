@@ -5,7 +5,7 @@
 //! hidden blocks are not culled, so this may not be optimal for large voxel worlds.
 
 use crate::{
-    context::Context,
+    context::{BufferWriter, Context},
     data_structures::{
         instance::Instance,
         model::{self, Model},
@@ -155,8 +155,10 @@ impl BuildingBlocks {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
     }
+}
 
-    pub fn write_to_buffer(&self, ctx: &Context) {
+impl BufferWriter for BuildingBlocks {
+    fn write_to_buffer(&mut self, ctx: &Context) {
         let raws = self
             .instances
             .iter()

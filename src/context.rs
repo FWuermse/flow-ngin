@@ -17,6 +17,10 @@ use crate::{
     },
 };
 
+pub trait BufferWriter {
+    fn write_to_buffer(&mut self, ctx: &Context);
+}
+
 #[derive(Debug)]
 pub enum MouseButtonState {
     Right,

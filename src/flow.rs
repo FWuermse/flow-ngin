@@ -948,7 +948,9 @@ pub fn run<State: 'static + Default, Event: 'static>(
 ) -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
+        if let Err(e) = env_logger::try_init() {
+            println!("Warning: Could not initialize logger: {}", e);
+        };
     }
 
     #[cfg(target_arch = "wasm32")]

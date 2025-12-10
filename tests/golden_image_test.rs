@@ -1,6 +1,5 @@
 #[cfg(feature = "integration-tests")]
 use crate::common::test_utils::TestRender;
-use flow_ngin::render::Render;
 use wgpu::Color;
 
 #[cfg(feature = "integration-tests")]
@@ -9,25 +8,24 @@ mod common;
 #[test]
 #[cfg(feature = "integration-tests")]
 fn should_render_clear_colour() {
-    use cgmath::One;
     use flow_ngin::{
-        context::{Context, InitContext},
-        data_structures::block::BuildingBlocks,
+        context::{BufferWriter, Context, InitContext},
+        render::Render,
     };
 
-    golden_image_test!(async move |ctx: InitContext| {
-        let model = BuildingBlocks::new(
-            0,
-            &ctx.queue,
-            &ctx.device,
-            [0.0; 3].into(),
-            flow_ngin::Quaternion::one(),
-            1,
-            "Rock1.obj",
-        )
-        .await;
+    struct Empty();
+    impl<'b, 'pass> From<&'b Empty> for Render<'b, 'pass> {
+        fn from(_: &'b Empty) -> Self {
+            Render::None
+        }
+    }
+    impl BufferWriter for Empty {
+        fn write_to_buffer(&mut self, _: &Context) {} 
+    }
+
+    golden_image_test!(async move |_: InitContext| {
         TestRender::new(
-            model,
+            Empty(),
             &|ctx: &mut Context| {
                 ctx.clear_colour = Color::WHITE;
                 ctx.camera.camera.position = [0.0, 5.0, 2.0].into();
@@ -94,7 +92,6 @@ fn should_match_rock_collection_render() {
                         "image sizes differ"
                     );
 
-                    // Perform exact comparison
                     for (x, y, pixel_actual) in actual.enumerate_pixels() {
                         let pixel_expected = expected.get_pixel(x, y);
                         assert_eq!(

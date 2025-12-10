@@ -10,7 +10,7 @@ use flow_ngin::{
     render::Render,
 };
 #[cfg(feature = "integration-tests")]
-use flow_ngin::{data_structures::block::BuildingBlocks, flow::ImageTestResult};
+use flow_ngin::{context::BufferWriter, data_structures::block::BuildingBlocks, flow::ImageTestResult};
 #[cfg(feature = "integration-tests")]
 use wgpu::RenderPass;
 
@@ -98,8 +98,8 @@ impl Default for FrameCounter {
 /// This is a simplified flow that uses closures to represent lifecycle hook functions making construction
 /// more convenient in test files.
 #[cfg(feature = "integration-tests")]
-pub(crate) struct TestRender<'a> {
-    pub(crate) data: BuildingBlocks,
+pub(crate) struct TestRender<'a, T> {
+    pub(crate) data: T,
     pub(crate) setup: &'a dyn Fn(&mut Context),
     pub(crate) validate: &'a dyn Fn(
         &Context,
@@ -107,9 +107,9 @@ pub(crate) struct TestRender<'a> {
         &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> Result<ImageTestResult, anyhow::Error>,
 }
-impl<'a> TestRender<'a> {
+impl<'a, T> TestRender<'a, T> {
     pub(crate) fn new(
-        data: BuildingBlocks,
+        data: T,
         setup: &'a dyn Fn(&mut Context),
         validate: &'a dyn Fn(
             &Context,
@@ -126,7 +126,7 @@ impl<'a> TestRender<'a> {
 }
 
 #[cfg(feature = "integration-tests")]
-impl<'a> GraphicsFlow<FrameCounter, ()> for TestRender<'a> {
+impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestRender<'a, T> where for<'pass, 'b> Render<'b, 'pass>: From<&'b T>, T: BufferWriter {
     fn on_init(&mut self, ctx: &mut Context, s: &mut FrameCounter) -> Out<FrameCounter, ()> {
         let f = self.setup;
         f(ctx);
