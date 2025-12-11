@@ -14,6 +14,9 @@ categories = ["graphics", "wasm"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+integration-tests = []
+
 [build-dependencies]
 anyhow = "1.0.100"
 fs_extra = "1.3.0"

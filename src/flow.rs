@@ -10,7 +10,7 @@
 //! - [`GraphicsFlow<S, E>`] is the trait for scenes/states that handle events and rendering
 //! - [`Out<S, E>`] is the output type for async event handling and context configuration
 //!
-//! # Lifetimes and architecture
+//! # Lifecycle Flow
 //!
 //! The event loop follows this pattern each frame:
 //! 1. Collect window/device events
@@ -21,11 +21,14 @@
 //! 6. Render to frame buffer using batched pipelines
 //! 7. Present frame
 
-use std::{collections::HashSet, fmt::Debug, iter, pin::Pin, sync::Arc};
+use std::{collections::HashSet, env, fmt::Debug, iter, pin::Pin, sync::Arc};
 
 use instant::{Duration, Instant};
 
 use cgmath::Rotation3;
+#[cfg(feature = "integration-tests")]
+use tokio::runtime::Runtime;
+use wgpu::SurfaceTexture;
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
@@ -75,6 +78,13 @@ impl<S, E> Default for Out<S, E> {
     }
 }
 
+#[cfg(feature = "integration-tests")]
+pub enum ImageTestResult {
+    Passed,
+    Waiting,
+    Failed,
+}
+
 /// Trait for implementing a renderable scene or game state.
 ///
 /// A `GraphicsFlow` manages a self-contained portion of the application:
@@ -94,7 +104,7 @@ impl<S, E> Default for Out<S, E> {
 pub trait GraphicsFlow<S, E> {
     /// Initialize the flow and configure the context.
     ///
-    /// This is the only place to modify the Context and configure things such as the default 
+    /// This is the only place to modify the Context and configure things such as the default
     /// background colour or camera start position.
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E>;
 
@@ -141,10 +151,18 @@ pub trait GraphicsFlow<S, E> {
     /// Called each frame. Collect your objects into a [`Render`] and return it.
     /// The engine will batch and render all flows' renders in optimal order.
     fn on_render<'pass>(&self) -> Render<'_, 'pass>;
+
+    #[cfg(feature = "integration-tests")]
+    fn render_to_texture(
+        &self,
+        ctx: &Context,
+        state: &mut S,
+        texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+    ) -> Result<ImageTestResult, anyhow::Error>;
 }
 
 // Dummy impl to make wasm work
-impl<State, Event> Debug for (dyn GraphicsFlow<State, Event> + 'static) {
+impl<State, Event> Debug for dyn GraphicsFlow<State, Event> + 'static {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("GraphicsFlow")
     }
@@ -201,9 +219,66 @@ impl<'a, State: Default> AppState<State> {
         }
     }
 
+    fn get_surface_texture(&self) -> wgpu::SurfaceTexture {
+        self.ctx
+            .surface
+            .get_current_texture()
+            .expect("Failed to create surface.")
+    }
+
+    fn get_test_texture(&self, extent3d: wgpu::Extent3d) -> wgpu::Texture {
+        self.ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Golden Image Test Output Texture"),
+            size: extent3d,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.ctx.config.format,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    }
+
+    fn get_test_depth_texture(&self, extent3d: wgpu::Extent3d) -> wgpu::Texture {
+        self.ctx.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Pick depth texture"),
+            size: extent3d,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    }
+
+    fn get_with_height(&self) -> (u32, u32) {
+        // The img lib requires divisibility of 256...
+        let width = self.ctx.config.width;
+        let height = self.ctx.config.height;
+        let width_offset = 256 - (width % 256);
+        let height_offset = 256 - (height % 256);
+        let width = width + width_offset;
+        let height = height + height_offset;
+        (width, height)
+    }
+
+    fn get_test_3d_extent(&self) -> wgpu::Extent3d {
+        let (width, height) = self.get_with_height();
+        wgpu::Extent3d {
+            width: width,
+            height: height,
+            depth_or_array_layers: 1,
+        }
+    }
+
     fn render<Event>(
         &'a mut self,
         graphics_flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
+        #[cfg(feature = "integration-tests")] async_runtime: &Runtime,
+        #[cfg(feature = "integration-tests")] event_loop: &winit::event_loop::EventLoopProxy<
+            FlowEvent<State, Event>,
+        >,
     ) -> Result<(), wgpu::SurfaceError> {
         // invoke main render loop
         self.ctx.window.request_redraw();
@@ -213,14 +288,20 @@ impl<'a, State: Default> AppState<State> {
             return Ok(());
         }
 
-        let output = self
-            .ctx
-            .surface
-            .get_current_texture()
-            .expect("Failed to create surface.");
+        let output = self.get_surface_texture();
+        // TODO: different view for golden img testing
+        #[cfg(not(feature = "integration-tests"))]
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        #[cfg(feature = "integration-tests")]
+        let (tex, depth) = {
+            let extent3d = self.get_test_3d_extent();
+            let tex = self.get_test_texture(extent3d.clone());
+            let depth = self.get_test_depth_texture(extent3d);
+            (tex, depth)
+        };
 
         let mut encoder: wgpu::CommandEncoder =
             self.ctx
@@ -233,6 +314,9 @@ impl<'a, State: Default> AppState<State> {
                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        #[cfg(feature = "integration-tests")]
+                        view: &tex.create_view(&wgpu::TextureViewDescriptor::default()),
+                        #[cfg(not(feature = "integration-tests"))]
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -242,6 +326,9 @@ impl<'a, State: Default> AppState<State> {
                         depth_slice: None,
                     })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        #[cfg(feature = "integration-tests")]
+                        view: &depth.create_view(&wgpu::TextureViewDescriptor::default()),
+                        #[cfg(not(feature = "integration-tests"))]
                         view: &self.ctx.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Clear(1.0),
@@ -308,9 +395,87 @@ impl<'a, State: Default> AppState<State> {
                 render_pass.draw_indexed(0..button.amount as u32, 0, 0..1);
             }
         }
+
+        #[cfg(feature = "integration-tests")]
+        let output_buffer = {
+            let u32_size = std::mem::size_of::<u32>() as u32;
+            let (width, height) = self.get_with_height();
+            let output_buffer_size = (u32_size * (width) * (height)) as wgpu::BufferAddress;
+            let output_buffer_desc = wgpu::BufferDescriptor {
+                size: output_buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                label: None,
+                mapped_at_creation: false,
+            };
+            let output_buffer = self.ctx.device.create_buffer(&output_buffer_desc);
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    aspect: wgpu::TextureAspect::All,
+                    texture: &tex,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                },
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &output_buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(u32_size * (width)),
+                        rows_per_image: Some(height),
+                    },
+                },
+                self.get_test_3d_extent(),
+            );
+            output_buffer
+        };
+
         self.ctx.queue.submit(iter::once(encoder.finish()));
+
+        #[cfg(feature = "integration-tests")]
+        let fut_img = async {
+            let (tx, rx) = futures_intrusive::channel::shared::oneshot_channel();
+            let buffer_slice = output_buffer.slice(..);
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                tx.send(result).unwrap();
+            });
+            self.ctx
+                .device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(Duration::from_secs(3)),
+                })
+                .unwrap();
+            rx.receive().await.unwrap().unwrap();
+            let data = buffer_slice.get_mapped_range();
+            let (width, height) = self.get_with_height();
+            let buffer =
+                image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, data).unwrap();
+            buffer
+        };
+        #[cfg(feature = "integration-tests")]
+        {
+            use std::convert::identity;
+
+            let mut img: image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView> =
+                async_runtime.block_on(fut_img);
+            let state = &mut self.state;
+            let all_passed = graphics_flows
+                .iter_mut()
+                .map(|flow| flow.render_to_texture(&self.ctx, state, &mut img))
+                .map(|res| match res {
+                    Err(e) => panic!("{}", e),
+                    Ok(ImageTestResult::Passed) => true,
+                    Ok(ImageTestResult::Failed) => panic!("Assertion failed"),
+                    Ok(ImageTestResult::Waiting) => false,
+                })
+                .all(identity);
+            if all_passed {
+                event_loop
+                    .send_event(FlowEvent::Exit)
+                    .expect("All assertions passed but the winit event-loop could not safely exit")
+            }
+        }
+
         output.present();
-        // done with render stuff
         Ok(())
     }
 }
@@ -366,6 +531,8 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     Mut(Box<dyn FnOnce(&mut State)>),
     #[allow(dead_code)]
     Custom(Event),
+    #[allow(dead_code)]
+    Exit,
 }
 impl<State, Event> Debug for FlowEvent<State, Event> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -376,6 +543,7 @@ impl<State, Event> Debug for FlowEvent<State, Event> {
             Self::Id(arg0) => f.debug_tuple("Id").field(arg0).finish(),
             Self::Mut(_) => f.write_str("Mut(|&mut State| -> {...})"),
             Self::Custom(_) => f.write_str("Custom(E)"),
+            Self::Exit => f.write_str("Exit"),
         }
     }
 }
@@ -453,7 +621,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
     }
 
     #[allow(unused_mut)]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, mut event: FlowEvent<State, Event>) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: FlowEvent<State, Event>) {
         match event {
             FlowEvent::Initialized { state, flows } => {
                 // This is the message from our wasm `spawn_local`
@@ -504,6 +672,9 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 if let Some(state) = &mut self.state {
                     fn_once(&mut state.state);
                 }
+            }
+            FlowEvent::Exit => {
+                event_loop.exit();
             }
         }
     }
@@ -584,7 +755,13 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                 self.last_time = Instant::now();
                 self.time_since_tick += dt;
 
-                match state.render(&mut self.graphics_flows) {
+                match state.render(
+                    &mut self.graphics_flows,
+                    #[cfg(feature = "integration-tests")]
+                    &self.async_runtime,
+                    #[cfg(feature = "integration-tests")]
+                    &self.proxy,
+                ) {
                     Ok(_) => {
                         if self.time_since_tick
                             >= Duration::from_millis(state.ctx.tick_duration_millis)
@@ -771,7 +948,9 @@ pub fn run<State: 'static + Default, Event: 'static>(
 ) -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
+        if let Err(e) = env_logger::try_init() {
+            println!("Warning: Could not initialize logger: {}", e);
+        };
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -779,6 +958,27 @@ pub fn run<State: 'static + Default, Event: 'static>(
         console_log::init_with_level(log::Level::Info).unwrap_throw();
     }
 
+    #[cfg(all(feature = "integration-tests", target_os = "linux"))]
+    let event_loop: EventLoop<FlowEvent<State, Event>> = {
+        use winit::platform::wayland::EventLoopBuilderExtWayland;
+
+        winit::event_loop::EventLoop::with_user_event()
+            .with_any_thread(true)
+            .build()
+            .expect("Failed to create an event loop")
+    };
+
+    #[cfg(all(feature = "integration-tests", target_os = "windows"))]
+    let event_loop: EventLoop<FlowEvent<State, Event>> = {
+        use winit::platform::windows::EventLoopBuilderExtWindows;
+
+        winit::event_loop::EventLoop::with_user_event()
+            .with_any_thread(true)
+            .build()
+            .expect("Failed to create an event loop")
+    };
+
+    #[cfg(not(feature = "integration-tests"))]
     let event_loop: EventLoop<FlowEvent<State, Event>> = EventLoop::with_user_event().build()?;
 
     let mut app: App<State, Event> = App::new(&event_loop, constructors);

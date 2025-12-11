@@ -25,6 +25,7 @@ use crate::{
 ///
 /// Used for 3D objects rendered with GPU instancing. The instance buffer contains
 /// per-instance transformation data and other per-instance attributes.
+#[derive(Clone)]
 pub struct Instanced<'a> {
     pub instance: &'a wgpu::Buffer,
     pub model: &'a Model,
@@ -36,6 +37,7 @@ pub struct Instanced<'a> {
 ///
 /// Used for 2D GUI elements, terrain, or other flat geometry. The bind group
 /// contains textures and samplers for the rendered objects.
+#[derive(Clone)]
 pub struct Flat<'a> {
     pub vertex: &'a wgpu::Buffer,
     pub index: &'a wgpu::Buffer,

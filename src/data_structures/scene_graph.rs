@@ -10,12 +10,10 @@ use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
 use crate::{
-    data_structures::{
+    context::BufferWriter, data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
-    },
-    render::Instanced,
-    resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
+    }, render::Instanced, resources::{animation::Keyframes, load_model_obj, pick::load_pick_model}
 };
 
 /// An animation clip: a named animation with keyframes and timing.
@@ -335,6 +333,13 @@ pub trait SceneNode {
     fn get_animation(&self) -> &Vec<ModelAnimation>;
 
     fn get_render(&self, id: u32) -> Vec<Instanced>;
+}
+
+
+impl<T> BufferWriter for T where T: SceneNode {
+    fn write_to_buffer(&mut self, ctx: &crate::context::Context) {
+        self.write_to_buffers(&ctx.queue, &ctx.device);
+    }
 }
 
 pub struct ContainerNode {

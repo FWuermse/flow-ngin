@@ -1,9 +1,8 @@
 use flow_ngin::{
-    DeviceEvent, One, RenderPass, Vector3, WindowEvent, context::Context, data_structures::{
+    DeviceEvent, One, Vector3, WindowEvent, context::{Context, InitContext}, data_structures::{
         block::BuildingBlocks,
-        model::DrawModel,
         scene_graph::{ContainerNode, SceneNode},
-    }, flow::{AsyncGraphicsFlowConstructor, GraphicsFlow}
+    }, flow::{FlowConsturctor, GraphicsFlow, Out}
 };
 
 enum MouseButtonState {
@@ -41,9 +40,11 @@ struct Astroids {
     astroids: BuildingBlocks,
 }
 impl Astroids {
-    async fn new(ctx: &Context) -> Astroids {
+    async fn new(ctx: InitContext) -> Astroids {
         let astroids = BuildingBlocks::new(
-            ctx,
+            0,
+            &ctx.queue,
+            &ctx.device,
             [0.0; 3].into(),
             flow_ngin::Quaternion::one(),
             10000,
@@ -54,7 +55,7 @@ impl Astroids {
     }
 }
 impl GraphicsFlow<State, Event> for Astroids {
-    fn on_init(&mut self, ctx: &Context, _: &mut State) {
+    fn on_init(&mut self, ctx: &mut Context, _: &mut State) -> Out<State, Event> {
         self.astroids
             .instances
             .iter_mut()
@@ -75,16 +76,18 @@ impl GraphicsFlow<State, Event> for Astroids {
                 instance.scale = [0.5; 3].into();
             });
         self.astroids.write_to_buffer(ctx);
+        Out::Empty
     }
 
-    fn on_click(&mut self, _: &Context, state: &mut State, id: u32) {
+    fn on_click(&mut self, _: &Context, state: &mut State, id: u32) -> Out<State, Event> {
         state.selected_astroid = match state.selected_astroid {
             Some(_) => None,
             None => Some(id),
-        }
+        };
+        Out::Empty
     }
 
-    fn on_update(&mut self, ctx: &Context, state: &mut State, _: std::time::Duration) -> Vec<u32> {
+    fn on_update(&mut self, ctx: &Context, state: &mut State, _: std::time::Duration) -> Out<State, Event> {
         let mouse_ray = ctx.camera.camera.cast_ray_from_mouse(
             state.mouse.coords,
             ctx.config.width as f32,
@@ -102,16 +105,22 @@ impl GraphicsFlow<State, Event> for Astroids {
         });
         // TODO: rotate all
         self.astroids.write_to_buffer(ctx);
-        Vec::new()
+        Out::Empty
     }
 
-    fn on_tick(&mut self, _: &Context, _: &mut State) {}
+    fn on_tick(&mut self, _: &Context, _: &mut State) -> Out<State, Event> {
+        Out::Empty
+    }
 
-    fn handle_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent) {}
+    fn on_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent) -> Out<State, Event> {
+        Out::Empty
+    }
 
-    fn handle_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent) {}
+    fn on_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent) -> Out<State, Event> {
+        Out::Empty
+    }
 
-    fn handle_custom_events(
+    fn on_custom_events(
         &mut self,
         ctx: &Context,
         state: &mut State,
@@ -119,73 +128,19 @@ impl GraphicsFlow<State, Event> for Astroids {
     ) -> Option<Event> {
         Some(event)
     }
-
-    fn on_render<'a>(
-        &mut self,
-        ctx: &'a Context,
-        state: &mut State,
-        render_pass: &mut RenderPass<'a>,
-    ) {
-        render_pass.set_pipeline(&self.astroids.pipeline);
-        render_pass.set_vertex_buffer(1, self.astroids.instance_buffer.slice(..));
-        render_pass.draw_model_instanced(
-            &self.astroids.obj_model,
-            0..self.astroids.instances.len() as u32,
-            &ctx.camera.bind_group,
-            &ctx.light.bind_group,
-        );
-    }
-}
-
-struct Spaceship {
-    ship: Box<dyn SceneNode>,
-}
-impl Spaceship {
-    async fn new(ctx: &Context) -> Spaceship {
-        Spaceship {
-            ship: Box::new(ContainerNode::new(1, Vec::new())),
-        }
-    }
-}
-impl GraphicsFlow<State, Event> for Spaceship {
-    fn on_init(&mut self, _: &Context, _: &mut State) {}
-
-    fn on_click(&mut self, _: &Context, _: &mut State, _: u32) {}
-
-    fn on_update(&mut self, _: &Context, _: &mut State, dt: std::time::Duration) -> Vec<u32> {
-        Vec::new()
+    
+    fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
+        self.astroids.as_ref().into()
     }
 
-    fn on_tick(&mut self, _: &Context, _: &mut State) {}
-
-    fn handle_device_events(&mut self, _: &Context, _: &mut State, _: &DeviceEvent) {}
-
-    fn handle_window_events(&mut self, _: &Context, _: &mut State, _: &WindowEvent) {}
-
-    fn handle_custom_events(&mut self, _: &Context, _: &mut State, event: Event) -> Option<Event> {
-        Some(event)
-    }
-
-    fn on_render<'a>(
-        &mut self,
-        ctx: &'a Context,
-        state: &mut State,
-        render_pass: &mut RenderPass<'a>,
-    ) {
-    }
 }
 
 fn main() {
-    let astroids: AsyncGraphicsFlowConstructor<State, Event> = Box::new(|ctx| {
+    let astroids: FlowConsturctor<State, Event> = Box::new(|ctx| {
         Box::pin(async move {
-            Box::new(Astroids::new(&ctx.borrow()).await) as Box<dyn GraphicsFlow<_, _>>
-        })
-    });
-    let spaceship: AsyncGraphicsFlowConstructor<State, Event> = Box::new(|ctx| {
-        Box::pin(async move {
-            Box::new(Spaceship::new(&ctx.borrow()).await) as Box<dyn GraphicsFlow<_, _>>
+            Box::new(Astroids::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
         })
     });
 
-    let _ = flow_ngin::flow::run(vec![astroids, spaceship]);
+    let _ = flow_ngin::flow::run(vec![astroids]);
 }

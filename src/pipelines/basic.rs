@@ -62,7 +62,7 @@ pub fn mk_render_pipeline(
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         cache: None,
-        label: Some("Render Pipeline"),
+        label: Some("Basic Pipeline"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
