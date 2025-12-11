@@ -21,14 +21,13 @@
 //! 6. Render to frame buffer using batched pipelines
 //! 7. Present frame
 
-use std::{collections::HashSet, env, fmt::Debug, iter, pin::Pin, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, iter, pin::Pin, sync::Arc};
 
 use instant::{Duration, Instant};
 
 use cgmath::Rotation3;
 #[cfg(feature = "integration-tests")]
 use tokio::runtime::Runtime;
-use wgpu::SurfaceTexture;
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
@@ -226,6 +225,7 @@ impl<'a, State: Default> AppState<State> {
             .expect("Failed to create surface.")
     }
 
+    #[cfg(feature = "integration-tests")]
     fn get_test_texture(&self, extent3d: wgpu::Extent3d) -> wgpu::Texture {
         self.ctx.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Golden Image Test Output Texture"),
@@ -239,6 +239,7 @@ impl<'a, State: Default> AppState<State> {
         })
     }
 
+    #[cfg(feature = "integration-tests")]
     fn get_test_depth_texture(&self, extent3d: wgpu::Extent3d) -> wgpu::Texture {
         self.ctx.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Pick depth texture"),
@@ -252,6 +253,7 @@ impl<'a, State: Default> AppState<State> {
         })
     }
 
+    #[cfg(feature = "integration-tests")]
     fn get_with_height(&self) -> (u32, u32) {
         // The img lib requires divisibility of 256...
         let width = self.ctx.config.width;
@@ -263,6 +265,7 @@ impl<'a, State: Default> AppState<State> {
         (width, height)
     }
 
+    #[cfg(feature = "integration-tests")]
     fn get_test_3d_extent(&self) -> wgpu::Extent3d {
         let (width, height) = self.get_with_height();
         wgpu::Extent3d {

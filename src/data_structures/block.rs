@@ -8,12 +8,12 @@ use crate::{
     context::{BufferWriter, Context},
     data_structures::{
         instance::Instance,
-        model::{self, Model},
+        model::{self},
     },
     resources::{self, pick::load_pick_model},
 };
 use cgmath::{One, Rotation3, Zero};
-use wgpu::{Buffer, Device, util::DeviceExt};
+use wgpu::{Device, util::DeviceExt};
 
 /// A collection of identically-shaped building blocks.
 ///

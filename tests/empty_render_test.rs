@@ -1,6 +1,7 @@
 #[cfg(feature = "integration-tests")]
 use wgpu::Color;
 
+#[cfg(feature = "integration-tests")]
 use crate::common::test_utils::TestRender;
 #[cfg(feature = "integration-tests")]
 mod common;

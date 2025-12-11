@@ -107,6 +107,7 @@ pub(crate) struct TestRender<'a, T> {
         &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> Result<ImageTestResult, anyhow::Error>,
 }
+#[cfg(feature = "integration-tests")]
 impl<'a, T> TestRender<'a, T> {
     pub(crate) fn new(
         data: T,
