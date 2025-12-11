@@ -1,36 +1,16 @@
 use flow_ngin::{
-    DeviceEvent, One, Vector3, WindowEvent, context::{Context, InitContext}, data_structures::{
-        block::BuildingBlocks,
-        scene_graph::{ContainerNode, SceneNode},
-    }, flow::{FlowConsturctor, GraphicsFlow, Out}
+    Color, Deg, DeviceEvent, One, Quaternion, Rotation3, Vector3, WindowEvent,
+    context::{BufferWriter, Context, InitContext},
+    data_structures::block::BuildingBlocks,
+    flow::{FlowConsturctor, GraphicsFlow, Out},
 };
 
-enum MouseButtonState {
-    Right,
-    Left,
-    None,
-}
-
-struct MouseState {
-    coords: flow_ngin::PhysicalPosition<f64>,
-    pressed: MouseButtonState,
-    selection: Option<u32>,
-}
-
 struct State {
-    mouse: MouseState,
-    selected_astroid: Option<u32>,
+    pub rotating: bool,
 }
 impl Default for State {
     fn default() -> Self {
-        Self {
-            mouse: MouseState {
-                coords: (0.0, 0.0).into(),
-                pressed: MouseButtonState::None,
-                selection: None,
-            },
-            selected_astroid: Default::default(),
-        }
+        Self { rotating: false }
     }
 }
 
@@ -56,6 +36,7 @@ impl Astroids {
 }
 impl GraphicsFlow<State, Event> for Astroids {
     fn on_init(&mut self, ctx: &mut Context, _: &mut State) -> Out<State, Event> {
+        ctx.clear_colour = Color::TRANSPARENT;
         self.astroids
             .instances
             .iter_mut()
@@ -79,32 +60,31 @@ impl GraphicsFlow<State, Event> for Astroids {
         Out::Empty
     }
 
-    fn on_click(&mut self, _: &Context, state: &mut State, id: u32) -> Out<State, Event> {
-        state.selected_astroid = match state.selected_astroid {
-            Some(_) => None,
-            None => Some(id),
-        };
+    fn on_click(&mut self, _: &Context, state: &mut State, _: u32) -> Out<State, Event> {
+        state.rotating = !state.rotating;
         Out::Empty
     }
 
-    fn on_update(&mut self, ctx: &Context, state: &mut State, _: std::time::Duration) -> Out<State, Event> {
-        let mouse_ray = ctx.camera.camera.cast_ray_from_mouse(
-            state.mouse.coords,
-            ctx.config.width as f32,
-            ctx.config.height as f32,
-            &ctx.projection,
-        );
-        mouse_ray.intersect_with_floor().and_then(|point| {
-            state
-                .selected_astroid
-                .and_then(|id| self.astroids.instances.get_mut(id as usize))
-                .map(|astroid| {
-                    astroid.position.x = point.x;
-                    astroid.position.z = point.y;
-                })
-        });
-        // TODO: rotate all
-        self.astroids.write_to_buffer(ctx);
+    fn on_update(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        _: std::time::Duration,
+    ) -> Out<State, Event> {
+        if state.rotating {
+            self.astroids
+                .instances
+                .iter_mut()
+                .enumerate()
+                .for_each(|(i, astroid)| {
+                    astroid.rotation = match i % 3 {
+                     0 => astroid.rotation * Quaternion::from_angle_x(Deg(1.0)),
+                     1 => astroid.rotation * Quaternion::from_angle_y(Deg(1.0)),
+                     _ => astroid.rotation * Quaternion::from_angle_z(Deg(1.0)),
+                    }
+                });
+            self.astroids.write_to_buffer(ctx);
+        }
         Out::Empty
     }
 
@@ -112,34 +92,41 @@ impl GraphicsFlow<State, Event> for Astroids {
         Out::Empty
     }
 
-    fn on_device_events(&mut self, ctx: &Context, state: &mut State, event: &DeviceEvent) -> Out<State, Event> {
+    fn on_device_events(
+        &mut self,
+        _: &Context,
+        _: &mut State,
+        _: &DeviceEvent,
+    ) -> Out<State, Event> {
         Out::Empty
     }
 
-    fn on_window_events(&mut self, ctx: &Context, state: &mut State, event: &WindowEvent) -> Out<State, Event> {
+    fn on_window_events(
+        &mut self,
+        _: &Context,
+        _: &mut State,
+        _: &WindowEvent,
+    ) -> Out<State, Event> {
         Out::Empty
     }
 
     fn on_custom_events(
         &mut self,
-        ctx: &Context,
-        state: &mut State,
+        _: &Context,
+        _: &mut State,
         event: Event,
     ) -> Option<Event> {
         Some(event)
     }
-    
+
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
         self.astroids.as_ref().into()
     }
-
 }
 
 fn main() {
     let astroids: FlowConsturctor<State, Event> = Box::new(|ctx| {
-        Box::pin(async move {
-            Box::new(Astroids::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
-        })
+        Box::pin(async move { Box::new(Astroids::new(ctx).await) as Box<dyn GraphicsFlow<_, _>> })
     });
 
     let _ = flow_ngin::flow::run(vec![astroids]);
