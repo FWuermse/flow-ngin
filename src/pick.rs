@@ -42,7 +42,7 @@ use crate::flow::FlowEvent;
 /// # Returns
 ///
 /// `Some((pick_id, flow_ids))` if an object was picked, or `None` picking is done via the event loop.
-pub fn draw_to_pick_buffer<State, Event>(
+pub(crate) fn draw_to_pick_buffer<State, Event>(
     #[cfg(not(target_arch = "wasm32"))] async_runtime: &tokio::runtime::Runtime,
     flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
     ctx: &Context,
@@ -243,7 +243,7 @@ pub fn draw_to_pick_buffer<State, Event>(
         let buffer_slice = output_buffer.slice(..);
         let future_id = read_texture_buffer(
             buffer_slice,
-            &binding,
+            &device,
             width_factor,
             height_factor,
             width,

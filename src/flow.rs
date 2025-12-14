@@ -639,6 +639,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                     let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                     let proxy = self.proxy.clone();
                     handle_flow_output(
+                        #[cfg(not(target_arch = "wasm32"))]
                         &self.async_runtime,
                         &mut app_state.state,
                         &mut app_state.ctx,
@@ -707,6 +708,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             let events = f.on_device_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
             handle_flow_output(
+                #[cfg(not(target_arch = "wasm32"))]
                 &self.async_runtime,
                 &mut state.state,
                 &mut state.ctx,
@@ -742,6 +744,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
             handle_flow_output(
+                #[cfg(not(target_arch = "wasm32"))]
                 &self.async_runtime,
                 &mut state.state,
                 &mut state.ctx,
@@ -773,6 +776,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                 let events = f.on_tick(&state.ctx, &mut state.state);
                                 let proxy = self.proxy.clone();
                                 handle_flow_output(
+                                    #[cfg(not(target_arch = "wasm32"))]
                                     &self.async_runtime,
                                     &mut state.state,
                                     &mut state.ctx,
@@ -811,6 +815,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                             let events = f.on_update(&state.ctx, &mut state.state, dt);
                             let proxy = self.proxy.clone();
                             handle_flow_output(
+                                #[cfg(not(target_arch = "wasm32"))]
                                 &self.async_runtime,
                                 &mut state.state,
                                 &mut state.ctx,
@@ -861,6 +866,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
                                             flow.on_click(&state.ctx, &mut state.state, pick_id);
                                         let proxy = self.proxy.clone();
                                         handle_flow_output(
+                                            #[cfg(not(target_arch = "wasm32"))]
                                             &self.async_runtime,
                                             &mut state.state,
                                             &mut state.ctx,
