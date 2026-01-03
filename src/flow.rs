@@ -370,6 +370,9 @@ impl<'a, State: Default> AppState<State> {
 
             render_pass.set_pipeline(&self.ctx.pipelines.basic);
             for instanced in basics {
+                if instanced.amount == 0 {
+                    continue;
+                }
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
                 render_pass.draw_model_instanced(
                     &instanced.model,
@@ -381,6 +384,9 @@ impl<'a, State: Default> AppState<State> {
 
             render_pass.set_pipeline(&self.ctx.pipelines.transparent);
             for instanced in trans {
+                if instanced.amount == 0 {
+                    continue;
+                }
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
                 render_pass.draw_model_instanced(
                     &instanced.model,
