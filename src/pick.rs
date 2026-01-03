@@ -167,6 +167,9 @@ pub(crate) fn draw_to_pick_buffer<State, Event>(
 
         render_pass.set_pipeline(&ctx.pipelines.pick);
         for instanced in basics.iter_mut() {
+            if instanced.amount == 0 {
+                continue;
+            }
             let pick_model =
                 load_pick_model(&ctx.device, instanced.id, instanced.model.meshes.clone()).unwrap();
             render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
