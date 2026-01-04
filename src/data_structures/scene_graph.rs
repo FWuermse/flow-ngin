@@ -10,10 +10,13 @@ use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
 use crate::{
-    context::BufferWriter, data_structures::{
+    context::BufferWriter,
+    data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
-    }, render::Instanced, resources::{animation::Keyframes, load_model_obj, pick::load_pick_model}
+    },
+    render::Instanced,
+    resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
 };
 
 /// An animation clip: a named animation with keyframes and timing.
@@ -178,7 +181,8 @@ fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnima
     if t_len != r_len || r_len != s_len {
         log::warn!(
             "warning, animation track len() doesn't match and will matched with defaults. previous animation: {}, current: {}",
-            state.current_clip, clip.name
+            state.current_clip,
+            clip.name
         );
         // Use first frame as default (this is important as child nodes have offsets)
         state.trans.append(
@@ -328,6 +332,8 @@ pub trait SceneNode {
 
     fn add_instance(&mut self, instance: Instance) -> usize;
 
+    fn remove_instance(&mut self, idx: usize) -> (Instance, Instance);
+
     fn clone_instance(&mut self, i: usize) -> usize;
 
     fn get_animation(&self) -> &Vec<ModelAnimation>;
@@ -335,8 +341,10 @@ pub trait SceneNode {
     fn get_render(&self, id: u32) -> Vec<Instanced<'_>>;
 }
 
-
-impl<T> BufferWriter for T where T: SceneNode {
+impl<T> BufferWriter for T
+where
+    T: SceneNode,
+{
     fn write_to_buffer(&mut self, ctx: &crate::context::Context) {
         self.write_to_buffers(&ctx.queue, &ctx.device);
     }
@@ -509,6 +517,13 @@ impl SceneNode for ContainerNode {
             .iter()
             .flat_map(|child| child.get_render(id))
             .collect()
+    }
+
+    fn remove_instance(&mut self, idx: usize) -> (Instance, Instance) {
+        self.children.iter_mut().for_each(|c| {
+            c.remove_instance(idx);
+        });
+        self.instances.remove(idx)
     }
 }
 
@@ -750,6 +765,13 @@ impl SceneNode for ModelNode {
                 id,
             }])
             .collect()
+    }
+    
+    fn remove_instance(&mut self, idx: usize) -> (Instance, Instance) {
+        self.children.iter_mut().for_each(|c| {
+            c.remove_instance(idx);
+        });
+        self.instances.remove(idx)
     }
 }
 
