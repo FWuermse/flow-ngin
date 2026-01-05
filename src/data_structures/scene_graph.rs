@@ -771,6 +771,7 @@ impl SceneNode for ModelNode {
         self.children.iter_mut().for_each(|c| {
             c.remove_instance(idx);
         });
+        self.buffer_size_needs_change = true;
         self.instances.remove(idx)
     }
 }
