@@ -5,11 +5,12 @@
 //! hidden blocks are not culled, so this may not be optimal for large voxel worlds.
 
 use crate::{
-    context::{BufferWriter, Context},
+    context::{Context, GPUResource},
     data_structures::{
         instance::Instance,
         model::{self},
     },
+    render::{Instanced, Render},
     resources::{self, pick::load_pick_model},
 };
 use cgmath::{One, Rotation3, Zero};
@@ -27,8 +28,9 @@ pub struct BuildingBlocks {
     // TODO: retire this param
     #[allow(dead_code)]
     obj_file: String,
-    pub instances: Vec<Instance>,
-    pub instance_buffer: wgpu::Buffer,
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
+    buffer_size_needs_change: bool,
 }
 
 impl AsRef<BuildingBlocks> for BuildingBlocks {
@@ -81,7 +83,23 @@ impl BuildingBlocks {
             instance_buffer,
             // Ids may be used later for picking, hitboxes, etc.
             id: 0,
+            buffer_size_needs_change: false,
         }
+    }
+
+    /// Returns an immutable reference to instances
+    pub fn instances(&self) -> &Vec<Instance> {
+        &self.instances
+    }
+
+    pub fn add_instance(&mut self, instance: Instance) {
+        self.instances.push(instance);
+        self.buffer_size_needs_change = true;
+    }
+
+    pub fn add_instances(&mut self, mut instances: Vec<Instance>) {
+        self.instances.append(&mut instances);
+        self.buffer_size_needs_change = true;
     }
 
     /**
@@ -139,6 +157,7 @@ impl BuildingBlocks {
             instances: self.instances.clone(),
             instance_buffer,
             id: color,
+            buffer_size_needs_change: false,
         }
     }
 
@@ -157,15 +176,37 @@ impl BuildingBlocks {
     }
 }
 
-impl BufferWriter for BuildingBlocks {
+impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
     fn write_to_buffer(&mut self, ctx: &Context) {
         let raws = self
             .instances
             .iter()
             .map(Instance::to_raw)
             .collect::<Vec<_>>();
-        // TODO: track whether size changed
         ctx.queue
             .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
+
+        if self.buffer_size_needs_change {
+            self.instance_buffer =
+                ctx.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Instance Buffer"),
+                        contents: bytemuck::cast_slice(&raws),
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    });
+            self.buffer_size_needs_change = false;
+        } else {
+            ctx.queue
+                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
+        }
+    }
+
+    fn get_render(&'a self) -> Render<'a, 'pass> {
+        Render::Default(Instanced {
+            instance: &self.instance_buffer,
+            model: &self.obj_model,
+            amount: self.instances.len(),
+            id: self.id,
+        })
     }
 }

@@ -48,7 +48,11 @@ pub async fn load_model_obj(
     Ok(model)
 }
 
+/// Loads a gltf model incl. aninmations into a `SceneNode`.
+/// 
+/// `id` is a unique identifyer to identify click events on this resource.
 pub async fn load_model_gltf(
+    id: u32,
     file_name: &str,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -215,7 +219,7 @@ pub async fn load_model_gltf(
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
-            let model = to_scene_node(node, &buffer_data, device, &materials, &animations);
+            let model = to_scene_node(id, node, &buffer_data, device, &materials, &animations);
             models.push(model);
         }
     }

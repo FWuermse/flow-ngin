@@ -10,7 +10,7 @@ use flow_ngin::{
     render::Render,
 };
 #[cfg(feature = "integration-tests")]
-use flow_ngin::{context::BufferWriter, data_structures::block::BuildingBlocks, flow::ImageTestResult};
+use flow_ngin::{context::GPUResource, data_structures::block::BuildingBlocks, flow::ImageTestResult};
 #[cfg(feature = "integration-tests")]
 use wgpu::RenderPass;
 

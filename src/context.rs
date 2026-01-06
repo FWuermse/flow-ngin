@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use wgpu::{ExperimentalFeatures, util::DeviceExt};
 use winit::{dpi::PhysicalPosition, window::Window};
@@ -14,11 +14,12 @@ use crate::{
         pick_gui::mk_gui_pick_pipelin,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
-    },
+    }, render::Render,
 };
 
-pub trait BufferWriter {
+pub trait GPUResource<'a, 'pass> {
     fn write_to_buffer(&mut self, ctx: &Context);
+    fn get_render(&'a self) -> Render<'a, 'pass>;
 }
 
 #[derive(Debug)]

@@ -9,7 +9,7 @@ mod common;
 #[cfg(feature = "integration-tests")]
 fn should_render_clear_colour() {
     use flow_ngin::{
-        context::{BufferWriter, Context, InitContext},
+        context::{GPUResource, Context, InitContext},
         render::Render,
     };
 

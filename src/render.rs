@@ -17,7 +17,7 @@ use std::collections::{HashMap, HashSet};
 use wgpu::RenderPass;
 
 use crate::{
-    context::Context,
+    context::{Context, GPUResource},
     data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode},
 };
 
@@ -188,16 +188,11 @@ impl<'a, 'pass> Render<'a, 'pass> {
 }
 impl<'a, 'pass> From<&'a dyn SceneNode> for Render<'a, 'pass> {
     fn from(sn: &'a dyn SceneNode) -> Self {
-        Render::Defaults(sn.get_render(Default::default()))
+        Render::Defaults(sn.get_render())
     }
 }
 impl<'a, 'pass> From<&'a BuildingBlocks> for Render<'a, 'pass> {
     fn from(blocks: &'a BuildingBlocks) -> Self {
-        Render::Default(Instanced {
-            instance: &blocks.instance_buffer,
-            model: &blocks.obj_model,
-            amount: blocks.instances.len(),
-            id: blocks.id,
-        })
+        blocks.get_render()
     }
 }

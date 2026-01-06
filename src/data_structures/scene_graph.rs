@@ -10,12 +10,12 @@ use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
 use crate::{
-    context::BufferWriter,
+    context::GPUResource,
     data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
     },
-    render::Instanced,
+    render::{Instanced, Render},
     resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
 };
 
@@ -57,6 +57,7 @@ impl ModelState {
 }
 
 pub fn to_scene_node(
+    id: u32,
     node: gltf::scene::Node,
     buf: &Vec<Vec<u8>>,
     device: &wgpu::Device,
@@ -154,7 +155,7 @@ pub fn to_scene_node(
                 meshes,
                 materials: mats.clone(),
             };
-            Box::new(ModelNode::from_model(1, device, model, animations))
+            Box::new(ModelNode::from_model(1, id, device, model, animations))
         }
         None => Box::new(ContainerNode::new(1, animations)),
     };
@@ -166,7 +167,7 @@ pub fn to_scene_node(
     };
     scene_node.set_local_transform(0, instance);
     for child in node.children() {
-        let child_node = to_scene_node(child, buf, device, mats, anims);
+        let child_node = to_scene_node(id, child, buf, device, mats, anims);
         scene_node.add_child(child_node);
     }
 
@@ -338,15 +339,19 @@ pub trait SceneNode {
 
     fn get_animation(&self) -> &Vec<ModelAnimation>;
 
-    fn get_render(&self, id: u32) -> Vec<Instanced<'_>>;
+    fn get_render(&self) -> Vec<Instanced<'_>>;
 }
 
-impl<T> BufferWriter for T
+impl<'a, 'pass, T> GPUResource<'a, 'pass> for T
 where
     T: SceneNode,
 {
     fn write_to_buffer(&mut self, ctx: &crate::context::Context) {
         self.write_to_buffers(&ctx.queue, &ctx.device);
+    }
+    
+    fn get_render(&'a self) -> Render<'a, 'pass> {
+        Render::Defaults(self.get_render())
     }
 }
 
@@ -357,7 +362,7 @@ pub struct ContainerNode {
 }
 
 impl ContainerNode {
-    pub fn new(amount: u32, animations: Vec<ModelAnimation>) -> Self {
+    pub fn new(amount: usize, animations: Vec<ModelAnimation>) -> Self {
         let instances = (0..amount)
             .map(|_| (Instance::default(), Instance::default()))
             .collect();
@@ -512,10 +517,10 @@ impl SceneNode for ContainerNode {
         &self.animations
     }
 
-    fn get_render(&self, id: u32) -> Vec<Instanced<'_>> {
+    fn get_render(&self) -> Vec<Instanced<'_>> {
         self.children
             .iter()
-            .flat_map(|child| child.get_render(id))
+            .flat_map(|child| child.get_render())
             .collect()
     }
 
@@ -534,21 +539,23 @@ pub struct ModelNode {
     animations: Vec<ModelAnimation>,
     buffer_size_needs_change: bool,
     model: model::Model,
+    id: u32,
 }
 
 impl ModelNode {
-    pub async fn new(amount: u32, device: &Device, queue: &Queue, obj_file: &str) -> Self {
+    pub async fn new(amount: usize, id: u32, device: &Device, queue: &Queue, obj_file: &str) -> Self {
         let obj_model = load_model_obj(obj_file, &device, &queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}, at {}", e, obj_file);
         }
         let obj_model = obj_model.unwrap();
 
-        Self::from_model(amount, device, obj_model, Vec::new())
+        Self::from_model(amount, id, device, obj_model, Vec::new())
     }
 
     pub fn from_model(
-        amount: u32,
+        amount: usize,
+        id: u32,
         device: &Device,
         obj_model: model::Model,
         animations: Vec<ModelAnimation>,
@@ -578,6 +585,7 @@ impl ModelNode {
             model: obj_model,
             buffer_size_needs_change: size_changed,
             animations,
+            id,
         }
     }
 }
@@ -723,6 +731,7 @@ impl SceneNode for ModelNode {
             buffer_size_needs_change: false,
             model: obj_model,
             animations: Vec::new(),
+            id,
         })
     }
 
@@ -754,15 +763,15 @@ impl SceneNode for ModelNode {
         &self.animations
     }
 
-    fn get_render(&self, id: u32) -> Vec<Instanced<'_>> {
+    fn get_render(&self) -> Vec<Instanced<'_>> {
         self.children
             .iter()
-            .flat_map(|child| child.get_render(id))
+            .flat_map(|child| child.get_render())
             .chain([Instanced {
                 instance: &self.instance_buffer,
                 model: &self.model,
                 amount: self.instances.len(),
-                id,
+                id: self.id,
             }])
             .collect()
     }
@@ -777,14 +786,15 @@ impl SceneNode for ModelNode {
 }
 
 pub async fn mk_flat_scene_graph(
-    amount: u32,
+    amount: usize,
+    id: u32,
     models: Vec<&'static str>,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
 ) -> Box<dyn SceneNode> {
     let mut parent: Box<dyn SceneNode> = Box::new(ContainerNode::new(amount, Vec::new()));
     for obj_name in models {
-        let child = Box::new(ModelNode::new(amount, device, queue, obj_name).await);
+        let child = Box::new(ModelNode::new(amount, id, device, queue, obj_name).await);
         parent.add_child(child);
     }
     parent
