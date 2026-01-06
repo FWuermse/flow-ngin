@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub trait GPUResource<'a, 'pass> {
-    fn write_to_buffer(&mut self, ctx: &Context);
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device);
     fn get_render(&'a self) -> Render<'a, 'pass>;
 }
 

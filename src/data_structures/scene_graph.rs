@@ -346,8 +346,8 @@ impl<'a, 'pass, T> GPUResource<'a, 'pass> for T
 where
     T: SceneNode,
 {
-    fn write_to_buffer(&mut self, ctx: &crate::context::Context) {
-        self.write_to_buffers(&ctx.queue, &ctx.device);
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
+        self.write_to_buffers(queue, device);
     }
     
     fn get_render(&'a self) -> Render<'a, 'pass> {

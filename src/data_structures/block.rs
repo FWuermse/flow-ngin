@@ -92,6 +92,17 @@ impl BuildingBlocks {
         &self.instances
     }
 
+    /// Returns a mutable reference to instances, assumes the instance size changes and recalculates buffers.
+    /// If you only mutate some values but don't intend to change buffer sizes use `instances_mut_size_unchanged`
+    pub fn instances_mut(&mut self) -> &mut Vec<Instance> {
+        self.buffer_size_needs_change = true;
+        &mut self.instances
+    }
+
+    pub fn instances_mut_size_unchanged(&mut self) -> &mut [Instance] {
+        self.instances.as_mut_slice()
+    }
+
     pub fn add_instance(&mut self, instance: Instance) {
         self.instances.push(instance);
         self.buffer_size_needs_change = true;
@@ -161,34 +172,33 @@ impl BuildingBlocks {
         }
     }
 
-    pub fn clear_first(&mut self, device: &Device, amount: usize) {
+    pub fn clear_first(&mut self, amount: usize, ctx: &Context) {
+        self.buffer_size_needs_change = true;
         self.instances.drain(0..amount);
-        let instance_data = self
-            .instances
-            .iter()
-            .map(Instance::to_raw)
-            .collect::<Vec<_>>();
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Instance Buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        self.write_to_buffer(&ctx.queue, &ctx.device);
+    }
+    
+    /// Returns the inner instanced of the `Default` render for possible optimizations with `Defaults`
+    pub fn to_instanced(&self) -> Instanced<'_> {
+        Instanced {
+            instance: &self.instance_buffer,
+            model: &self.obj_model,
+            amount: self.instances.len(),
+            id: self.id,
+        }
     }
 }
 
 impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
-    fn write_to_buffer(&mut self, ctx: &Context) {
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         let raws = self
             .instances
             .iter()
             .map(Instance::to_raw)
             .collect::<Vec<_>>();
-        ctx.queue
-            .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
-
         if self.buffer_size_needs_change {
             self.instance_buffer =
-                ctx.device
+                device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("Instance Buffer"),
                         contents: bytemuck::cast_slice(&raws),
@@ -196,17 +206,12 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
                     });
             self.buffer_size_needs_change = false;
         } else {
-            ctx.queue
+            queue
                 .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
         }
     }
 
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        Render::Default(Instanced {
-            instance: &self.instance_buffer,
-            model: &self.obj_model,
-            amount: self.instances.len(),
-            id: self.id,
-        })
+        Render::Default(self.to_instanced())
     }
 }
