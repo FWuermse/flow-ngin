@@ -46,7 +46,7 @@ impl BuildingBlocks {
         device: &wgpu::Device,
         start_position: cgmath::Vector3<f32>,
         start_rotation: cgmath::Quaternion<f32>,
-        amount: u32,
+        amount: usize,
         obj_file: &str,
     ) -> Self {
         let obj_model = resources::load_model_obj(obj_file, &device, &queue).await;
@@ -121,7 +121,7 @@ impl BuildingBlocks {
     pub async fn mk_multiple(
         queue: &wgpu::Queue,
         device: &wgpu::Device,
-        amount: u32,
+        amount: usize,
         descr: &[(u32, &'static str)],
     ) -> Vec<BuildingBlocks> {
         let futures = descr.into_iter().map(|(id, file_name)| {

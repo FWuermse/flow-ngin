@@ -1,4 +1,4 @@
-use std::{ops::Range, sync::Arc};
+use std::sync::Arc;
 
 use wgpu::{ExperimentalFeatures, util::DeviceExt};
 use winit::{dpi::PhysicalPosition, window::Window};
