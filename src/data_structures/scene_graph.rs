@@ -793,9 +793,14 @@ pub async fn mk_flat_scene_graph(
     queue: &wgpu::Queue,
 ) -> Box<dyn SceneNode> {
     let mut parent: Box<dyn SceneNode> = Box::new(ContainerNode::new(amount, Vec::new()));
-    for obj_name in models {
-        let child = Box::new(ModelNode::new(amount, id, device, queue, obj_name).await);
-        parent.add_child(child);
-    }
+    futures::future::join_all(
+        models
+            .into_iter()
+            .map(|obj_file| ModelNode::new(amount, id, device, queue, obj_file)),
+    )
+    .await
+    .into_iter()
+    .map(Box::new)
+    .for_each(|boxed_model_node| parent.add_child(boxed_model_node));
     parent
 }
