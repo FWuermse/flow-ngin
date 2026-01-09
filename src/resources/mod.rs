@@ -224,13 +224,14 @@ pub async fn load_model_gltf(
         }
     }
 
-    let root_node = if models.len() == 1 {
+    let mut root_node = if models.len() == 1 {
         models.into_iter().next().unwrap()
     } else {
         let mut root_node = ContainerNode::new(0, Vec::new());
         root_node.children = models;
         Box::new(root_node)
     };
+    root_node.update_world_transform_all();
 
     Ok(root_node)
 }

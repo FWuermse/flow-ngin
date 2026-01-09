@@ -370,7 +370,8 @@ impl<'a, State: Default> AppState<State> {
 
             render_pass.set_pipeline(&self.ctx.pipelines.basic);
             for instanced in basics {
-                if instanced.amount == 0 {
+                if instanced.amount == 0 || instanced.instance.size() == 0 {
+                    log::warn!("you attemted to render something with zero instances");
                     continue;
                 }
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
@@ -384,7 +385,8 @@ impl<'a, State: Default> AppState<State> {
 
             render_pass.set_pipeline(&self.ctx.pipelines.transparent);
             for instanced in trans {
-                if instanced.amount == 0 {
+                if instanced.amount == 0 || instanced.instance.size() == 0 {
+                    log::warn!("you attemted to render something with zero instances");
                     continue;
                 }
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));

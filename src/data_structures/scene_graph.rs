@@ -325,13 +325,15 @@ pub trait SceneNode {
      */
     fn update_world_transforms(
         &mut self,
-        parents_world_transform: &Vec<Instance>,
         range: Range<usize>,
+        parents_world_transform: &Vec<Instance>,
     );
 
     fn update_world_transform_all(&mut self);
 
     fn add_instance(&mut self, instance: Instance) -> usize;
+
+    fn add_instances(&mut self, instances: Vec<Instance>) -> usize;
 
     fn remove_instance(&mut self, idx: usize) -> (Instance, Instance);
 
@@ -349,7 +351,7 @@ where
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         self.write_to_buffers(queue, device);
     }
-    
+
     fn get_render(&'a self) -> Render<'a, 'pass> {
         Render::Defaults(self.get_render())
     }
@@ -406,8 +408,8 @@ impl SceneNode for ContainerNode {
      */
     fn update_world_transforms(
         &mut self,
-        parents_world_transform: &Vec<Instance>,
         range: Range<usize>,
+        parents_world_transform: &Vec<Instance>,
     ) {
         if parents_world_transform.len() > self.instances.len() {
             warn!(
@@ -436,7 +438,7 @@ impl SceneNode for ContainerNode {
             })
             .collect::<Vec<_>>();
         for child in self.children.iter_mut() {
-            child.update_world_transforms(&world_transforms, range.clone());
+            child.update_world_transforms(range.clone(), &world_transforms);
         }
     }
 
@@ -496,7 +498,7 @@ impl SceneNode for ContainerNode {
     fn update_world_transform_all(&mut self) {
         let range = 0..self.instances.len();
         let default_instances = range.clone().map(|_| Instance::default()).collect();
-        self.update_world_transforms(&default_instances, range);
+        self.update_world_transforms(range, &default_instances);
     }
 
     /**
@@ -530,6 +532,17 @@ impl SceneNode for ContainerNode {
         });
         self.instances.remove(idx)
     }
+
+    fn add_instances(&mut self, instances: Vec<Instance>) -> usize {
+        let cloned = instances.clone();
+        let len = instances.len();
+        let mut instances = instances.into_iter().zip(cloned).collect();
+        self.instances.append(&mut instances);
+        for child in &mut self.children {
+            child.add_instances((0..len).map(|_| Instance::default()).collect());
+        }
+        self.instances.len()
+    }
 }
 
 pub struct ModelNode {
@@ -543,7 +556,13 @@ pub struct ModelNode {
 }
 
 impl ModelNode {
-    pub async fn new(amount: usize, id: u32, device: &Device, queue: &Queue, obj_file: &str) -> Self {
+    pub async fn new(
+        amount: usize,
+        id: u32,
+        device: &Device,
+        queue: &Queue,
+        obj_file: &str,
+    ) -> Self {
         let obj_model = load_model_obj(obj_file, &device, &queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}, at {}", e, obj_file);
@@ -621,8 +640,8 @@ impl SceneNode for ModelNode {
      */
     fn update_world_transforms(
         &mut self,
-        parents_world_transform: &Vec<Instance>,
         range: Range<usize>,
+        parents_world_transform: &Vec<Instance>,
     ) {
         if parents_world_transform.len() > self.instances.len() {
             warn!(
@@ -651,7 +670,7 @@ impl SceneNode for ModelNode {
             })
             .collect::<Vec<_>>();
         for child in self.children.iter_mut() {
-            child.update_world_transforms(&world_transforms, range.clone());
+            child.update_world_transforms(range.clone(), &world_transforms);
         }
     }
 
@@ -747,7 +766,7 @@ impl SceneNode for ModelNode {
     fn update_world_transform_all(&mut self) {
         let range = 0..self.instances.len();
         let default_instances = range.clone().map(|_| Instance::default()).collect();
-        self.update_world_transforms(&default_instances, range);
+        self.update_world_transforms(range, &default_instances);
     }
 
     fn clone_instance(&mut self, i: usize) -> usize {
@@ -775,13 +794,25 @@ impl SceneNode for ModelNode {
             }])
             .collect()
     }
-    
+
     fn remove_instance(&mut self, idx: usize) -> (Instance, Instance) {
         self.children.iter_mut().for_each(|c| {
             c.remove_instance(idx);
         });
         self.buffer_size_needs_change = true;
         self.instances.remove(idx)
+    }
+
+    fn add_instances(&mut self, instances: Vec<Instance>) -> usize {
+        let cloned = instances.clone();
+        let len = instances.len();
+        let mut instances = instances.into_iter().zip(cloned).collect();
+        self.instances.append(&mut instances);
+        for child in &mut self.children {
+            child.add_instances((0..len).map(|_| Instance::default()).collect());
+        }
+        self.buffer_size_needs_change = true;
+        self.instances.len()
     }
 }
 
