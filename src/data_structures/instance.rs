@@ -110,7 +110,6 @@ impl<'a, 'b> Mul<&'b Instance> for &'a Instance {
     }
 }
 
-
 impl<'a, 'b> Add<&'b Instance> for &'a Instance {
     type Output = Instance;
 
@@ -119,6 +118,15 @@ impl<'a, 'b> Add<&'b Instance> for &'a Instance {
             position: self.position + rhs.position,
             rotation: self.rotation + rhs.rotation,
             scale: self.scale + rhs.scale,
+        }
+    }
+}
+
+impl From<cgmath::Vector3<f32>> for Instance {
+    fn from(position: cgmath::Vector3<f32>) -> Self {
+        Instance {
+            position,
+            ..Default::default()
         }
     }
 }

@@ -191,6 +191,11 @@ impl<'a, 'pass> From<&'a dyn SceneNode> for Render<'a, 'pass> {
         Render::Defaults(sn.get_render())
     }
 }
+impl<'a, 'pass> From<&'a (dyn SceneNode + Send)> for Render<'a, 'pass> {
+    fn from(sn: &'a (dyn SceneNode + Send)) -> Self {
+        Render::Defaults(sn.get_render())
+    }
+}
 impl<'a, 'pass> From<&'a BuildingBlocks> for Render<'a, 'pass> {
     fn from(blocks: &'a BuildingBlocks) -> Self {
         blocks.get_render()

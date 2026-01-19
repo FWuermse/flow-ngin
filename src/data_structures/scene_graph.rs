@@ -295,7 +295,9 @@ fn merge(clips: Vec<AnimationClip>) -> Vec<ModelAnimation> {
 pub trait SceneNode {
     fn get_world_transforms(&self) -> Vec<Instance>;
 
-    fn get_local_transform(&self, idx: usize) -> Option<Instance>;
+    fn get_world_transform(&self, idx: usize) -> Option<&Instance>;
+
+    fn get_local_transform(&self, idx: usize) -> Option<&Instance>;
 
     fn draw<'a, 'pass>(
         &self,
@@ -309,7 +311,10 @@ pub trait SceneNode {
 
     fn get_children(&self) -> &Vec<Box<dyn SceneNode>>;
 
-    fn add_child(&mut self, child: Box<dyn SceneNode>);
+    /// Adds a child node to the tree and returns the childs index
+    fn add_child(&mut self, child: Box<dyn SceneNode>) -> usize;
+
+    fn remove_child(&mut self, idx: usize) -> Box<dyn SceneNode>;
 
     fn set_local_transform(&mut self, idx: usize, instance: Instance);
 
@@ -319,10 +324,8 @@ pub trait SceneNode {
 
     fn write_to_buffers(&mut self, queue: &wgpu::Queue, device: &wgpu::Device);
 
-    /**
-     * Multiple instances of a parent can be passed down to multiple instances of multiple children.
-     * The argument `parents_world_transform` with a matching `range` size provides control over which instances are transformed.
-     */
+    /// Multiple instances of a parent can be passed down to multiple instances of multiple children.
+    /// The argument `parents_world_transform` with a matching `range` size provides control over which instances are transformed.
     fn update_world_transforms(
         &mut self,
         range: Range<usize>,
@@ -331,8 +334,10 @@ pub trait SceneNode {
 
     fn update_world_transform_all(&mut self);
 
+    /// Adds an instance to the scene node (and its children) and returns the index of the added instance
     fn add_instance(&mut self, instance: Instance) -> usize;
 
+    /// Adds multiple instance to the scene node (and its children) and returns index of the last instance
     fn add_instances(&mut self, instances: Vec<Instance>) -> usize;
 
     fn remove_instance(&mut self, idx: usize) -> (Instance, Instance);
@@ -342,6 +347,36 @@ pub trait SceneNode {
     fn get_animation(&self) -> &Vec<ModelAnimation>;
 
     fn get_render(&self) -> Vec<Instanced<'_>>;
+}
+impl dyn SceneNode {
+    pub fn transform_local(&mut self, instance: Instance) -> Instance {
+        let idx = self.add_child(Box::new(ContainerNode::from(instance)));
+        self.update_world_transforms(idx..idx + 1, &vec![Instance::new()]);
+        let child = self.remove_child(idx);
+        child.get_world_transforms()[0].clone()
+    }
+    pub fn transform_locals(&mut self, instances: Vec<Instance>) -> Vec<Instance> {
+        self.add_instances((0..instances.len()).map(|_| Instance::new()).collect());
+        let idx = self.add_child(Box::new(ContainerNode::from(instances)));
+        self.update_world_transforms(idx..idx + 1, &vec![Instance::new()]);
+        let child = self.remove_child(idx);
+        child.get_world_transforms()
+    }
+}
+
+/// Returns the local transformation of `children` in the `parent` space coordinates
+pub fn transform_locals(parent: &Instance, children: Vec<Instance>) -> Vec<Instance> {
+    let len = children.len();
+    let parents: Vec<_> = (0..len).map(|_| parent.clone()).collect();
+    let mut scene = ContainerNode::from(parents);
+    let child = scene.add_child(Box::new(ContainerNode::from(children)));
+    scene.update_world_transforms(0..len, &(0..len).map(|_| Instance::new()).collect());
+    scene.remove_child(child).get_world_transforms()
+}
+
+/// Returns the local transformation `child` in the `parent` coordinates
+pub fn transform_local(parent: &Instance, child: Instance) -> Instance {
+    parent * &child
 }
 
 impl<'a, 'pass, T> GPUResource<'a, 'pass> for T
@@ -377,9 +412,38 @@ impl ContainerNode {
     }
 }
 
+impl From<Instance> for ContainerNode {
+    fn from(value: Instance) -> Self {
+        ContainerNode {
+            children: vec![],
+            instances: vec![(value, Instance::default())],
+            animations: vec![],
+        }
+    }
+}
+
+impl From<Vec<Instance>> for ContainerNode {
+    fn from(value: Vec<Instance>) -> Self {
+        ContainerNode {
+            children: vec![],
+            instances: value
+                .iter()
+                .zip(value.iter())
+                .map(|(fst, snd)| (fst.clone(), snd.clone()))
+                .collect(),
+            animations: vec![],
+        }
+    }
+}
+
 impl SceneNode for ContainerNode {
-    fn add_child(&mut self, child: Box<dyn SceneNode>) {
+    fn remove_child(&mut self, idx: usize) -> Box<dyn SceneNode> {
+        self.children.remove(idx)
+    }
+
+    fn add_child(&mut self, child: Box<dyn SceneNode>) -> usize {
         self.children.push(child);
+        return self.children.len() - 1;
     }
 
     fn set_local_transform(&mut self, idx: usize, instance: Instance) {
@@ -446,8 +510,8 @@ impl SceneNode for ContainerNode {
         &mut self.children
     }
 
-    fn get_local_transform(&self, idx: usize) -> Option<Instance> {
-        self.instances.get(idx).map(|(local, _)| local).cloned()
+    fn get_local_transform(&self, idx: usize) -> Option<&Instance> {
+        self.instances.get(idx).map(|(local, _)| local)
     }
 
     fn write_to_buffers(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
@@ -492,7 +556,7 @@ impl SceneNode for ContainerNode {
         for child in &mut self.children {
             child.add_instance(Instance::default());
         }
-        self.instances.len()
+        self.instances.len() - 1
     }
 
     fn update_world_transform_all(&mut self) {
@@ -541,7 +605,11 @@ impl SceneNode for ContainerNode {
         for child in &mut self.children {
             child.add_instances((0..len).map(|_| Instance::default()).collect());
         }
-        self.instances.len()
+        self.instances.len() - 1
+    }
+
+    fn get_world_transform(&self, idx: usize) -> Option<&Instance> {
+        self.instances.get(idx).map(|(_, world)| world)
     }
 }
 
@@ -610,8 +678,9 @@ impl ModelNode {
 }
 
 impl SceneNode for ModelNode {
-    fn add_child(&mut self, child: Box<dyn SceneNode>) {
+    fn add_child(&mut self, child: Box<dyn SceneNode>) -> usize {
         self.children.push(child);
+        self.children.len() - 1
     }
 
     fn set_local_transform(&mut self, idx: usize, instance: Instance) {
@@ -678,8 +747,8 @@ impl SceneNode for ModelNode {
         &mut self.children
     }
 
-    fn get_local_transform(&self, idx: usize) -> Option<Instance> {
-        self.instances.get(idx).map(|(local, _)| local).cloned()
+    fn get_local_transform(&self, idx: usize) -> Option<&Instance> {
+        self.instances.get(idx).map(|(local, _)| local)
     }
 
     fn write_to_buffers(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
@@ -760,7 +829,7 @@ impl SceneNode for ModelNode {
             child.add_instance(Instance::default());
         }
         self.buffer_size_needs_change = true;
-        self.instances.len()
+        self.instances.len() - 1
     }
 
     fn update_world_transform_all(&mut self) {
@@ -775,7 +844,8 @@ impl SceneNode for ModelNode {
         for child in &mut self.children {
             child.clone_instance(i);
         }
-        self.instances.len()
+        self.buffer_size_needs_change = true;
+        self.instances.len() - 1
     }
 
     fn get_animation(&self) -> &Vec<ModelAnimation> {
@@ -812,7 +882,15 @@ impl SceneNode for ModelNode {
             child.add_instances((0..len).map(|_| Instance::default()).collect());
         }
         self.buffer_size_needs_change = true;
-        self.instances.len()
+        self.instances.len() - 1
+    }
+
+    fn get_world_transform(&self, idx: usize) -> Option<&Instance> {
+        self.instances.get(idx).map(|(_, world)| world)
+    }
+
+    fn remove_child(&mut self, idx: usize) -> Box<dyn SceneNode> {
+        self.children.remove(idx)
     }
 }
 
@@ -832,6 +910,94 @@ pub async fn mk_flat_scene_graph(
     .await
     .into_iter()
     .map(Box::new)
-    .for_each(|boxed_model_node| parent.add_child(boxed_model_node));
+    .for_each(|boxed_model_node| {
+        parent.add_child(boxed_model_node);
+    });
     parent
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_number_of_children() {
+        let parent = Instance::default();
+        let children = vec![
+            Instance::default(),
+            Instance::default(),
+            Instance::default(),
+        ];
+
+        let result = transform_locals(&parent, children.clone());
+
+        assert_eq!(result.len(), children.len());
+    }
+
+    #[test]
+    fn identity_parent_does_not_change_children() {
+        let parent = Instance::default();
+        let children = vec![
+            Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0])),
+            Instance::from(cgmath::Vector3::from([0.0, 2.0, 0.0])),
+        ];
+
+        let result = transform_locals(&parent, children.clone());
+
+        for (a, b) in result.iter().zip(children.iter()) {
+            assert_eq!(a.position, b.position);
+            assert_eq!(a.scale, b.scale);
+            assert_eq!(a.rotation, b.rotation);
+        }
+    }
+
+    #[test]
+    fn existing_children_unchanged() {
+        let parent = Instance::default();
+        let children = vec![
+            Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0])),
+            Instance::from(cgmath::Vector3::from([0.0, 2.0, 0.0])),
+        ];
+
+        let result = transform_locals(&parent, children.clone());
+
+        for (a, b) in result.iter().zip(children.iter()) {
+            assert_eq!(a.position, b.position);
+            assert_eq!(a.scale, b.scale);
+            assert_eq!(a.rotation, b.rotation);
+        }
+    }
+
+    #[test]
+    fn parent_translation_is_removed() {
+        let parent = Instance::from(cgmath::Vector3::from([10.0, 0.0, 0.0]));
+
+        let children = vec![
+            Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0])),
+            Instance::from(cgmath::Vector3::from([2.0, 0.0, 0.0])),
+        ];
+
+        let result = transform_locals(&parent, children);
+
+        let expected = vec![
+            Instance::from(cgmath::Vector3::from([11.0, 0.0, 0.0])),
+            Instance::from(cgmath::Vector3::from([12.0, 0.0, 0.0])),
+        ];
+
+        for (a, b) in result.iter().zip(expected.iter()) {
+            assert_eq!(a.position, b.position);
+            assert_eq!(a.scale, b.scale);
+            assert_eq!(a.rotation, b.rotation);
+        }
+    }
+
+    #[test]
+    fn empty_children_returns_empty() {
+        let parent = Instance::default();
+        let children = Vec::new();
+
+        let result = transform_locals(&parent, children);
+
+        assert!(result.is_empty());
+    }
 }
