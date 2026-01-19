@@ -46,9 +46,10 @@ impl<'a> Animation {
         &mut self,
         graph: &'a mut Box<dyn SceneNode>,
         anim_idx: usize,
+        instance_idx: usize,
     ) {
         let current_time = &mut self.time;
-        animate_graph(graph, anim_idx, current_time, self.speed);
+        animate_graph(graph, instance_idx, anim_idx, current_time, self.speed);
 
         // repeat anim after 20 secs TODO: remove once testing is done
         if self.time.elapsed().as_secs_f32() > self.rep_after_sec {
@@ -98,7 +99,7 @@ impl<'a> Animation {
     }
 }
 
-fn animate_graph(graph: &mut Box<dyn SceneNode>, anim_idx: usize, time: &mut Instant, speed: f32) {
+fn animate_graph(graph: &mut Box<dyn SceneNode>, instance_idx: usize, anim_idx: usize, time: &mut Instant, speed: f32) {
     let current_time = time.elapsed().as_secs_f32();
     let animations = graph.get_animation();
     let mut current_keyframe_index = 0;
@@ -116,14 +117,12 @@ fn animate_graph(graph: &mut Box<dyn SceneNode>, anim_idx: usize, time: &mut Ins
         }
 
         // Update locals with current animation
-        // TODO: add something to animate different instances independently
         let ref_pos = &animation.instances[current_keyframe_index];
-        graph.set_local_transform(0, ref_pos.clone());
-
+        graph.set_local_transform(instance_idx, ref_pos.clone());
     }
 
     for child in graph.get_children_mut() {
-        animate_graph(child, anim_idx, time, speed);
+        animate_graph(child, instance_idx, anim_idx, time, speed);
     }
 }
 
