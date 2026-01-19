@@ -168,7 +168,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event>(
         render_pass.set_pipeline(&ctx.pipelines.pick);
         for instanced in basics.iter_mut() {
             if instanced.amount == 0 || instanced.instance.size() == 0 {
-                log::warn!("you attemted to render something with zero instances");
+                log::debug!("Cannot pick empty render.");
                 continue;
             }
             let pick_model =
