@@ -6,6 +6,7 @@
 
 use std::{collections::HashMap, ops::Range};
 
+use cgmath::{InnerSpace, Zero};
 use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
@@ -64,8 +65,10 @@ pub fn to_scene_node(
     mats: &Vec<model::Material>,
     anims: &HashMap<usize, Vec<AnimationClip>>,
 ) -> Box<dyn SceneNode> {
-    // TODO: is node.index() correct?
-    let animations = merge(anims[&node.index()].clone());
+    let animations = match anims.get(&node.index()) {
+        Some(clips) => merge(clips.clone()),
+        None => Default::default(),
+    };
     // TODO: only select materials for current mesh
     let mut scene_node: Box<dyn SceneNode> = match node.mesh() {
         Some(mesh) => {
@@ -75,7 +78,16 @@ pub fn to_scene_node(
             primitives.for_each(|primitive| {
                 let reader = primitive.reader(|buffer| Some(&buf[buffer.index()]));
 
-                let mut vertices = Vec::new();
+                let mut indices = Vec::new();
+                if let Some(indices_raw) = reader.read_indices() {
+                    indices.append(&mut indices_raw.into_u32().collect::<Vec<u32>>());
+                } else {
+                    if let Some(positions) = reader.read_positions() {
+                        indices = (0..positions.len() as u32).collect();
+                    }
+                }
+
+                let mut vertices = Vec::with_capacity(indices.len());
                 if let Some(vertex_attribute) = reader.read_positions() {
                     vertex_attribute.for_each(|vertex| {
                         vertices.push(model::ModelVertex {
@@ -103,7 +115,6 @@ pub fn to_scene_node(
                         tex_coord_index += 1;
                     });
                 }
-                // TODO: don't recalculate all tangents if the ModelVertex already contains them
                 if let Some(tangent_attribute) = reader.read_tangents() {
                     let mut tangent_index = 0;
                     tangent_attribute.for_each(|tangent| {
@@ -116,12 +127,12 @@ pub fn to_scene_node(
 
                         tangent_index += 1;
                     });
+                } else {
+                    if !indices.is_empty() && !vertices.is_empty() {
+                        compute_tangents(&mut vertices, &indices);
+                    }
                 };
 
-                let mut indices = Vec::new();
-                if let Some(indices_raw) = reader.read_indices() {
-                    indices.append(&mut indices_raw.into_u32().collect::<Vec<u32>>());
-                }
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("{:?} Vertex Buffer", mesh.name())),
                     contents: bytemuck::cast_slice(&vertices),
@@ -133,11 +144,7 @@ pub fn to_scene_node(
                     contents: bytemuck::cast_slice(&indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
-                let mat_idx = mesh
-                    .primitives()
-                    .filter_map(|prim| prim.material().index())
-                    .next()
-                    .unwrap_or(0);
+                let mat_idx = primitive.material().index().unwrap_or(0);
 
                 meshes.push(model::Mesh {
                     name: mesh.name().unwrap_or("unknown_mesh").to_string(),
@@ -172,6 +179,100 @@ pub fn to_scene_node(
     }
 
     scene_node
+}
+
+fn compute_tangents(vertices: &mut Vec<model::ModelVertex>, indices: &[u32]) {
+    // 1. Allocate temporary storage for tangent and bitangent accumulators.
+    // We need these to accumulate contributions from all triangles sharing a vertex.
+    let mut tan1 = vec![cgmath::Vector3::zero(); vertices.len()];
+    let mut tan2 = vec![cgmath::Vector3::zero(); vertices.len()];
+
+    // 2. Iterate over all triangles (chunks of 3 indices)
+    for c in indices.chunks(3) {
+        if c.len() < 3 {
+            break;
+        } // Safety check
+
+        let i1 = c[0] as usize;
+        let i2 = c[1] as usize;
+        let i3 = c[2] as usize;
+
+        let v1 = &vertices[i1];
+        let v2 = &vertices[i2];
+        let v3 = &vertices[i3];
+
+        let p1: cgmath::Vector3<f32> = v1.position.into();
+        let p2: cgmath::Vector3<f32> = v2.position.into();
+        let p3: cgmath::Vector3<f32> = v3.position.into();
+
+        let w1: cgmath::Vector2<f32> = v1.tex_coords.into();
+        let w2: cgmath::Vector2<f32> = v2.tex_coords.into();
+        let w3: cgmath::Vector2<f32> = v3.tex_coords.into();
+
+        let x1 = p2.x - p1.x;
+        let x2 = p3.x - p1.x;
+        let y1 = p2.y - p1.y;
+        let y2 = p3.y - p1.y;
+        let z1 = p2.z - p1.z;
+        let z2 = p3.z - p1.z;
+
+        let s1 = w2.x - w1.x;
+        let s2 = w3.x - w1.x;
+        let t1 = w2.y - w1.y;
+        let t2 = w3.y - w1.y;
+
+        // Prevent division by zero if UVs are degenerate
+        let r_denom = s1 * t2 - s2 * t1;
+        let r = if r_denom.abs() < 1e-6 {
+            0.0
+        } else {
+            1.0 / r_denom
+        };
+
+        let sdir = cgmath::Vector3::new(
+            (t2 * x1 - t1 * x2) * r,
+            (t2 * y1 - t1 * y2) * r,
+            (t2 * z1 - t1 * z2) * r,
+        );
+
+        let tdir = cgmath::Vector3::new(
+            (s1 * x2 - s2 * x1) * r,
+            (s1 * y2 - s2 * y1) * r,
+            (s1 * z2 - s2 * z1) * r,
+        );
+
+        // Accumulate for each vertex of the triangle
+        tan1[i1] += sdir;
+        tan1[i2] += sdir;
+        tan1[i3] += sdir;
+
+        tan2[i1] += tdir;
+        tan2[i2] += tdir;
+        tan2[i3] += tdir;
+    }
+
+    for (i, vert) in vertices.iter_mut().enumerate() {
+        let n: cgmath::Vector3<f32> = vert.normal.into();
+        let t = tan1[i];
+
+        // Gram-Schmidt orthogonalize:
+        let tangent_xyz = (t - n * n.dot(t)).normalize();
+
+        let w = if n.cross(t).dot(tan2[i]) < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+
+        if tangent_xyz.x.is_nan() {
+            vert.tangent = [1.0, 0.0, 0.0];
+            vert.bitangent = [0.0, 1.0, 0.0];
+        } else {
+            vert.tangent = tangent_xyz.into();
+            let bitangent = n.cross(tangent_xyz) * w;
+            vert.bitangent = bitangent.into();
+        }
+    }
 }
 
 fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnimation {
@@ -339,6 +440,8 @@ pub trait SceneNode {
 
     /// Adds multiple instance to the scene node (and its children) and returns index of the last instance
     fn add_instances(&mut self, instances: Vec<Instance>) -> usize;
+
+    fn set_instances(&mut self, instances: Vec<Instance>) -> usize;
 
     fn remove_instance(&mut self, idx: usize) -> (Instance, Instance);
 
@@ -610,6 +713,15 @@ impl SceneNode for ContainerNode {
 
     fn get_world_transform(&self, idx: usize) -> Option<&Instance> {
         self.instances.get(idx).map(|(_, world)| world)
+    }
+
+    fn set_instances(&mut self, instances: Vec<Instance>) -> usize {
+        let len = instances.len();
+        self.instances = instances.to_vec().into_iter().zip(instances).collect();
+        for child in &mut self.children {
+            child.set_instances((0..len).map(|_| Instance::default()).collect());
+        }
+        self.instances.len() - 1
     }
 }
 
@@ -892,6 +1004,16 @@ impl SceneNode for ModelNode {
     fn remove_child(&mut self, idx: usize) -> Box<dyn SceneNode> {
         self.children.remove(idx)
     }
+
+    fn set_instances(&mut self, instances: Vec<Instance>) -> usize {
+        let len = instances.len();
+        self.instances = instances.to_vec().into_iter().zip(instances).collect();
+        for child in &mut self.children {
+            child.set_instances((0..len).map(|_| Instance::default()).collect());
+        }
+        self.buffer_size_needs_change = true;
+        self.instances.len() - 1
+    }
 }
 
 pub async fn mk_flat_scene_graph(
@@ -900,7 +1022,7 @@ pub async fn mk_flat_scene_graph(
     models: Vec<&'static str>,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-) -> Box<dyn SceneNode> {
+) -> anyhow::Result<Box<dyn SceneNode>> {
     let mut parent: Box<dyn SceneNode> = Box::new(ContainerNode::new(amount, Vec::new()));
     futures::future::join_all(
         models
@@ -913,7 +1035,7 @@ pub async fn mk_flat_scene_graph(
     .for_each(|boxed_model_node| {
         parent.add_child(boxed_model_node);
     });
-    parent
+    Ok(parent)
 }
 
 #[cfg(test)]

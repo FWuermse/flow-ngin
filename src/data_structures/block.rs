@@ -177,6 +177,12 @@ impl BuildingBlocks {
         self.instances.drain(0..amount);
         self.write_to_buffer(&ctx.queue, &ctx.device);
     }
+
+    pub fn clear_at(&mut self, from: usize, to: usize, ctx: &Context) {
+        self.buffer_size_needs_change = true;
+        self.instances.drain(from..to);
+        self.write_to_buffer(&ctx.queue, &ctx.device);
+    }
     
     /// Returns the inner instanced of the `Default` render for possible optimizations with `Defaults`
     pub fn to_instanced(&self) -> Instanced<'_> {
