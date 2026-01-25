@@ -21,6 +21,32 @@ pub trait GPUResource<'a, 'pass> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device);
     fn get_render(&'a self) -> Render<'a, 'pass>;
 }
+#[cfg(feature = "integration-tests")]
+impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn GPUResource<'a, 'pass> + Send> {
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
+        (**self).write_to_buffer(queue, device);
+    }
+
+    fn get_render(&'a self) -> Render<'a, 'pass> {
+        (**self).get_render()
+    }
+}
+#[cfg(feature = "integration-tests")]
+impl<'a, 'pass> From<&'a Box<dyn GPUResource<'a, 'pass>>> for Render<'a, 'pass> {
+    fn from(val: &'a Box<dyn GPUResource<'a, 'pass>>) -> Self {
+        val.get_render()
+    }
+}
+#[cfg(feature = "integration-tests")]
+impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn GPUResource<'a, 'pass>> {
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
+        (**self).write_to_buffer(queue, device);
+    }
+
+    fn get_render(&'a self) -> Render<'a, 'pass> {
+        (**self).get_render()
+    }
+}
 
 #[derive(Debug)]
 pub enum MouseButtonState {

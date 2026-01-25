@@ -201,3 +201,16 @@ impl<'a, 'pass> From<&'a BuildingBlocks> for Render<'a, 'pass> {
         blocks.get_render()
     }
 }
+#[cfg(feature = "integration-tests")]
+impl<'b, 'pass> From<&'b Box<dyn SceneNode>> for Render<'b, 'pass> {
+    fn from(val: &'b Box<dyn SceneNode>) -> Self {
+        // Dereference the Box to get &dyn SceneNode, which Render implements From for
+        Render::from(val.as_ref())
+    }
+}
+#[cfg(feature = "integration-tests")]
+impl<'a, 'pass> From<&'a Box<dyn GPUResource<'a, 'pass> + Send>> for Render<'a, 'pass> {
+    fn from(val: &'a Box<dyn GPUResource<'a, 'pass> + Send>) -> Self {
+        val.get_render()
+    }
+}

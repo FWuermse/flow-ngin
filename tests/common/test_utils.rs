@@ -1,3 +1,4 @@
+use std::io::Empty;
 #[cfg(feature = "integration-tests")]
 use std::{
     rc::Rc,
@@ -10,7 +11,9 @@ use flow_ngin::{
     render::Render,
 };
 #[cfg(feature = "integration-tests")]
-use flow_ngin::{context::GPUResource, data_structures::block::BuildingBlocks, flow::ImageTestResult};
+use flow_ngin::{
+    context::GPUResource, data_structures::block::BuildingBlocks, flow::ImageTestResult,
+};
 #[cfg(feature = "integration-tests")]
 use wgpu::RenderPass;
 
@@ -127,7 +130,10 @@ impl<'a, T> TestRender<'a, T> {
 }
 
 #[cfg(feature = "integration-tests")]
-impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestRender<'a, T> where for<'pass, 'b> Render<'b, 'pass>: From<&'b T>, T: BufferWriter {
+impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestRender<'a, T>
+where
+    T: for<'b, 'pass> GPUResource<'b, 'pass>,
+{
     fn on_init(&mut self, ctx: &mut Context, s: &mut FrameCounter) -> Out<FrameCounter, ()> {
         let f = self.setup;
         f(ctx);
@@ -135,7 +141,8 @@ impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestRender<'a, T> where for<'pass
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        (&self.data).into()
+        let r = self.data.get_render();
+        r
     }
 
     fn render_to_texture(
@@ -161,7 +168,7 @@ impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestRender<'a, T> where for<'pass
         _: std::time::Duration,
     ) -> Out<FrameCounter, ()> {
         state.progress();
-        self.data.write_to_buffer(ctx);
+        self.data.write_to_buffer(&ctx.queue, &ctx.device);
         Out::Empty
     }
 
@@ -200,7 +207,10 @@ macro_rules! golden_image_test {
         use flow_ngin::flow::GraphicsFlow;
         let model_constructor: FlowConsturctor<FrameCounter, ()> = Box::new(|ctx| {
             Box::pin(
-                async move { Box::new($graphics_elem(ctx).await) as Box<dyn GraphicsFlow<_, _>> },
+                async move {
+                    let x: Box<dyn GraphicsFlow<_, _>> = Box::new($graphics_elem(ctx).await);
+                    x
+                },
             )
         });
 

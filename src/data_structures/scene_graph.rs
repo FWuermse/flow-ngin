@@ -482,6 +482,17 @@ pub fn transform_local(parent: &Instance, child: Instance) -> Instance {
     parent * &child
 }
 
+#[cfg(feature = "integration-tests")]
+impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode> {
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
+        // Delegate to the inner dyn SceneNode
+        (*self).write_to_buffers(queue, device);
+    }
+    fn get_render(&'a self) -> Render<'a, 'pass> {
+        Render::Defaults((**self).get_render())
+    }
+}
+
 impl<'a, 'pass, T> GPUResource<'a, 'pass> for T
 where
     T: SceneNode,
@@ -689,7 +700,7 @@ impl SceneNode for ContainerNode {
     fn get_render(&self) -> Vec<Instanced<'_>> {
         self.children
             .iter()
-            .flat_map(|child| child.get_render())
+            .flat_map(|child| (**child).get_render())
             .collect()
     }
 
@@ -967,7 +978,7 @@ impl SceneNode for ModelNode {
     fn get_render(&self) -> Vec<Instanced<'_>> {
         self.children
             .iter()
-            .flat_map(|child| child.get_render())
+            .flat_map(|child| (**child).get_render())
             .chain([Instanced {
                 instance: &self.instance_buffer,
                 model: &self.model,
