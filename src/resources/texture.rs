@@ -66,8 +66,7 @@ pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
         let path = std::path::Path::new("./")
             .join("assets")
             .join(file_name);
-        // TODO: use tokio if it's not wasm anyway. Most IO-load will be here
-        std::fs::read_to_string(path)?
+        tokio::fs::read_to_string(path).await?
     };
 
     Ok(txt)
@@ -86,8 +85,7 @@ pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
         let path = std::path::Path::new("./")
             .join("assets")
             .join(file_name);
-        // TODO: use tokio if it's not wasm anyway. Most IO-load will be here
-        std::fs::read(path)?
+        tokio::fs::read(path).await?
     };
 
     Ok(data)
