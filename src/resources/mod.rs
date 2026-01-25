@@ -189,14 +189,14 @@ pub async fn load_model_gltf(
                         &buffer_data[view.buffer().index()],
                         file_name,
                         None,
-                        false,
+                        true,
                     )
                     .expect("Couldn't load normal");
                     texture
                 }
                 // TODO: parse and pass the mime_type so that the img lib does't have to guess
                 gltf::image::Source::Uri { uri, mime_type: _ } => {
-                    let texture = load_texture(uri, false, device, queue, None).await?;
+                    let texture = load_texture(uri, true, device, queue, None).await?;
                     texture
                 }
             }
