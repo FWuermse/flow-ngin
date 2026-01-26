@@ -5,13 +5,10 @@
 //! hidden blocks are not culled, so this may not be optimal for large voxel worlds.
 
 use crate::{
-    context::{Context, GPUResource},
-    data_structures::{
+    context::{Context, GPUResource}, data_structures::{
         instance::Instance,
         model::{self},
-    },
-    render::{Instanced, Render},
-    resources::{self, pick::load_pick_model},
+    }, render::{Instanced, Render}, resources::{self, pick::load_pick_model}
 };
 use cgmath::{One, Rotation3, Zero};
 use wgpu::{Device, util::DeviceExt};
@@ -190,6 +187,7 @@ impl BuildingBlocks {
             instance: &self.instance_buffer,
             model: &self.obj_model,
             amount: self.instances.len(),
+            front_face: wgpu::FrontFace::Ccw,
             id: self.id,
         }
     }

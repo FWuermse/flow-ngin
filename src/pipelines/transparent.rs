@@ -32,6 +32,7 @@ pub fn mk_transparent_pipeline(
     };
     mk_render_pipeline(
         &device,
+        wgpu::FrontFace::Ccw,
         &render_pipeline_layout,
         config.format,
         Some(wgpu::BlendState::ALPHA_BLENDING),

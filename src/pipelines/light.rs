@@ -105,6 +105,7 @@ pub fn mk_light_pipeline(
     };
     crate::pipelines::basic::mk_render_pipeline(
         &device,
+        wgpu::FrontFace::Ccw,
         &layout,
         config.format,
         Some(wgpu::BlendState {

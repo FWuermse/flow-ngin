@@ -5,7 +5,7 @@
 
 use std::ops::{Add, Mul};
 
-use cgmath::One;
+use cgmath::{One, SquareMatrix};
 
 use crate::data_structures::model;
 
@@ -39,9 +39,13 @@ impl Instance {
     }
 
     pub fn to_raw(&self) -> InstanceRaw {
+        let world_matrix = self.to_matrix();
+        let det = world_matrix.determinant();
+        let handedness = det.signum();
         InstanceRaw {
             model: self.to_matrix().into(),
             normal: cgmath::Matrix3::from(self.rotation).into(),
+            handedness: handedness,
         }
     }
 }
@@ -146,6 +150,7 @@ impl Default for Instance {
 pub struct InstanceRaw {
     model: [[f32; 4]; 4],
     normal: [[f32; 3]; 3],
+    handedness: f32,
 }
 
 /**
@@ -204,6 +209,11 @@ impl model::Vertex for InstanceRaw {
                     offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
                     shader_location: 11,
                     format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 25]>() as wgpu::BufferAddress,
+                    shader_location: 12,
+                    format: wgpu::VertexFormat::Float32,
                 },
             ],
         }

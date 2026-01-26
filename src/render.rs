@@ -29,6 +29,7 @@ use crate::{
 pub struct Instanced<'a> {
     pub instance: &'a wgpu::Buffer,
     pub model: &'a Model,
+    pub front_face: wgpu::FrontFace,
     pub amount: usize,
     pub id: u32,
 }

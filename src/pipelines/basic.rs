@@ -12,6 +12,7 @@ use crate::{data_structures::{instance::InstanceRaw, model::{self, Vertex}, text
 pub fn mk_basic_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
+    direction: wgpu::FrontFace,
     light_bind_group_layout: &wgpu::BindGroupLayout,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> wgpu::RenderPipeline {
@@ -34,6 +35,7 @@ pub fn mk_basic_pipeline(
 
     mk_render_pipeline(
         &device,
+        direction,
         &render_pipeline_layout,
         config.format,
         Some(wgpu::BlendState {
@@ -51,6 +53,7 @@ pub fn mk_basic_pipeline(
 /// Handles boilerplate for creating WGPU render pipelines.
 pub fn mk_render_pipeline(
     device: &wgpu::Device,
+    front_face: wgpu::FrontFace,
     layout: &wgpu::PipelineLayout,
     color_format: wgpu::TextureFormat,
     blend: Option<wgpu::BlendState>,
@@ -83,7 +86,7 @@ pub fn mk_render_pipeline(
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
             strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
+            front_face,
             cull_mode: Some(wgpu::Face::Back),
             polygon_mode: wgpu::PolygonMode::Fill,
             unclipped_depth: false,

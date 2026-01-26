@@ -74,6 +74,7 @@ impl MouseState {
 pub struct Pipelines {
     pub light: wgpu::RenderPipeline,
     pub basic: wgpu::RenderPipeline,
+    pub basic_cw: wgpu::RenderPipeline,
     pub pick: wgpu::RenderPipeline,
     pub gui: wgpu::RenderPipeline,
     pub transparent: wgpu::RenderPipeline,
@@ -247,6 +248,14 @@ impl Context {
         let basic_pipeline = mk_basic_pipeline(
             &device,
             &config,
+            wgpu::FrontFace::Ccw,
+            &light.bind_group_layout,
+            &camera.bind_group_layout,
+        );
+        let basic_cw_pipeline = mk_basic_pipeline(
+            &device,
+            &config,
+            wgpu::FrontFace::Cw,
             &light.bind_group_layout,
             &camera.bind_group_layout,
         );
@@ -267,6 +276,7 @@ impl Context {
         );
         let pipelines = Pipelines {
             basic: basic_pipeline,
+            basic_cw: basic_cw_pipeline,
             gui: gui_pipeline,
             flat_pick: gui_pick_pipeline,
             light: light_pipeline,

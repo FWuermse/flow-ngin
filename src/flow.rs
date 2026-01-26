@@ -375,7 +375,22 @@ impl<'a, State: Default> AppState<State> {
                     continue;
                 }
                 if instanced.instance.size() == 0 {
-                    log::warn!("you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models.");
+                    log::warn!(
+                        "you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models."
+                    );
+                    continue;
+                }
+                // TODO: introduce as new render category
+                if let wgpu::FrontFace::Cw = instanced.front_face {
+                    render_pass.set_pipeline(&self.ctx.pipelines.basic_cw);
+                    render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
+                    render_pass.draw_model_instanced(
+                        &instanced.model,
+                        0..instanced.amount as u32,
+                        &self.ctx.camera.bind_group,
+                        &self.ctx.light.bind_group,
+                    );
+                    render_pass.set_pipeline(&self.ctx.pipelines.basic);
                     continue;
                 }
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
@@ -394,7 +409,9 @@ impl<'a, State: Default> AppState<State> {
                     continue;
                 }
                 if instanced.instance.size() == 0 {
-                    log::warn!("you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models.");
+                    log::warn!(
+                        "you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models."
+                    );
                     continue;
                 }
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));

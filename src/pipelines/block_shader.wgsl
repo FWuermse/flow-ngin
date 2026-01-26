@@ -29,6 +29,7 @@ struct InstanceInput {
     @location(9) normal_matrix_0: vec3<f32>,
     @location(10) normal_matrix_1: vec3<f32>,
     @location(11) normal_matrix_2: vec3<f32>,
+    @location(12) handedness: f32,
 }
 
 struct VertexOutput {
@@ -55,11 +56,12 @@ fn vs_main(
         instance.normal_matrix_1,
         instance.normal_matrix_2,
     );
+    let handedness = instance.handedness;
 
     // Construct the tangent matrix
-    let world_normal = normalize(normal_matrix * model.normal);
-    let world_tangent = normalize(normal_matrix * model.tangent);
-    let world_bitangent = normalize(normal_matrix * model.bitangent);
+    let world_normal = normalize(normal_matrix * model.normal) * handedness;
+    let world_tangent = normalize(normal_matrix * model.tangent) * handedness;
+    let world_bitangent = normalize(normal_matrix * model.bitangent) * handedness;
     let tangent_matrix = transpose(mat3x3<f32>(
         world_tangent,
         world_bitangent,
