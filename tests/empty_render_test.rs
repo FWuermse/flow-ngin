@@ -37,9 +37,8 @@ fn should_render_clear_colour() {
     }
 
     golden_image_test!(async move |_: InitContext| {
-        let empty = Empty();
         TestRender::new(
-            empty,
+            Empty(),
             &|ctx: &mut Context| {
                 ctx.clear_colour = Color::WHITE;
                 ctx.camera.camera.position = [0.0, 5.0, 2.0].into();

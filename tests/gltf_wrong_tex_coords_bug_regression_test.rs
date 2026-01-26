@@ -33,8 +33,6 @@ fn should_have_correct_tex_coords() {
                         "image sizes differ"
                     );
 
-                    actual.save("wood_hut.png");
-
                     for (x, y, pixel_actual) in actual.enumerate_pixels() {
                         let pixel_expected = expected.get_pixel(x, y);
                         assert_eq!(

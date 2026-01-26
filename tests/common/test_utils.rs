@@ -98,7 +98,7 @@ impl Default for FrameCounter {
     }
 }
 
-/// This is a simplified flow that uses closures to represent lifecycle hook functions making construction
+/// This is a simplified flow that uses closures to represent lifecycle hook functions making Flow construction
 /// more convenient in test files.
 #[cfg(feature = "integration-tests")]
 pub(crate) struct TestRender<'a, T> {
@@ -207,10 +207,7 @@ macro_rules! golden_image_test {
         use flow_ngin::flow::GraphicsFlow;
         let model_constructor: FlowConsturctor<FrameCounter, ()> = Box::new(|ctx| {
             Box::pin(
-                async move {
-                    let x: Box<dyn GraphicsFlow<_, _>> = Box::new($graphics_elem(ctx).await);
-                    x
-                },
+                async move { Box::new($graphics_elem(ctx).await) as Box<dyn GraphicsFlow<_, _>> },
             )
         });
 

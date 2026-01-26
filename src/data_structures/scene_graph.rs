@@ -69,65 +69,69 @@ pub fn to_scene_node(
         Some(clips) => merge(clips.clone()),
         None => Default::default(),
     };
-
+    // TODO: only select materials for current mesh
     let mut scene_node: Box<dyn SceneNode> = match node.mesh() {
         Some(mesh) => {
             let mut meshes = Vec::new();
+            let primitives = mesh.primitives();
 
-            for primitive in mesh.primitives() {
+            primitives.for_each(|primitive| {
                 let reader = primitive.reader(|buffer| Some(&buf[buffer.index()]));
 
-                let positions: Vec<[f32; 3]> = reader.read_positions().unwrap().collect();
-
-                let normals: Option<Vec<[f32; 3]>> = reader.read_normals().map(|n| n.collect());
-
-                let tex_coords: Option<Vec<[f32; 2]>> =
-                    reader.read_tex_coords(0).map(|uv| uv.into_f32().collect());
-
-                let tangents: Option<Vec<[f32; 4]>> = reader.read_tangents().map(|t| t.collect());
-
-                let indices: Vec<u32> = if let Some(indices) = reader.read_indices() {
-                    indices.into_u32().collect()
+                let mut indices = Vec::new();
+                if let Some(indices_raw) = reader.read_indices() {
+                    indices.append(&mut indices_raw.into_u32().collect::<Vec<u32>>());
                 } else {
-                    (0..positions.len() as u32).collect()
-                };
-
-                let mut vertices = Vec::with_capacity(indices.len());
-
-                for &i in &indices {
-                    let i = i as usize;
-
-                    let position = positions[i];
-                    let normal = normals.as_ref().map(|n| n[i]).unwrap_or([0.0, 1.0, 0.0]);
-
-                    let tex_coords = tex_coords.as_ref().map(|uv| uv[i]).unwrap_or([0.0, 0.0]);
-
-                    let (tangent, bitangent) = if let Some(t) = tangents.as_ref() {
-                        let t4 = t[i];
-                        let t3 = [t4[0], t4[1], t4[2]];
-                        let n = cgmath::Vector3::from(normal);
-                        let t = cgmath::Vector3::from(t3);
-                        let b = n.cross(t) * t4[3];
-
-                        (t3, b.into())
-                    } else {
-                        ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0])
-                    };
-
-                    vertices.push(model::ModelVertex {
-                        position,
-                        normal,
-                        tex_coords,
-                        tangent,
-                        bitangent,
-                    });
+                    if let Some(positions) = reader.read_positions() {
+                        indices = (0..positions.len() as u32).collect();
+                    }
                 }
 
-                // =========================
-                // FIX 3: Index buffer is now trivial
-                // (vertices already expanded)
-                // =========================
-                let gpu_indices: Vec<u32> = (0..vertices.len() as u32).collect();
+                let mut vertices = Vec::with_capacity(indices.len());
+                if let Some(vertex_attribute) = reader.read_positions() {
+                    vertex_attribute.for_each(|vertex| {
+                        vertices.push(model::ModelVertex {
+                            position: vertex,
+                            tex_coords: Default::default(),
+                            normal: Default::default(),
+                            bitangent: Default::default(),
+                            tangent: Default::default(),
+                        })
+                    });
+                }
+                if let Some(normal_attribute) = reader.read_normals() {
+                    let mut normal_index = 0;
+                    normal_attribute.for_each(|normal| {
+                        vertices[normal_index].normal = normal;
+
+                        normal_index += 1;
+                    });
+                }
+                if let Some(tex_coord_attribute) = reader.read_tex_coords(0).map(|v| v.into_f32()) {
+                    let mut tex_coord_index = 0;
+                    tex_coord_attribute.for_each(|tex_coord| {
+                        vertices[tex_coord_index].tex_coords = tex_coord;
+
+                        tex_coord_index += 1;
+                    });
+                }
+                if let Some(tangent_attribute) = reader.read_tangents() {
+                    let mut tangent_index = 0;
+                    tangent_attribute.for_each(|tangent| {
+                        // GLTF represents tangents as vec4 where the 4th elem can be used to calculate the bitangent
+                        let tangent: cgmath::Vector4<f32> = tangent.into();
+                        vertices[tangent_index].tangent = tangent.truncate().into();
+                        let normal: cgmath::Vector3<f32> = vertices[tangent_index].normal.into();
+                        let bitangent = normal.cross(tangent.truncate()) * tangent[3];
+                        vertices[tangent_index].bitangent = bitangent.into();
+
+                        tangent_index += 1;
+                    });
+                } else {
+                    if !indices.is_empty() && !vertices.is_empty() {
+                        compute_tangents(&mut vertices, &indices);
+                    }
+                };
 
                 let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("{:?} Vertex Buffer", mesh.name())),
@@ -137,41 +141,38 @@ pub fn to_scene_node(
 
                 let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("{:?} Index Buffer", mesh.name())),
-                    contents: bytemuck::cast_slice(&gpu_indices),
+                    contents: bytemuck::cast_slice(&indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
-
                 let mat_idx = primitive.material().index().unwrap_or(0);
 
                 meshes.push(model::Mesh {
                     name: mesh.name().unwrap_or("unknown_mesh").to_string(),
                     vertex_buffer,
                     index_buffer,
-                    num_elements: gpu_indices.len() as u32,
+                    num_elements: indices.len() as u32,
                     material: mat_idx,
                 });
-            }
-
+            });
+            /* TOOD: don't store all materials in one place (insert Walter White meme here)
+                Instead adjust the mesh/anim index above as well as the vec below
+                e.g. mats [1,2,3,4] for mesh1[1,2] and mesh2[3,4] must become mats1 [1, 2] mesh1[1,2] and mats2 [1, 2] mesh2 [1, 2]
+            */
             let model = model::Model {
                 meshes,
                 materials: mats.clone(),
             };
-
             Box::new(ModelNode::from_model(1, id, device, model, animations))
         }
         None => Box::new(ContainerNode::new(1, animations)),
     };
-
-    let (pos, rot, scale) = node.transform().decomposed();
-
+    let decomp_pos = node.transform().decomposed();
     let instance = Instance {
-        position: pos.into(),
-        rotation: rot.into(),
-        scale: scale.into(),
+        position: decomp_pos.0.into(),
+        rotation: decomp_pos.1.into(),
+        scale: decomp_pos.2.into(),
     };
-
     scene_node.set_local_transform(0, instance);
-
     for child in node.children() {
         let child_node = to_scene_node(id, child, buf, device, mats, anims);
         scene_node.add_child(child_node);
