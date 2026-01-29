@@ -107,7 +107,13 @@ pub fn to_scene_node(
                         normal_index += 1;
                     });
                 }
-                if let Some(tex_coord_attribute) = reader.read_tex_coords(0).map(|v| v.into_f32()) {
+                let texcoord_set = primitive
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_texture()
+                    .map(|t| t.tex_coord())
+                    .unwrap_or(0);
+                if let Some(tex_coord_attribute) = reader.read_tex_coords(texcoord_set).map(|v| v.into_f32()) {
                     let mut tex_coord_index = 0;
                     tex_coord_attribute.for_each(|tex_coord| {
                         vertices[tex_coord_index].tex_coords = tex_coord;

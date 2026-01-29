@@ -14,7 +14,7 @@ fn should_have_correct_tex_coords() {
     };
     use image::open;
     golden_image_test!(async move |ctx: InitContext| {
-        let model = load_model_gltf(1, "wood_hut_v2.gltf", &ctx.device, &ctx.queue).await.unwrap();
+        let model = load_model_gltf(1, "bug_duplicate_cylinder.gltf", &ctx.device, &ctx.queue).await.unwrap();
         TestRender::new(
             model,
             &|ctx: &mut Context| {
@@ -23,7 +23,7 @@ fn should_have_correct_tex_coords() {
             },
             &|_, state: &mut FrameCounter, actual| {
                 if state.frame() > 0 {
-                    let expected = open("tests/fixtures/wood_hut.png")
+                    let expected = open("tests/fixtures/duplicate_cylinder_bug.png")
                         .expect("failed to load fixture")
                         .to_rgba8();
 

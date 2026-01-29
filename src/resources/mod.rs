@@ -181,6 +181,17 @@ pub async fn load_model_gltf(
             }
         };
         let normal_texture = if let Some(texture) = material.normal_texture() {
+            // TODO: add this as param for Textures
+            // let sampler = texture.texture().sampler().mag_filter().unwrap();
+            // println!("tex: {:?}", sampler);
+            // let sampler = texture.texture().sampler().min_filter().unwrap();
+            // println!("tex: {:?}", sampler);
+            // let sampler = texture.texture().sampler().wrap_s();
+            // println!("tex: {:?}", sampler);
+            // let sampler = texture.texture().sampler().wrap_t();
+            // println!("tex: {:?}", sampler);
+            // let sampler = texture.texture().sampler().index().unwrap();
+            // println!("tex: {:?}", sampler);
             match &texture.texture().source().source() {
                 gltf::image::Source::View { view, mime_type: _ } => {
                     let texture = Texture::from_bytes(

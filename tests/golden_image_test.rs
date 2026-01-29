@@ -33,7 +33,7 @@ fn should_match_rock_collection_render() {
             },
             &|_, state: &mut FrameCounter, actual| {
                 if state.frame() > 0 {
-                    let expected = open("tests/fixtures/astroids.png")
+                    let expected = open("tests/fixtures/golden_image.png")
                         .expect("failed to load fixture")
                         .to_rgba8();
 
