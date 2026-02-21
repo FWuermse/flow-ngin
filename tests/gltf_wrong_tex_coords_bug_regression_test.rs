@@ -23,7 +23,7 @@ fn should_have_correct_tex_coords() {
             },
             &|_, state: &mut FrameCounter, actual| {
                 if state.frame() > 0 {
-                    let expected = open("tests/fixtures/duplicate_cylinder_bug.png")
+                    let expected = open("tests/fixtures/gltf_wrong_tex_coords_bug.png")
                         .expect("failed to load fixture")
                         .to_rgba8();
 

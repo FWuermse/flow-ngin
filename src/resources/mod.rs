@@ -49,7 +49,7 @@ pub async fn load_model_obj(
 }
 
 /// Loads a gltf model incl. aninmations into a `SceneNode`.
-/// 
+///
 /// `id` is a unique identifyer to identify click events on this resource.
 pub async fn load_model_gltf(
     id: u32,
@@ -238,7 +238,7 @@ pub async fn load_model_gltf(
     let mut root_node = if models.len() == 1 {
         models.into_iter().next().unwrap()
     } else {
-        let mut root_node = ContainerNode::new(0, Vec::new());
+        let mut root_node = ContainerNode::new(1, Vec::new());
         root_node.children = models;
         Box::new(root_node)
     };
