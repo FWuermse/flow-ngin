@@ -1,10 +1,9 @@
-use std::{
-    ops::BitAnd,
-};
+use std::ops::BitAnd;
 
+use gltf::animation;
 use instant::{Duration, Instant};
 
-use cgmath::AbsDiffEq;
+use cgmath::{AbsDiffEq, num_traits::Float};
 
 use crate::data_structures::{instance::Instance, scene_graph::SceneNode};
 
@@ -27,7 +26,11 @@ pub struct Animation {
 impl<'a> Animation {
     pub fn new(speed: f32, rep_after_sec: f32) -> Self {
         let time = Instant::now();
-        Self { speed, time, rep_after_sec }
+        Self {
+            speed,
+            time,
+            rep_after_sec,
+        }
     }
 
     pub fn set_rep_time(&mut self, new_time: f32) {
@@ -37,9 +40,9 @@ impl<'a> Animation {
     /**
      * This function checks whether the passed Scene Graph contains animation data and plays it
      * according to the time passed since this `Animation` struct was initialized.
-     * 
+     *
      * Repeats the animation after 20s (TODO: make this a parameter)
-     * 
+     *
      * TODO: interpolate similar to `animate_with(...args)`
      */
     pub fn animate(
@@ -49,9 +52,9 @@ impl<'a> Animation {
         instance_idx: usize,
     ) {
         let current_time = &mut self.time;
-        animate_graph(graph, instance_idx, anim_idx, current_time, self.speed);
+        let duration = animate_graph(graph, instance_idx, anim_idx, current_time, self.speed);
+        self.set_rep_time(duration);
 
-        // repeat anim after 20 secs TODO: remove once testing is done
         if self.time.elapsed().as_secs_f32() > self.rep_after_sec {
             self.time = Instant::now();
         }
@@ -60,7 +63,7 @@ impl<'a> Animation {
     /**
      * This function animates a single frame with interpolation between the current position of
      * the screne_graph and the position given in the animation List.
-     * 
+     *
      * `graph` is the Scene Graph of the object to model
      * `current` is a mapping between Scene Graph nodes and the passed animation positions
      * `reference` is the desired position
@@ -99,12 +102,23 @@ impl<'a> Animation {
     }
 }
 
-fn animate_graph(graph: &mut Box<dyn SceneNode>, instance_idx: usize, anim_idx: usize, time: &mut Instant, speed: f32) {
+/// Animates a given `SceneNode` and returns the duration of the longest sub-animation.
+fn animate_graph(
+    graph: &mut Box<dyn SceneNode>,
+    instance_idx: usize,
+    anim_idx: usize,
+    time: &mut Instant,
+    speed: f32,
+) -> f32 {
     let current_time = time.elapsed().as_secs_f32();
     let animations = graph.get_animation();
+    let mut longest_anim_duration = 0.0;
     let mut current_keyframe_index = 0;
     // pick desired animation
     if let Some(animation) = &animations.get(anim_idx) {
+        if let Some(timestamp) = animation.timestamps.last() {
+            longest_anim_duration = longest_anim_duration.max(*timestamp)
+        }
         // invariant: timestamp matches animations
         for timestamp in &animation.timestamps {
             // keyframe overdue
@@ -122,8 +136,10 @@ fn animate_graph(graph: &mut Box<dyn SceneNode>, instance_idx: usize, anim_idx: 
     }
 
     for child in graph.get_children_mut() {
-        animate_graph(child, instance_idx, anim_idx, time, speed);
+        let duration = animate_graph(child, instance_idx, anim_idx, time, speed);
+        longest_anim_duration = longest_anim_duration.max(duration);
     }
+    longest_anim_duration
 }
 
 // linear interpolation between two positions
