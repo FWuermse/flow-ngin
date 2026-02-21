@@ -451,7 +451,7 @@ pub trait SceneNode {
 
     fn remove_instance(&mut self, idx: usize) -> (Instance, Instance);
 
-    fn clone_instance(&mut self, i: usize) -> usize;
+    fn duplicate_instance(&mut self, i: usize) -> usize;
 
     fn get_animation(&self) -> &Vec<ModelAnimation>;
 
@@ -696,11 +696,11 @@ impl SceneNode for ContainerNode {
      *
      * The return value is the index of the newly created instance.
      */
-    fn clone_instance(&mut self, i: usize) -> usize {
+    fn duplicate_instance(&mut self, i: usize) -> usize {
         self.instances
             .push((self.instances[i].clone().0, self.instances[i].clone().1));
         for child in &mut self.children {
-            child.clone_instance(i);
+            child.duplicate_instance(i);
         }
         self.instances.len()
     }
@@ -988,11 +988,11 @@ impl SceneNode for ModelNode {
         self.update_world_transforms(range, &default_instances);
     }
 
-    fn clone_instance(&mut self, i: usize) -> usize {
+    fn duplicate_instance(&mut self, i: usize) -> usize {
         self.instances
             .push((self.instances[i].clone().0, self.instances[i].clone().1));
         for child in &mut self.children {
-            child.clone_instance(i);
+            child.duplicate_instance(i);
         }
         self.buffer_size_needs_change = true;
         self.instances.len() - 1
