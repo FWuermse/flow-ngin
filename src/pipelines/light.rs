@@ -97,7 +97,7 @@ pub fn mk_light_pipeline(
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Light Pipeline Layout"),
         bind_group_layouts: &[camera_bind_group_layout, light_bind_group_layout],
-        push_constant_ranges: &[],
+        ..Default::default()
     });
     let shader = wgpu::ShaderModuleDescriptor {
         label: Some("Light Shader"),

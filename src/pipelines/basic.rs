@@ -25,7 +25,7 @@ pub fn mk_basic_pipeline(
                     &camera_bind_group_layout,
                     &light_bind_group_layout,
                 ],
-                push_constant_ranges: &[],
+                ..Default::default()
             });
 
     let shader = wgpu::ShaderModuleDescriptor {
@@ -104,7 +104,6 @@ pub fn mk_render_pipeline(
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
-        // maybe useful for multiple textures on a mesh.
-        multiview: None,
+        multiview_mask: None,
     })
 }

@@ -139,8 +139,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event>(
                 }),
                 stencil_ops: None,
             }),
-            occlusion_query_set: None,
-            timestamp_writes: None,
+            ..Default::default()
         });
 
         let mut basics: Vec<Instanced> = Vec::new();

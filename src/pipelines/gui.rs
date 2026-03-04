@@ -95,7 +95,7 @@ fn mk_pipeline_layout(
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Menu Render Pipeline Layout"),
         bind_group_layouts: &[&texture_bind_group_layout],
-        push_constant_ranges: &[],
+        ..Default::default()
     })
 }
 
@@ -172,7 +172,7 @@ fn mk_render_pipeline(
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
-        multiview: None,
+        multiview_mask: None,
         // Useful for optimizing shader compilation on Android
         cache: None,
     })

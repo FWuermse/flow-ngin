@@ -126,7 +126,7 @@ fn mk_render_pipeline_layout(
             &camera_bind_group_layout,
             &light_bind_group_layout,
         ],
-        push_constant_ranges: &[],
+        ..Default::default()
     })
 }
 
@@ -195,7 +195,7 @@ pub fn mk_terrain_pipeline(
         },
         // If the pipeline will be used with a multiview render pass, this
         // indicates how many array layers the attachments will have.
-        multiview: None,
+        multiview_mask: None,
         // Useful for optimizing shader compilation on Android
         cache: None,
     })

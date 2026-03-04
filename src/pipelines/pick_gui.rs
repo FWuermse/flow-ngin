@@ -7,7 +7,7 @@ fn render_pipeline_layout(
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout (For picking)"),
         bind_group_layouts: &[&texture_bind_group_layout],
-        push_constant_ranges: &[],
+        ..Default::default()
     })
 }
 
@@ -82,7 +82,7 @@ pub fn mk_gui_pick_pipelin(device: &wgpu::Device) -> wgpu::RenderPipeline {
         },
         // If the pipeline will be used with a multiview render pass, this
         // indicates how many array layers the attachments will have.
-        multiview: None,
+        multiview_mask: None,
         // Useful for optimizing shader compilation on Android
         cache: None,
     })

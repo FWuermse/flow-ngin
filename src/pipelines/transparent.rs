@@ -24,7 +24,7 @@ pub fn mk_transparent_pipeline(
                     &camera_bind_group_layout,
                     &light_bind_group_layout,
                 ],
-                push_constant_ranges: &[],
+                ..Default::default()
             });
     let shader = wgpu::ShaderModuleDescriptor {
         label: Some("Normal Shader"),

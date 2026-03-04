@@ -12,7 +12,7 @@ fn pick_render_pipeline_layout(
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout (For picking)"),
         bind_group_layouts: &[&pick_layout(device), &camera_bind_group_layout],
-        push_constant_ranges: &[],
+        ..Default::default()
     })
 }
 
@@ -77,6 +77,6 @@ pub fn mk_pick_pipeline(
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
-        multiview: None,
+        multiview_mask: None,
     })
 }
