@@ -105,7 +105,9 @@ pub trait GraphicsFlow<S, E> {
     ///
     /// This is the only place to modify the Context and configure things such as the default
     /// background colour or camera start position.
-    fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E>;
+    fn on_init(&mut self, _ctx: &mut Context, _state: &mut S) -> Out<S, E> {
+        Out::Empty
+    }
 
     /// Handle a click on an object rendered by this flow.
     ///
@@ -119,37 +121,61 @@ pub trait GraphicsFlow<S, E> {
     /// See `flow_ngin::pick::draw_to_pick_buffer` for more information about custom picking.
     ////
     /// picking; see [`crate::pick::draw_to_pick_buffer`] for details.
-    fn on_click(&mut self, ctx: &Context, state: &mut S, id: u32) -> Out<S, E>;
+    fn on_click(&mut self, _ctx: &Context, _state: &mut S, _id: u32) -> Out<S, E> {
+        Out::Empty
+    }
 
     /// Update state every frame.
     ///
     /// Called every frame with the elapsed time `dt`. Use for animations,
     /// physics updates, and other per-frame logic.
-    fn on_update(&mut self, ctx: &Context, state: &mut S, dt: Duration) -> Out<S, E>;
+    fn on_update(&mut self, _ctx: &Context, _state: &mut S, _dt: Duration) -> Out<S, E> {
+        Out::Empty
+    }
 
     /// Update state periodically.
     ///
     /// Called every `tick_duration_millis` milliseconds (configurable via context).
     /// Use for discrete game logic that doesn't need to run every frame.
-    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Out<S, E>;
+    fn on_tick(&mut self, _ctx: &Context, _state: &mut S) -> Out<S, E> {
+        Out::Empty
+    }
 
     /// Handle raw device events (keyboard, mouse hardware input).
-    fn on_device_events(&mut self, ctx: &Context, state: &mut S, event: &DeviceEvent) -> Out<S, E>;
+    fn on_device_events(
+        &mut self,
+        _ctx: &Context,
+        _state: &mut S,
+        _event: &DeviceEvent,
+    ) -> Out<S, E> {
+        Out::Empty
+    }
 
     /// Handle window events (keyboard, mouse, window resizing, etc.).
-    fn on_window_events(&mut self, ctx: &Context, state: &mut S, event: &WindowEvent) -> Out<S, E>;
+    fn on_window_events(
+        &mut self,
+        _ctx: &Context,
+        _state: &mut S,
+        _event: &WindowEvent,
+    ) -> Out<S, E> {
+        Out::Empty
+    }
 
     /// Handle custom application events.
     ///
     /// Returns the event if it was not consumed, allowing it to be passed to
     /// the next flow. Returning `None` means the event was consumed.
-    fn on_custom_events(&mut self, ctx: &Context, state: &mut S, event: E) -> Option<E>;
+    fn on_custom_events(&mut self, _ctx: &Context, _state: &mut S, event: E) -> Option<E> {
+        Some(event)
+    }
 
     /// Return renderable objects for this flow.
     ///
     /// Called each frame. Collect your objects into a [`Render`] and return it.
     /// The engine will batch and render all flows' renders in optimal order.
-    fn on_render<'pass>(&self) -> Render<'_, 'pass>;
+    fn on_render<'pass>(&self) -> Render<'_, 'pass> {
+        Render::None
+    }
 
     #[cfg(feature = "integration-tests")]
     fn render_to_texture(
@@ -341,6 +367,7 @@ impl<'a, State: Default> AppState<State> {
                     }),
                     occlusion_query_set: None,
                     timestamp_writes: None,
+                    ..Default::default()
                 });
 
             // Actual rendering:
