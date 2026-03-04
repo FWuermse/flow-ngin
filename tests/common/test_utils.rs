@@ -107,7 +107,7 @@ pub(crate) struct TestRender<'a, T> {
     pub(crate) validate: &'a dyn Fn(
         &Context,
         &mut FrameCounter,
-        &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+        &mut image::RgbaImage,
     ) -> Result<ImageTestResult, anyhow::Error>,
 }
 #[cfg(feature = "integration-tests")]
@@ -118,7 +118,7 @@ impl<'a, T> TestRender<'a, T> {
         validate: &'a dyn Fn(
             &Context,
             &mut FrameCounter,
-            &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+            &mut image::RgbaImage,
         ) -> Result<ImageTestResult, anyhow::Error>,
     ) -> Self {
         Self {
@@ -151,10 +151,16 @@ where
         s: &mut FrameCounter,
         texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> Result<ImageTestResult, anyhow::Error> {
-        if format!("{:?}", ctx.config.format).starts_with('B') {
-            // TODO: convert [Bgra8UnormSrgb, Rgba8UnormSrgb, Rgb10a2Unorm, Bgra8Unorm, Rgba8Unorm]
+        let is_bgra = format!("{:?}", ctx.config.format).starts_with('B');
+        let mut bytes: Vec<u8> = texture.as_raw().to_vec();
+        if is_bgra {
+            for pixel in bytes.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
         }
-        (self.validate)(ctx, s, texture)
+        let (width, height) = texture.dimensions();
+        let mut owned = image::RgbaImage::from_raw(width, height, bytes).unwrap();
+        (self.validate)(ctx, s, &mut owned)
     }
 
     fn on_click(&mut self, _: &Context, _: &mut FrameCounter, _: u32) -> Out<FrameCounter, ()> {
