@@ -37,8 +37,7 @@ fn mk_shader(device: &wgpu::Device) -> wgpu::ShaderModule {
     })
 }
 
-#[allow(dead_code)]
-fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         entries: &[
             wgpu::BindGroupLayoutEntry {
@@ -66,10 +65,9 @@ fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
  * Warning: make sure the texture atlas is smaller than 2048x2048 bytes as not all browsers
  * support graphics APIs that can handle larger images.
  */
-#[allow(dead_code)]
-fn mk_bind_group(
+pub fn mk_bind_group(
     device: &wgpu::Device,
-    texture_atlas: Texture,
+    texture_atlas: &Texture,
     texture_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -81,7 +79,7 @@ fn mk_bind_group(
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::Sampler(&texture_atlas.sampler.unwrap()),
+                resource: wgpu::BindingResource::Sampler(texture_atlas.sampler.as_ref().unwrap()),
             },
         ],
         label: Some("diffuse_bind_group"),
