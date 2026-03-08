@@ -22,11 +22,15 @@ struct ImageResources {
     index_buffer: wgpu::Buffer,
 }
 
+/// NDC-space rectangle [start_x, end_x] x [end_y, start_y] (x left→right, y bottom→top).
+#[derive(Clone, Copy)]
 pub struct Frame {
-    start_x: f32,
-    start_y: f32,
-    end_x: f32,
-    end_y: f32,
+    pub start_x: f32,
+    /// Top edge in NDC (larger y value).
+    pub start_y: f32,
+    pub end_x: f32,
+    /// Bottom edge in NDC (smaller y value).
+    pub end_y: f32,
 }
 
 pub struct Atlas {
@@ -64,56 +68,80 @@ impl Atlas {
 
 pub struct Icon {
     id: u32,
-    width: f32,
-    height: f32,
-    enabled: bool,
-    screen_pos: Frame,
+    pub width_px: u32,
+    pub height_px: u32,
+    x_px: u32,
+    y_px: u32,
+    screen_width: u32,
+    screen_height: u32,
+    pub screen_pos: Frame,
+    tex_coords: Frame,
     resources: ImageResources,
 }
 
+/// Convert a pixel-space rectangle to an NDC Frame.
+///
+/// Pixel origin is top-left; NDC origin is center with y pointing up.
+fn pixels_to_ndc(x_px: u32, y_px: u32, width_px: u32, height_px: u32, screen_width: u32, screen_height: u32) -> Frame {
+    let sw = screen_width as f32;
+    let sh = screen_height as f32;
+    let left  = -1.0 + 2.0 * x_px as f32 / sw;
+    let top   =  1.0 - 2.0 * y_px as f32 / sh;
+    Frame {
+        start_x: left,
+        start_y: top,
+        end_x:   left + 2.0 * width_px  as f32 / sw,
+        end_y:   top  - 2.0 * height_px as f32 / sh,
+    }
+}
+
 impl Icon {
+    /// Create a new icon from an atlas slot.
+    ///
+    /// `(x_px, y_px)` is the top-left pixel position on screen.
+    /// `(width_px, height_px)` is the desired size in pixels.
     pub fn new(
         ctx: &Context,
         atlas: Arc<Atlas>,
         id: u32,
         slot: u8,
-        width: u32,
-        height: u32,
+        x_px: u32,
+        y_px: u32,
+        width_px: u32,
+        height_px: u32,
     ) -> Self {
-        let pixel_width = 1.0 / ctx.config.width.to_f32().expect("Screen size too large");
-        let pixel_height = 1.0 / ctx.config.height.to_f32().expect("Screen size too large");
-        let width = pixel_width * width.to_f32().unwrap();
-        let height = pixel_height * height.to_f32().unwrap();
-        let screen_pos = Frame {
-            start_x: 1.0,
-            start_y: 1.0,
-            end_x: 0.0,
-            end_y: 0.0,
-        };
+        let screen_width  = ctx.config.width;
+        let screen_height = ctx.config.height;
+        let screen_pos = pixels_to_ndc(x_px, y_px, width_px, height_px, screen_width, screen_height);
+
         let Some(tex_coords) = atlas.to_tex_coords(slot) else {
-            panic!("Texture coordinates overflowed when calculating UII")
+            panic!("Texture coordinates overflowed when calculating UI for slot {slot}")
         };
 
         let vertices = vertices_from_coords(&screen_pos, &tex_coords);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Button Vertex Buffer {}", id)),
+            label: Some(&format!("Icon Vertex Buffer {}", id)),
             contents: bytemuck::cast_slice(&vertices),
-            usage: BufferUsages::VERTEX,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon UI Element Index Buffer {}", id)),
-            contents: bytemuck::cast_slice(&indices),
+            label: Some(&format!("Icon Index Buffer {}", id)),
+            contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
         let num_indices = indices.len();
 
         Self {
             id,
-            width,
-            height,
-            enabled: false,
+            width_px,
+            height_px,
+            x_px,
+            y_px,
+            screen_width,
+            screen_height,
             screen_pos,
+            tex_coords,
             resources: ImageResources {
                 num_indices,
                 atlas,
@@ -121,6 +149,17 @@ impl Icon {
                 index_buffer,
             },
         }
+    }
+
+    /// Reposition the icon to `(x_px, y_px)` and upload the new vertices.
+    ///
+    /// Intended to be called by containers that manage this icon's layout.
+    pub fn set_position(&mut self, x_px: u32, y_px: u32, queue: &wgpu::Queue) {
+        self.x_px = x_px;
+        self.y_px = y_px;
+        self.screen_pos = pixels_to_ndc(x_px, y_px, self.width_px, self.height_px, self.screen_width, self.screen_height);
+        let vertices = vertices_from_coords(&self.screen_pos, &self.tex_coords);
+        queue.write_buffer(&self.resources.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
     }
 }
 
@@ -156,5 +195,5 @@ impl<S, E> GraphicsFlow<S, E> for Icon {
         })
     }
 
-    // TODO: custom rezie machanism or custom event for rezising or re-use of resize window event.
+    // TODO: custom resize mechanism or custom event for resizing or re-use of resize window event.
 }

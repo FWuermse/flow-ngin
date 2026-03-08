@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use flow_ngin::{
-    Color, Deg, One, Quaternion, Rotation3, Vector3, context::{Context, GPUResource, InitContext}, data_structures::block::BuildingBlocks, flow::{FlowConsturctor, GraphicsFlow, Out}, render::Render, ui::image::{Atlas, Icon}
+    Color, Deg, One, Quaternion, Rotation3, Vector3, context::{Context, GPUResource, InitContext}, data_structures::block::BuildingBlocks, flow::{FlowConsturctor, GraphicsFlow, Out}, ui::image::{Atlas, Icon}
 };
 
 struct State {
@@ -104,7 +104,7 @@ impl GUI {
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, _state: &mut State) -> Out<State, Event> {
-        self.bedrock = Some(Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 1000, 1000));
+        self.bedrock = Some(Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 0, 0, 1000, 1000));
         Out::Empty
     }
 
