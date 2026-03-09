@@ -1,11 +1,43 @@
-use std::marker::PhantomData;
+use std::{marker::PhantomData, sync::Arc};
+
+use wgpu::{
+    BufferUsages,
+    util::{BufferInitDescriptor, DeviceExt},
+};
 
 use crate::{
     context::Context,
+    data_structures::texture::Texture,
     flow::{FlowConsturctor, GraphicsFlow, Out},
-    render::Render,
-    ui::layout::UIElement,
+    pipelines::gui::{mk_bind_group, mk_bind_group_layout},
+    render::{Flat, Render},
+    ui::{
+        background::{Background, BackgroundTexture},
+        image::{Frame, pixels_to_ndc, vertices_from_coords},
+        layout::UIElement,
+    },
 };
+
+/// Backing GPU resources for the container background quad.
+enum BgSource {
+    Color(wgpu::BindGroup),
+    Texture(Arc<BackgroundTexture>),
+}
+
+struct BgResources {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    source: BgSource,
+}
+
+impl BgResources {
+    fn bind_group(&self) -> &wgpu::BindGroup {
+        match &self.source {
+            BgSource::Color(bg) => bg,
+            BgSource::Texture(arc) => &arc.bind_group,
+        }
+    }
+}
 
 /// A screen-space container that positions and renders child UI elements.
 ///
@@ -32,6 +64,8 @@ pub struct Container<S, E> {
     width: u32,
     height: u32,
     children: Vec<Box<dyn UIElement<S, E>>>,
+    background: Option<Background>,
+    bg_resources: Option<BgResources>,
     _marker: PhantomData<fn(S, E)>,
 }
 
@@ -44,6 +78,8 @@ impl<S: 'static, E: 'static> Container<S, E> {
             width,
             height,
             children: Vec::new(),
+            background: None,
+            bg_resources: None,
             _marker: PhantomData,
         }
     }
@@ -51,6 +87,18 @@ impl<S: 'static, E: 'static> Container<S, E> {
     /// Add a child element. Any type implementing both [`GraphicsFlow`] and [`Layout`] is accepted.
     pub fn with_child(mut self, child: impl UIElement<S, E> + 'static) -> Self {
         self.children.push(Box::new(child));
+        self
+    }
+
+    /// Set a solid-colour background for this container.
+    pub fn with_background_color(mut self, rgba: [u8; 4]) -> Self {
+        self.background = Some(Background::Color(rgba));
+        self
+    }
+
+    /// Set a custom container texture as background.
+    pub fn with_background_texture(mut self, texture: Arc<BackgroundTexture>) -> Self {
+        self.background = Some(Background::Texture(texture));
         self
     }
 
@@ -77,13 +125,72 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
         for child in &mut self.children {
             child.on_init(ctx, state);
         }
+
+        if let Some(bg) = &self.background {
+            let source = match bg {
+                Background::Color(rgba) => {
+                    let tex = Texture::from_color(*rgba, &ctx.device, &ctx.queue);
+                    let layout = mk_bind_group_layout(&ctx.device);
+                    let bind_group = mk_bind_group(&ctx.device, &tex, &layout);
+                    BgSource::Color(bind_group)
+                }
+                Background::Texture(arc) => BgSource::Texture(Arc::clone(arc)),
+            };
+
+            let screen_pos = pixels_to_ndc(
+                self.x,
+                self.y,
+                self.width,
+                self.height,
+                ctx.config.width,
+                ctx.config.height,
+            );
+            let full_tex = Frame {
+                start_x: 0.0,
+                start_y: 0.0,
+                end_x: 1.0,
+                end_y: 1.0,
+            };
+            let vertices = vertices_from_coords(&screen_pos, &full_tex);
+            let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Container BG Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: BufferUsages::VERTEX,
+            });
+            let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
+            let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("Container BG Index Buffer"),
+                contents: bytemuck::cast_slice(indices),
+                usage: BufferUsages::INDEX,
+            });
+            self.bg_resources = Some(BgResources {
+                vertex_buffer,
+                index_buffer,
+                source,
+            });
+        }
+
         self.resolve(&ctx.queue);
         Out::Empty
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        Render::Composed(
-            self.children.iter().map(|c| c.on_render()).collect()
-        )
+        let mut renders: Vec<Render<'_, 'pass>> = Vec::new();
+
+        if let Some(bg) = &self.bg_resources {
+            renders.push(Render::GUI(Flat {
+                vertex: &bg.vertex_buffer,
+                index: &bg.index_buffer,
+                group: bg.bind_group(),
+                amount: 6,
+                id: 0,
+            }));
+        }
+
+        for child in &self.children {
+            renders.push(child.on_render());
+        }
+
+        Render::Composed(renders)
     }
 }

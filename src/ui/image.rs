@@ -96,8 +96,8 @@ pub struct Icon {
 
 /// Convert a pixel-space rectangle to an NDC Frame.
 ///
-/// Pixel origin is top-left butG NDC origin is center with y pointing up.
-fn pixels_to_ndc(x_px: u32, y_px: u32, width_px: u32, height_px: u32, screen_width: u32, screen_height: u32) -> Frame {
+/// Pixel origin is top-left; NDC origin is center with y pointing up.
+pub(crate) fn pixels_to_ndc(x_px: u32, y_px: u32, width_px: u32, height_px: u32, screen_width: u32, screen_height: u32) -> Frame {
     let sw = screen_width as f32;
     let sh = screen_height as f32;
     let left  = -1.0 + 2.0 * x_px as f32 / sw;
@@ -184,7 +184,7 @@ impl Icon {
     }
 }
 
-fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
+pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
     vec![
         Vertex {
             position: [screen_pos.start_x, screen_pos.end_y, 0.0],
