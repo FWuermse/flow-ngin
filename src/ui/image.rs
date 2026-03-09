@@ -12,6 +12,7 @@ use crate::{
     pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     resources::texture::load_texture,
+    ui::layout::Layout,
 };
 
 struct ImageResources {
@@ -202,6 +203,22 @@ fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
             tex_coords: [tex_coords.start_x, tex_coords.start_y],
         },
     ]
+}
+
+impl Layout for Icon {
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+        let x = match self.halign {
+            HAlign::Left   => parent_x,
+            HAlign::Center => parent_x + (parent_w - self.width_px) / 2,
+            HAlign::Right  => parent_x +  parent_w - self.width_px,
+        };
+        let y = match self.valign {
+            VAlign::Top    => parent_y,
+            VAlign::Center => parent_y + (parent_h - self.height_px) / 2,
+            VAlign::Bottom => parent_y +  parent_h - self.height_px,
+        };
+        self.set_position(x, y, queue);
+    }
 }
 
 impl<S, E> GraphicsFlow<S, E> for Icon {

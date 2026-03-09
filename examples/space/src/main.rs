@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use flow_ngin::{
-    Color, Deg, One, Quaternion, Rotation3, Vector3, context::{Context, GPUResource, InitContext}, data_structures::block::BuildingBlocks, flow::{FlowConsturctor, GraphicsFlow, Out}, ui::{HAlign, VAlign, image::{Atlas, Icon}}
+    Color, Deg, One, Quaternion, Rotation3, Vector3, context::{Context, GPUResource, InitContext}, data_structures::block::BuildingBlocks, flow::{FlowConsturctor, GraphicsFlow, Out}, ui::{HAlign, VAlign, Container, image::{Atlas, Icon}}
 };
 
 struct State {
@@ -94,31 +94,30 @@ impl GraphicsFlow<State, Event> for Astroids {
 
 struct GUI {
     atlas: Arc<Atlas>,
-    bedrock: Option<Icon>,
+    container: Option<Container<State, Event>>,
 }
 impl GUI {
     async fn new(ctx: InitContext) -> GUI {
         let atlas = Arc::new(Atlas::new(&ctx.device, &ctx.queue, "minecraft_beta.png", 16, 16).await);
-        Self { atlas, bedrock: None }
+        Self { atlas, container: None }
     }
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
-    fn on_init(&mut self, ctx: &mut Context, _state: &mut State) -> Out<State, Event> {
-        let mut icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
+    fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
+        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
             .halign(HAlign::Center)
             .valign(VAlign::Center);
-        let x = (ctx.config.width - icon.width_px) / 2;
-        let y = (ctx.config.height - icon.height_px) / 2;
-        icon.set_position(x, y, &ctx.queue);
-        self.bedrock = Some(icon);
-        Out::Empty
+        self.container = Some(
+            Container::new(0, 0, ctx.config.width, ctx.config.height)
+                .with_child(icon),
+        );
+        self.container.as_mut().unwrap().on_init(ctx, state)
     }
 
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
-        if let Some(bedrock) = &self.bedrock {
-            return <Icon as GraphicsFlow<State, Event>>::on_render(bedrock);
-        } else {
-            return flow_ngin::render::Render::None
+        match &self.container {
+            Some(c) => c.on_render(),
+            None => flow_ngin::render::Render::None,
         }
     }
 }

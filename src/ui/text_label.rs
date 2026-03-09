@@ -9,6 +9,7 @@ use crate::{
     context::Context,
     flow::{FlowConsturctor, GraphicsFlow, Out},
     render::Render,
+    ui::layout::Layout,
 };
 
 struct GlyphonResources {
@@ -267,6 +268,12 @@ impl TextLabel {
         Box::new(|_ctx| {
             Box::pin(async move { Box::new(self) as Box<dyn GraphicsFlow<S, E>> })
         })
+    }
+}
+
+impl Layout for TextLabel {
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, _queue: &wgpu::Queue) {
+        self.resolve(parent_x as f32, parent_y as f32, parent_w as f32, parent_h as f32);
     }
 }
 
