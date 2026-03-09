@@ -1,8 +1,7 @@
+use std::sync::Arc;
+
 use flow_ngin::{
-    Color, Deg, DeviceEvent, One, Quaternion, Rotation3, Vector3, WindowEvent,
-    context::{BufferWriter, Context, InitContext},
-    data_structures::block::BuildingBlocks,
-    flow::{FlowConsturctor, GraphicsFlow, Out},
+    Color, Deg, One, Quaternion, Rotation3, Vector3, context::{Context, GPUResource, InitContext}, data_structures::block::BuildingBlocks, flow::{FlowConsturctor, GraphicsFlow, Out}, render::Render, ui::image::{Atlas, Icon}
 };
 
 struct State {
@@ -38,7 +37,7 @@ impl GraphicsFlow<State, Event> for Astroids {
     fn on_init(&mut self, ctx: &mut Context, _: &mut State) -> Out<State, Event> {
         ctx.clear_colour = Color::TRANSPARENT;
         self.astroids
-            .instances
+            .instances_mut_size_unchanged()
             .iter_mut()
             .enumerate()
             .for_each(|(i, instance)| {
@@ -56,7 +55,7 @@ impl GraphicsFlow<State, Event> for Astroids {
                 );
                 instance.scale = [0.5; 3].into();
             });
-        self.astroids.write_to_buffer(ctx);
+        self.astroids.write_to_buffer(&ctx.queue, &ctx.device);
         Out::Empty
     }
 
@@ -73,50 +72,19 @@ impl GraphicsFlow<State, Event> for Astroids {
     ) -> Out<State, Event> {
         if state.rotating {
             self.astroids
-                .instances
+                .instances_mut_size_unchanged()
                 .iter_mut()
                 .enumerate()
                 .for_each(|(i, astroid)| {
                     astroid.rotation = match i % 3 {
-                     0 => astroid.rotation * Quaternion::from_angle_x(Deg(1.0)),
-                     1 => astroid.rotation * Quaternion::from_angle_y(Deg(1.0)),
-                     _ => astroid.rotation * Quaternion::from_angle_z(Deg(1.0)),
+                        0 => astroid.rotation * Quaternion::from_angle_x(Deg(1.0)),
+                        1 => astroid.rotation * Quaternion::from_angle_y(Deg(1.0)),
+                        _ => astroid.rotation * Quaternion::from_angle_z(Deg(1.0)),
                     }
                 });
-            self.astroids.write_to_buffer(ctx);
+            self.astroids.write_to_buffer(&ctx.queue, &ctx.device);
         }
         Out::Empty
-    }
-
-    fn on_tick(&mut self, _: &Context, _: &mut State) -> Out<State, Event> {
-        Out::Empty
-    }
-
-    fn on_device_events(
-        &mut self,
-        _: &Context,
-        _: &mut State,
-        _: &DeviceEvent,
-    ) -> Out<State, Event> {
-        Out::Empty
-    }
-
-    fn on_window_events(
-        &mut self,
-        _: &Context,
-        _: &mut State,
-        _: &WindowEvent,
-    ) -> Out<State, Event> {
-        Out::Empty
-    }
-
-    fn on_custom_events(
-        &mut self,
-        _: &Context,
-        _: &mut State,
-        event: Event,
-    ) -> Option<Event> {
-        Some(event)
     }
 
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
@@ -124,10 +92,38 @@ impl GraphicsFlow<State, Event> for Astroids {
     }
 }
 
+struct GUI {
+    atlas: Arc<Atlas>,
+    bedrock: Option<Icon>,
+}
+impl GUI {
+    async fn new(ctx: InitContext) -> GUI {
+        let atlas = Arc::new(Atlas::new(&ctx.device, &ctx.queue, "minecraft_beta.png", 16, 16).await);
+        Self { atlas, bedrock: None }
+    }
+}
+impl<'a> GraphicsFlow<State, Event> for GUI {
+    fn on_init(&mut self, ctx: &mut Context, _state: &mut State) -> Out<State, Event> {
+        self.bedrock = Some(Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 1000, 1000));
+        Out::Empty
+    }
+
+    fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
+        if let Some(bedrock) = &self.bedrock {
+            return <Icon as GraphicsFlow<State, Event>>::on_render(bedrock);
+        } else {
+            return flow_ngin::render::Render::None
+        }
+    }
+}
+
 fn main() {
     let astroids: FlowConsturctor<State, Event> = Box::new(|ctx| {
         Box::pin(async move { Box::new(Astroids::new(ctx).await) as Box<dyn GraphicsFlow<_, _>> })
     });
+    let gui: FlowConsturctor<State, Event> = Box::new(|ctx| {
+        Box::pin(async move { Box::new(GUI::new(ctx).await) as Box<dyn GraphicsFlow<_, _>> })
+    });
 
-    let _ = flow_ngin::flow::run(vec![astroids]);
+    let _ = flow_ngin::flow::run(vec![astroids, gui]);
 }
