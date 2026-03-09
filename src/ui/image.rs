@@ -64,15 +64,31 @@ impl Atlas {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub enum HAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub enum VAlign {
+    #[default]
+    Top,
+    Center,
+    Bottom,
+}
+
 pub struct Icon {
     id: u32,
     pub width_px: u32,
     pub height_px: u32,
-    x_px: u32,
-    y_px: u32,
+    pub halign: HAlign,
+    pub valign: VAlign,
     screen_width: u32,
     screen_height: u32,
-    pub screen_pos: Frame,
+    screen_pos: Frame,
     tex_coords: Frame,
     resources: ImageResources,
 }
@@ -96,21 +112,19 @@ fn pixels_to_ndc(x_px: u32, y_px: u32, width_px: u32, height_px: u32, screen_wid
 impl Icon {
     /// Create a new icon from an atlas slot.
     ///
-    /// `(x_px, y_px)` is the top-left pixel position on screen.
     /// `(width_px, height_px)` is the desired size in pixels.
+    /// The icon won't appear until a container calls `set_position`.
     pub fn new(
         ctx: &Context,
         atlas: Arc<Atlas>,
         id: u32,
         slot: u8,
-        x_px: u32,
-        y_px: u32,
         width_px: u32,
         height_px: u32,
     ) -> Self {
         let screen_width  = ctx.config.width;
         let screen_height = ctx.config.height;
-        let screen_pos = pixels_to_ndc(x_px, y_px, width_px, height_px, screen_width, screen_height);
+        let screen_pos = Frame { start_x: 0.0, start_y: 0.0, end_x: 0.0, end_y: 0.0 };
 
         let Some(tex_coords) = atlas.to_tex_coords(slot) else {
             panic!("Texture coordinates overflowed when calculating UI for slot {slot}")
@@ -134,8 +148,8 @@ impl Icon {
             id,
             width_px,
             height_px,
-            x_px,
-            y_px,
+            halign: HAlign::default(),
+            valign: VAlign::default(),
             screen_width,
             screen_height,
             screen_pos,
@@ -149,12 +163,20 @@ impl Icon {
         }
     }
 
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.valign = align;
+        self
+    }
+
     /// Reposition the icon to `(x_px, y_px)` and upload the new vertices.
     ///
     /// Intended to be called by containers that manage this icon's layout.
     pub fn set_position(&mut self, x_px: u32, y_px: u32, queue: &wgpu::Queue) {
-        self.x_px = x_px;
-        self.y_px = y_px;
         self.screen_pos = pixels_to_ndc(x_px, y_px, self.width_px, self.height_px, self.screen_width, self.screen_height);
         let vertices = vertices_from_coords(&self.screen_pos, &self.tex_coords);
         queue.write_buffer(&self.resources.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
