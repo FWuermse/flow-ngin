@@ -206,6 +206,7 @@ fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
 }
 
 impl Layout for Icon {
+    // TODO: mitigate overflows (instead of just set position also scale containered UI elems)
     fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
         let x = match self.halign {
             HAlign::Left   => parent_x,

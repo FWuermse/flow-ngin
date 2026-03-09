@@ -66,6 +66,7 @@ impl<S: 'static, E: 'static> Container<S, E> {
     /// Wrap this container in a [`FlowConsturctor`] for use with [`flow_ngin::flow::run`].
     pub fn into_constructor(self) -> FlowConsturctor<S, E> {
         Box::new(|_ctx| {
+            // TODO: find a way to limit the heavy boxing in general
             Box::pin(async move { Box::new(self) as Box<dyn GraphicsFlow<S, E>> })
         })
     }
