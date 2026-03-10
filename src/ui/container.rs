@@ -5,6 +5,8 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
 };
 
+use instant::Duration;
+
 use crate::{
     context::Context,
     data_structures::texture::Texture,
@@ -17,6 +19,25 @@ use crate::{
         layout::{Layout, UIElement},
     },
 };
+
+fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
+    let mut events = Vec::new();
+    let mut fns: Vec<Box<dyn std::future::Future<Output = Box<dyn FnOnce(&mut S)>>>> = Vec::new();
+    for out in outs {
+        match out {
+            Out::FutEvent(mut v) => events.append(&mut v),
+            Out::FutFn(mut v) => fns.append(&mut v),
+            Out::Configure(_) | Out::Empty => {}
+        }
+    }
+    if !events.is_empty() {
+        Out::FutEvent(events)
+    } else if !fns.is_empty() {
+        Out::FutFn(fns)
+    } else {
+        Out::Empty
+    }
+}
 
 /// Backing GPU resources for the container background quad.
 enum BgSource {
@@ -172,6 +193,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
 
         self.resolve(&ctx.queue);
         Out::Empty
+    }
+
+    fn on_update(&mut self, ctx: &Context, state: &mut S, dt: Duration) -> Out<S, E> {
+        merge_outs(self.children.iter_mut().map(|c| c.on_update(ctx, state, dt)))
+    }
+
+    fn on_click(&mut self, ctx: &Context, state: &mut S, id: u32) -> Out<S, E> {
+        merge_outs(self.children.iter_mut().map(|c| c.on_click(ctx, state, id)))
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
