@@ -14,7 +14,7 @@ use crate::{
     ui::{
         background::{Background, BackgroundTexture},
         image::{Frame, pixels_to_ndc, vertices_from_coords},
-        layout::UIElement,
+        layout::{Layout, UIElement},
     },
 };
 
@@ -192,5 +192,16 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
         }
 
         Render::Composed(renders)
+    }
+}
+
+impl<S: 'static, E: 'static> Layout for Container<S, E> {
+    /// Reposition the container to fill the given parent rect and re-resolve all children.
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+        self.x = parent_x;
+        self.y = parent_y;
+        self.width = parent_w;
+        self.height = parent_h;
+        self.resolve(queue);
     }
 }
