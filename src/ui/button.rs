@@ -158,7 +158,12 @@ impl<S: 'static, E: 'static> Button<S, E> {
         }
     }
 
-    fn mk_bind_group_for(&self, rgba: [u8; 4], device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::BindGroup {
+    fn mk_bind_group_for(
+        &self,
+        rgba: [u8; 4],
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> wgpu::BindGroup {
         let tex = Texture::from_color(rgba, device, queue);
         let layout = mk_bind_group_layout(device);
         mk_bind_group(device, &tex, &layout)
@@ -166,7 +171,14 @@ impl<S: 'static, E: 'static> Button<S, E> {
 }
 
 impl<S: 'static, E: 'static> Layout for Button<S, E> {
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+    fn resolve(
+        &mut self,
+        parent_x: u32,
+        parent_y: u32,
+        parent_w: u32,
+        parent_h: u32,
+        queue: &wgpu::Queue,
+    ) {
         self.x = parent_x;
         self.y = parent_y;
         self.width = parent_w;
@@ -176,7 +188,7 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
 }
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
-    fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
+    fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
         // Init content GPU resources.
         match &mut self.content {
             Some(ButtonContent::Text(label)) => label.init(ctx),
@@ -188,8 +200,20 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
         let hover = self.mk_bind_group_for(self.hover_color, &ctx.device, &ctx.queue);
         let pressed = self.mk_bind_group_for(self.pressed_color, &ctx.device, &ctx.queue);
 
-        let screen_pos = pixels_to_ndc(self.x, self.y, self.width, self.height, ctx.config.width, ctx.config.height);
-        let full_tex = Frame { start_x: 0.0, start_y: 0.0, end_x: 1.0, end_y: 1.0 };
+        let screen_pos = pixels_to_ndc(
+            self.x,
+            self.y,
+            self.width,
+            self.height,
+            ctx.config.width,
+            ctx.config.height,
+        );
+        let full_tex = Frame {
+            start_x: 0.0,
+            start_y: 0.0,
+            end_x: 1.0,
+            end_y: 1.0,
+        };
         let vertices = vertices_from_coords(&screen_pos, &full_tex);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Button Vertex Buffer"),
@@ -203,7 +227,13 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
             usage: BufferUsages::INDEX,
         });
 
-        self.resources = Some(ButtonBgResources { vertex_buffer, index_buffer, normal, hover, pressed });
+        self.resources = Some(ButtonBgResources {
+            vertex_buffer,
+            index_buffer,
+            normal,
+            hover,
+            pressed,
+        });
 
         self.layout_content(&ctx.queue);
         Out::Empty
@@ -254,7 +284,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
             Some(content) => {
                 let content_render = match content {
                     ButtonContent::Text(label) => label.render(),
-                    ButtonContent::Icon(icon) => icon.on_render(),
+                    ButtonContent::Icon(icon) => GraphicsFlow::<S, E>::on_render(icon),
                 };
                 Render::Composed(vec![bg, content_render])
             }

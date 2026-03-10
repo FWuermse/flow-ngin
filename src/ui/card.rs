@@ -152,10 +152,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
             renders.push(bg.on_render());
         }
         if let Some(icon) = &self.icon {
-            renders.push(icon.on_render());
+            renders.push(GraphicsFlow::<S, E>::on_render(icon));
         }
         for label in &self.labels {
-            renders.push(label.on_render());
+            renders.push(GraphicsFlow::<S, E>::on_render(label));
         }
 
         Render::Composed(renders)
