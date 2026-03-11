@@ -7,6 +7,7 @@ use std::path::PathBuf;
 fn main() -> Result<()> {
     // This tells Cargo to rerun this script if something in /assets/ changes.
     println!("cargo:rerun-if-changed=assets/*");
+    println!("cargo:rerun-if-changed=tests/fixtures/");
 
     let out_dir = env::var("OUT_DIR")?;
     let mut copy_options = CopyOptions::new();
