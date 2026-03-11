@@ -205,6 +205,81 @@ where
     }
 }
 
+/// Simplified flow wrapper for UI elements (anything that impls `GraphicsFlow`).
+#[cfg(feature = "integration-tests")]
+pub(crate) struct TestUIRender<'a, T> {
+    inner: Option<T>,
+    build: Option<Box<dyn FnOnce(&mut Context) -> T>>,
+    validate: &'a dyn Fn(
+        &Context,
+        &mut FrameCounter,
+        &mut image::RgbaImage,
+    ) -> Result<ImageTestResult, anyhow::Error>,
+}
+
+#[cfg(feature = "integration-tests")]
+impl<'a, T> TestUIRender<'a, T> {
+    pub(crate) fn new(
+        build: impl FnOnce(&mut Context) -> T + 'static,
+        validate: &'a dyn Fn(
+            &Context,
+            &mut FrameCounter,
+            &mut image::RgbaImage,
+        ) -> Result<ImageTestResult, anyhow::Error>,
+    ) -> Self {
+        Self {
+            inner: None,
+            build: Some(Box::new(build)),
+            validate,
+        }
+    }
+}
+
+#[cfg(feature = "integration-tests")]
+impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestUIRender<'a, T>
+where
+    T: GraphicsFlow<FrameCounter, ()>,
+{
+    fn on_init(&mut self, ctx: &mut Context, state: &mut FrameCounter) -> Out<FrameCounter, ()> {
+        let mut inner = (self.build.take().expect("on_init called twice"))(ctx);
+        let out = inner.on_init(ctx, state);
+        self.inner = Some(inner);
+        out
+    }
+
+    fn on_render<'pass>(&self) -> Render<'_, 'pass> {
+        self.inner.as_ref().map(|i| i.on_render()).unwrap_or(Render::None)
+    }
+
+    fn on_update(
+        &mut self,
+        ctx: &Context,
+        state: &mut FrameCounter,
+        dt: std::time::Duration,
+    ) -> Out<FrameCounter, ()> {
+        state.progress();
+        self.inner.as_mut().map(|i| i.on_update(ctx, state, dt)).unwrap_or(Out::Empty)
+    }
+
+    fn render_to_texture(
+        &self,
+        ctx: &Context,
+        s: &mut FrameCounter,
+        texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+    ) -> Result<ImageTestResult, anyhow::Error> {
+        let is_bgra = format!("{:?}", ctx.config.format).starts_with('B');
+        let mut bytes: Vec<u8> = texture.as_raw().to_vec();
+        if is_bgra {
+            for pixel in bytes.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+        }
+        let (width, height) = texture.dimensions();
+        let mut owned = image::RgbaImage::from_raw(width, height, bytes).unwrap();
+        (self.validate)(ctx, s, &mut owned)
+    }
+}
+
 #[macro_export]
 macro_rules! golden_image_test {
     ($graphics_elem:expr) => {{
