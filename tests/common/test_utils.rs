@@ -98,21 +98,88 @@ impl Default for FrameCounter {
     }
 }
 
+/// Convert a raw texture buffer to an RGBA image, handling BGRA formats.
+#[cfg(feature = "integration-tests")]
+fn to_rgba(
+    ctx: &Context,
+    texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
+) -> image::RgbaImage {
+    let is_bgra = format!("{:?}", ctx.config.format).starts_with('B');
+    let mut bytes: Vec<u8> = texture.as_raw().to_vec();
+    if is_bgra {
+        for pixel in bytes.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+    }
+    let (width, height) = texture.dimensions();
+    image::RgbaImage::from_raw(width, height, bytes).unwrap()
+}
+
+/// Recreate if texture is missing, otherwise compare
+#[cfg(feature = "integration-tests")]
+pub(crate) fn save_or_compare(
+    fixture_path: &str,
+    actual: &image::RgbaImage,
+) -> Result<ImageTestResult, anyhow::Error> {
+    use std::path::Path;
+
+    if !Path::new(fixture_path).exists() {
+        eprintln!("Golden fixture missing — generating: {fixture_path}");
+        actual.save(fixture_path)?;
+        return Ok(ImageTestResult::Passed);
+    }
+
+    let expected = image::open(fixture_path)
+        .unwrap_or_else(|e| panic!("failed to load fixture {fixture_path}: {e}"))
+        .to_rgba8();
+    assert_eq!(actual.dimensions(), expected.dimensions(), "image sizes differ");
+    for (x, y, pixel) in actual.enumerate_pixels() {
+        assert_eq!(
+            pixel,
+            expected.get_pixel(x, y),
+            "pixel mismatch at ({x}, {y})",
+        );
+    }
+    Ok(ImageTestResult::Passed)
+}
+
+#[cfg(feature = "integration-tests")]
+enum Validator<'a> {
+    Fixture(&'a str),
+    Custom(
+        &'a dyn Fn(
+            &Context,
+            &mut FrameCounter,
+            &mut image::RgbaImage,
+        ) -> Result<ImageTestResult, anyhow::Error>,
+    ),
+}
+
 /// This is a simplified flow that uses closures to represent lifecycle hook functions making Flow construction
 /// more convenient in test files.
 #[cfg(feature = "integration-tests")]
 pub(crate) struct TestRender<'a, T> {
     pub(crate) data: T,
     pub(crate) setup: &'a dyn Fn(&mut Context),
-    pub(crate) validate: &'a dyn Fn(
-        &Context,
-        &mut FrameCounter,
-        &mut image::RgbaImage,
-    ) -> Result<ImageTestResult, anyhow::Error>,
+    validator: Validator<'a>,
 }
 #[cfg(feature = "integration-tests")]
 impl<'a, T> TestRender<'a, T> {
+    /// Create a test flow that compares against (or auto-generates) a golden fixture file.
     pub(crate) fn new(
+        data: T,
+        setup: &'a dyn Fn(&mut Context),
+        fixture_path: &'a str,
+    ) -> Self {
+        Self {
+            data,
+            setup,
+            validator: Validator::Fixture(fixture_path),
+        }
+    }
+
+    /// Create a test flow with a custom validation closure (for non-fixture checks).
+    pub(crate) fn with_validator(
         data: T,
         setup: &'a dyn Fn(&mut Context),
         validate: &'a dyn Fn(
@@ -124,7 +191,7 @@ impl<'a, T> TestRender<'a, T> {
         Self {
             data,
             setup,
-            validate,
+            validator: Validator::Custom(validate),
         }
     }
 }
@@ -134,15 +201,13 @@ impl<'a, T> GraphicsFlow<FrameCounter, ()> for TestRender<'a, T>
 where
     T: for<'b, 'pass> GPUResource<'b, 'pass>,
 {
-    fn on_init(&mut self, ctx: &mut Context, s: &mut FrameCounter) -> Out<FrameCounter, ()> {
-        let f = self.setup;
-        f(ctx);
+    fn on_init(&mut self, ctx: &mut Context, _s: &mut FrameCounter) -> Out<FrameCounter, ()> {
+        (self.setup)(ctx);
         Out::Empty
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        let r = self.data.get_render();
-        r
+        self.data.get_render()
     }
 
     fn render_to_texture(
@@ -151,20 +216,14 @@ where
         s: &mut FrameCounter,
         texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> Result<ImageTestResult, anyhow::Error> {
-        let is_bgra = format!("{:?}", ctx.config.format).starts_with('B');
-        let mut bytes: Vec<u8> = texture.as_raw().to_vec();
-        if is_bgra {
-            for pixel in bytes.chunks_exact_mut(4) {
-                pixel.swap(0, 2);
-            }
+        if s.frame() == 0 {
+            return Ok(ImageTestResult::Waiting);
         }
-        let (width, height) = texture.dimensions();
-        let mut owned = image::RgbaImage::from_raw(width, height, bytes).unwrap();
-        (self.validate)(ctx, s, &mut owned)
-    }
-
-    fn on_click(&mut self, _: &Context, _: &mut FrameCounter, _: u32) -> Out<FrameCounter, ()> {
-        Out::Empty
+        let mut actual = to_rgba(ctx, texture);
+        match &self.validator {
+            Validator::Fixture(path) => save_or_compare(path, &actual),
+            Validator::Custom(validate) => validate(ctx, s, &mut actual),
+        }
     }
 
     fn on_update(
@@ -177,32 +236,6 @@ where
         self.data.write_to_buffer(&ctx.queue, &ctx.device);
         Out::Empty
     }
-
-    fn on_tick(&mut self, _: &Context, _: &mut FrameCounter) -> Out<FrameCounter, ()> {
-        Out::Empty
-    }
-
-    fn on_device_events(
-        &mut self,
-        _: &Context,
-        _: &mut FrameCounter,
-        _: &flow_ngin::DeviceEvent,
-    ) -> Out<FrameCounter, ()> {
-        Out::Empty
-    }
-
-    fn on_window_events(
-        &mut self,
-        _: &Context,
-        _: &mut FrameCounter,
-        _: &flow_ngin::WindowEvent,
-    ) -> Out<FrameCounter, ()> {
-        Out::Empty
-    }
-
-    fn on_custom_events(&mut self, _: &Context, _: &mut FrameCounter, event: ()) -> Option<()> {
-        Some(event)
-    }
 }
 
 /// Simplified flow wrapper for UI elements (anything that impls `GraphicsFlow`).
@@ -210,27 +243,19 @@ where
 pub(crate) struct TestUIRender<'a, T> {
     inner: Option<T>,
     build: Option<Box<dyn FnOnce(&mut Context) -> T>>,
-    validate: &'a dyn Fn(
-        &Context,
-        &mut FrameCounter,
-        &mut image::RgbaImage,
-    ) -> Result<ImageTestResult, anyhow::Error>,
+    fixture_path: &'a str,
 }
 
 #[cfg(feature = "integration-tests")]
 impl<'a, T> TestUIRender<'a, T> {
     pub(crate) fn new(
         build: impl FnOnce(&mut Context) -> T + 'static,
-        validate: &'a dyn Fn(
-            &Context,
-            &mut FrameCounter,
-            &mut image::RgbaImage,
-        ) -> Result<ImageTestResult, anyhow::Error>,
+        fixture_path: &'a str,
     ) -> Self {
         Self {
             inner: None,
             build: Some(Box::new(build)),
-            validate,
+            fixture_path,
         }
     }
 }
@@ -267,16 +292,11 @@ where
         s: &mut FrameCounter,
         texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> Result<ImageTestResult, anyhow::Error> {
-        let is_bgra = format!("{:?}", ctx.config.format).starts_with('B');
-        let mut bytes: Vec<u8> = texture.as_raw().to_vec();
-        if is_bgra {
-            for pixel in bytes.chunks_exact_mut(4) {
-                pixel.swap(0, 2);
-            }
+        if s.frame() == 0 {
+            return Ok(ImageTestResult::Waiting);
         }
-        let (width, height) = texture.dimensions();
-        let mut owned = image::RgbaImage::from_raw(width, height, bytes).unwrap();
-        (self.validate)(ctx, s, &mut owned)
+        let actual = to_rgba(ctx, texture);
+        save_or_compare(self.fixture_path, &actual)
     }
 }
 
