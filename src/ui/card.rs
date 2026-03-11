@@ -39,6 +39,10 @@ pub struct Card<S, E> {
     y: u32,
     width: u32,
     height: u32,
+    local_x: u32,
+    local_y: u32,
+    local_w: u32,
+    local_h: u32,
     icon: Option<Icon>,
     labels: Vec<TextLabel>,
     background: Option<Background>,
@@ -47,13 +51,17 @@ pub struct Card<S, E> {
 }
 
 impl<S: 'static, E: 'static> Card<S, E> {
-    /// Create a card at absolute pixel position `(x, y)` with the given dimensions.
+    /// Create a card at pixel position `(x, y)` relative to its parent.
     pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
         Self {
             x,
             y,
             width,
             height,
+            local_x: x,
+            local_y: y,
+            local_w: width,
+            local_h: height,
             icon: None,
             labels: Vec::new(),
             background: None,
@@ -113,20 +121,26 @@ impl<S: 'static, E: 'static> Card<S, E> {
 }
 
 impl<S: 'static, E: 'static> Layout for Card<S, E> {
-    /// Reposition the card to fill the given parent rect and re-layout children.
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
-        self.x = parent_x;
-        self.y = parent_y;
-        self.width = parent_w;
-        self.height = parent_h;
+    /// Offset the card by the parent's origin and re-layout children.
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, _parent_w: u32, _parent_h: u32, queue: &wgpu::Queue) {
+        self.x = parent_x + self.local_x;
+        self.y = parent_y + self.local_y;
+        self.width = self.local_w;
+        self.height = self.local_h;
+
+        // Update bg_container to match our new absolute position.
+        if let Some(bg) = &mut self.bg_container {
+            Layout::resolve(bg, self.x, self.y, self.width, self.height, queue);
+        }
+
         self.layout_children(queue);
     }
 }
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
-        // Build a background-only container (no children — Card manages them directly).
-        let mut bg = Container::<S, E>::new(self.x, self.y, self.width, self.height);
+        // Build a background-only container at (0,0) local — resolve places it at the card's position.
+        let mut bg = Container::<S, E>::new(0, 0, self.width, self.height);
         if let Some(background) = self.background.take() {
             bg = match background {
                 Background::Color(rgba) => bg.with_background_color(rgba),
@@ -134,6 +148,8 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
             };
         }
         bg.on_init(ctx, state);
+        // Position the bg at the card's current absolute position.
+        Layout::resolve(&mut bg, self.x, self.y, self.width, self.height, &ctx.queue);
         self.bg_container = Some(bg);
 
         // Labels must be initialised before resolve so set_size is available.

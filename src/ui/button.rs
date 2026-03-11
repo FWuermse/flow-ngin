@@ -65,6 +65,12 @@ pub struct Button<S, E> {
     y: u32,
     width: u32,
     height: u32,
+    local_x: u32,
+    local_y: u32,
+    local_w: u32,
+    local_h: u32,
+    screen_width: u32,
+    screen_height: u32,
     content: Option<ButtonContent>,
     normal_color: [u8; 4],
     hover_color: [u8; 4],
@@ -76,7 +82,7 @@ pub struct Button<S, E> {
 }
 
 impl<S: 'static, E: 'static> Button<S, E> {
-    /// Create a button at absolute pixel position `(x, y)` with a unique pick `id`.
+    /// Create a button at pixel position `(x, y)` relative to its parent, with a unique pick `id`.
     ///
     /// The `id` must be non-zero and unique across all pickable objects in the scene.
     pub fn new(id: u32, x: u32, y: u32, width: u32, height: u32) -> Self {
@@ -86,6 +92,12 @@ impl<S: 'static, E: 'static> Button<S, E> {
             y,
             width,
             height,
+            local_x: x,
+            local_y: y,
+            local_w: width,
+            local_h: height,
+            screen_width: 0,
+            screen_height: 0,
             content: None,
             normal_color: [80, 80, 80, 255],
             hover_color: [110, 110, 110, 255],
@@ -175,20 +187,35 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
         &mut self,
         parent_x: u32,
         parent_y: u32,
-        parent_w: u32,
-        parent_h: u32,
+        _parent_w: u32,
+        _parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        self.x = parent_x;
-        self.y = parent_y;
-        self.width = parent_w;
-        self.height = parent_h;
+        self.x = parent_x + self.local_x;
+        self.y = parent_y + self.local_y;
+        self.width = self.local_w;
+        self.height = self.local_h;
+
+        // Update the background vertex buffer to match the new absolute position.
+        if let Some(res) = &self.resources {
+            let screen_pos = pixels_to_ndc(
+                self.x, self.y, self.width, self.height,
+                self.screen_width, self.screen_height,
+            );
+            let full_tex = Frame { start_x: 0.0, start_y: 0.0, end_x: 1.0, end_y: 1.0 };
+            let vertices = vertices_from_coords(&screen_pos, &full_tex);
+            queue.write_buffer(&res.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        }
+
         self.layout_content(queue);
     }
 }
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
+        self.screen_width = ctx.config.width;
+        self.screen_height = ctx.config.height;
+
         // Init content GPU resources.
         match &mut self.content {
             Some(ButtonContent::Text(label)) => label.init(ctx),
@@ -218,7 +245,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Button Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
-            usage: BufferUsages::VERTEX,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
