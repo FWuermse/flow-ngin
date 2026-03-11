@@ -80,10 +80,19 @@ impl BgResources {
 ///     .with_child(TextLabel::new("Score: 0").position(16.0, 16.0));
 /// ```
 pub struct Container<S, E> {
+    // Absolute screen position (computed by resolve or same as local for root)
     x: u32,
     y: u32,
     width: u32,
     height: u32,
+    // Position/size relative to parent, set at construction
+    local_x: u32,
+    local_y: u32,
+    local_w: u32,
+    local_h: u32,
+    // Screen dimensions for NDC conversion in resolve
+    screen_width: u32,
+    screen_height: u32,
     children: Vec<Box<dyn UIElement<S, E>>>,
     background: Option<Background>,
     bg_resources: Option<BgResources>,
@@ -98,6 +107,12 @@ impl<S: 'static, E: 'static> Container<S, E> {
             y,
             width,
             height,
+            local_x: x,
+            local_y: y,
+            local_w: width,
+            local_h: height,
+            screen_width: 0,
+            screen_height: 0,
             children: Vec::new(),
             background: None,
             bg_resources: None,
@@ -143,6 +158,9 @@ impl<S: 'static, E: 'static> Container<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
+        self.screen_width = ctx.config.width;
+        self.screen_height = ctx.config.height;
+
         for child in &mut self.children {
             child.on_init(ctx, state);
         }
@@ -176,7 +194,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
             let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("Container BG Vertex Buffer"),
                 contents: bytemuck::cast_slice(&vertices),
-                usage: BufferUsages::VERTEX,
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             });
             let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
             let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
@@ -225,12 +243,24 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
 }
 
 impl<S: 'static, E: 'static> Layout for Container<S, E> {
-    /// Reposition the container to fill the given parent rect and re-resolve all children.
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
-        self.x = parent_x;
-        self.y = parent_y;
-        self.width = parent_w;
-        self.height = parent_h;
+    /// Offset the container by the parent's origin and re-resolve all children.
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, _parent_w: u32, _parent_h: u32, queue: &wgpu::Queue) {
+        self.x = parent_x + self.local_x;
+        self.y = parent_y + self.local_y;
+        self.width = self.local_w;
+        self.height = self.local_h;
+
+        // Update the background vertex buffer to match the new absolute position.
+        if let Some(bg) = &self.bg_resources {
+            let screen_pos = pixels_to_ndc(
+                self.x, self.y, self.width, self.height,
+                self.screen_width, self.screen_height,
+            );
+            let full_tex = Frame { start_x: 0.0, start_y: 0.0, end_x: 1.0, end_y: 1.0 };
+            let vertices = vertices_from_coords(&screen_pos, &full_tex);
+            queue.write_buffer(&bg.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        }
+
         self.resolve(queue);
     }
 }

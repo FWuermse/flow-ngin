@@ -385,6 +385,7 @@ impl<'a, State: Default> AppState<State> {
             let mut trans: Vec<Instanced> = Vec::new();
             let mut guis: Vec<Flat> = Vec::new();
             let mut terrain: Vec<Flat> = Vec::new();
+            let mut customs = Vec::new();
             graphics_flows.iter_mut().for_each(|flow| {
                 let render = flow.on_render();
                 render.set_pipelines(
@@ -394,6 +395,7 @@ impl<'a, State: Default> AppState<State> {
                     &mut trans,
                     &mut guis,
                     &mut terrain,
+                    &mut customs,
                 );
             });
 
@@ -458,6 +460,10 @@ impl<'a, State: Default> AppState<State> {
                 render_pass.set_vertex_buffer(0, button.vertex.slice(..));
                 render_pass.set_index_buffer(button.index.slice(..), wgpu::IndexFormat::Uint16);
                 render_pass.draw_indexed(0..button.amount as u32, 0, 0..1);
+            }
+
+            for custom in customs {
+                custom(&self.ctx, &mut render_pass);
             }
         }
 

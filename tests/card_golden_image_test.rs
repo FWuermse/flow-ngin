@@ -19,7 +19,7 @@ fn should_match_card_render() {
 
     golden_image_test!(async move |ctx: InitContext| {
         let atlas = Arc::new(
-            Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 1, 1).await,
+            Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 16, 16).await,
         );
         let bg = Arc::new(
             BackgroundTexture::new(&ctx.device, &ctx.queue, "card_bg.png").await,
