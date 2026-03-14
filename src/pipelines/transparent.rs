@@ -14,6 +14,7 @@ pub fn mk_transparent_pipeline(
     config: &wgpu::SurfaceConfiguration,
     light_bind_group_layout: &wgpu::BindGroupLayout,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
+    sample_count: u32,
 ) -> wgpu::RenderPipeline {
     let render_pipeline_layout =
         device
@@ -39,5 +40,6 @@ pub fn mk_transparent_pipeline(
         Some(Texture::DEPTH_FORMAT),
         &[ModelVertex::desc(), InstanceRaw::desc()],
         shader,
+        sample_count,
     )
 }

@@ -135,6 +135,7 @@ pub fn mk_terrain_pipeline(
     config: &wgpu::SurfaceConfiguration,
     camera_bind_group_layout: &BindGroupLayout,
     light_bind_group_layout: &BindGroupLayout,
+    sample_count: u32,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Normal Shader"),
@@ -189,7 +190,7 @@ pub fn mk_terrain_pipeline(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 1,
+            count: sample_count,
             mask: !0,
             alpha_to_coverage_enabled: false,
         },

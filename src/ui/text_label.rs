@@ -171,7 +171,11 @@ impl TextLabel {
         let text_renderer = TextRenderer::new(
             &mut atlas,
             &ctx.device,
-            wgpu::MultisampleState::default(),
+            wgpu::MultisampleState {
+                count: ctx.anti_aliasing.sample_count(),
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
             Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: false,

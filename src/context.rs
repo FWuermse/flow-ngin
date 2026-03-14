@@ -48,6 +48,22 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn GPUResource<'a, 'pass>> {
     }
 }
 
+/// Anti-aliasing mode for the rendering pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AntiAliasing {
+    None,
+    MSAA4x,
+}
+
+impl AntiAliasing {
+    pub fn sample_count(self) -> u32 {
+        match self {
+            AntiAliasing::None => 1,
+            AntiAliasing::MSAA4x => 4,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum MouseButtonState {
     Right,
@@ -86,6 +102,8 @@ pub struct Pipelines {
 pub struct Context {
     pub window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
+    pub(crate) msaa_view: Option<wgpu::TextureView>,
+    pub anti_aliasing: AntiAliasing,
     pub tick_duration_millis: u64,
     pub clear_colour: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
@@ -215,11 +233,21 @@ impl Context {
             bind_group_layout,
         };
 
+        let anti_aliasing = AntiAliasing::None;
+        let sample_count = anti_aliasing.sample_count();
+
         let depth_texture = texture::Texture::create_depth_texture(
             &device,
             [config.width, config.height],
             "depth_texture",
+            sample_count,
         );
+
+        let msaa_view = if sample_count > 1 {
+            Some(texture::Texture::create_msaa_texture(&device, &config, sample_count))
+        } else {
+            None
+        };
 
         let light_uniform = LightUniform {
             position: [8.0, 80.0, 50.0],
@@ -244,6 +272,7 @@ impl Context {
             &config,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let basic_pipeline = mk_basic_pipeline(
             &device,
@@ -251,6 +280,7 @@ impl Context {
             wgpu::FrontFace::Ccw,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let basic_cw_pipeline = mk_basic_pipeline(
             &device,
@@ -258,21 +288,24 @@ impl Context {
             wgpu::FrontFace::Cw,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let pick_pipeline = mk_pick_pipeline(&device, &camera.bind_group_layout);
-        let gui_pipeline = mk_gui_pipeline(&device, &config);
+        let gui_pipeline = mk_gui_pipeline(&device, &config, sample_count);
         let gui_pick_pipeline = mk_gui_pick_pipelin(&device);
         let transparent_pipeline = mk_transparent_pipeline(
             &device,
             &config,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let terrain_pipeline = mk_terrain_pipeline(
             &device,
             &config,
             &camera.bind_group_layout,
             &light.bind_group_layout,
+            sample_count,
         );
         let pipelines = Pipelines {
             basic: basic_pipeline,
@@ -292,6 +325,7 @@ impl Context {
         let tick_duration_millis = 500;
 
         Ok(Self {
+            anti_aliasing,
             camera,
             clear_colour,
             config,
@@ -299,6 +333,7 @@ impl Context {
             device,
             light,
             mouse,
+            msaa_view,
             pipelines,
             projection,
             queue,
