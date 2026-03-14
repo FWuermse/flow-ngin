@@ -13,7 +13,7 @@ use crate::{
     pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     resources::texture::load_texture,
-    ui::layout::Layout,
+    ui::{Placement, layout::Layout},
 };
 
 pub struct ImageResources {
@@ -101,11 +101,9 @@ pub enum VAlign {
 }
 
 pub struct Icon {
-    id: u32,
     pub width_px: u32,
     pub height_px: u32,
-    pub halign: HAlign,
-    pub valign: VAlign,
+    pub placement: Placement,
     screen_width: u32,
     screen_height: u32,
     screen_pos: Frame,
@@ -139,14 +137,10 @@ pub(crate) fn pixels_to_ndc(
 impl Icon {
     /// Create a new icon from a solid color.
     ///
-    /// `(width_px, height_px)` is the desired size in pixels.
-    /// The icon won't appear until a container calls `set_position`.
+    /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn from_color(
         ctx: &Context,
         rgba: [u8; 4],
-        id: u32,
-        width_px: u32,
-        height_px: u32,
     ) -> Self {
         let screen_width = ctx.config.width;
         let screen_height = ctx.config.height;
@@ -163,24 +157,22 @@ impl Icon {
 
         let vertices = vertices_from_coords(&screen_pos, &screen_pos);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Vertex Buffer"),
+            label: Some("Icon Color Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Index Buffer"),
+            label: Some("Icon Color Index Buffer"),
             contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
         let num_indices = indices.len();
 
         Self {
-            id,
-            width_px,
-            height_px,
-            halign: HAlign::default(),
-            valign: VAlign::default(),
+            width_px: 0,
+            height_px: 0,
+            placement: Placement::default(),
             screen_width,
             screen_height,
             screen_pos,
@@ -196,15 +188,11 @@ impl Icon {
 
     /// Create a new icon from an atlas slot.
     ///
-    /// `(width_px, height_px)` is the desired size in pixels.
-    /// The icon won't appear until a container calls `set_position`.
+    /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn new(
         ctx: &Context,
         atlas: Arc<Atlas>,
-        id: u32,
         slot: u8,
-        width_px: u32,
-        height_px: u32,
     ) -> Self {
         let screen_width = ctx.config.width;
         let screen_height = ctx.config.height;
@@ -221,24 +209,22 @@ impl Icon {
 
         let vertices = vertices_from_coords(&screen_pos, &tex_coords);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon Vertex Buffer {}", id)),
+            label: Some(&format!("Icon Vertex Buffer slot {}", slot)),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon Index Buffer {}", id)),
+            label: Some(&format!("Icon Index Buffer slot {}", slot)),
             contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
         let num_indices = indices.len();
 
         Self {
-            id,
-            width_px,
-            height_px,
-            halign: HAlign::default(),
-            valign: VAlign::default(),
+            width_px: 0,
+            height_px: 0,
+            placement: Placement::default(),
             screen_width,
             screen_height,
             screen_pos,
@@ -253,12 +239,22 @@ impl Icon {
     }
 
     pub fn halign(mut self, align: HAlign) -> Self {
-        self.halign = align;
+        self.placement.halign = align;
         self
     }
 
     pub fn valign(mut self, align: VAlign) -> Self {
-        self.valign = align;
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 
@@ -288,6 +284,7 @@ impl Icon {
             ),
         }
     }
+
 }
 
 pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
@@ -312,7 +309,6 @@ pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Ve
 }
 
 impl Layout for Icon {
-    // TODO: mitigate overflows (instead of just set position also scale containered UI elems)
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -321,16 +317,9 @@ impl Layout for Icon {
         parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        let x = match self.halign {
-            HAlign::Left => parent_x,
-            HAlign::Center => parent_x + (parent_w - self.width_px) / 2,
-            HAlign::Right => parent_x + parent_w - self.width_px,
-        };
-        let y = match self.valign {
-            VAlign::Top => parent_y,
-            VAlign::Center => parent_y + (parent_h - self.height_px) / 2,
-            VAlign::Bottom => parent_y + parent_h - self.height_px,
-        };
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.width_px = w;
+        self.height_px = h;
         self.set_position(x, y, queue);
     }
 }
@@ -343,14 +332,14 @@ impl<S, E> GraphicsFlow<S, E> for Icon {
                 index: &image_resources.index_buffer,
                 group: &image_resources.atlas.bind_group,
                 amount: image_resources.num_indices,
-                id: self.id,
+                id: 0,
             }),
             Resources::Color(color_resources) => Render::GUI(Flat {
                 vertex: &color_resources.vertex_buffer,
                 index: &color_resources.index_buffer,
                 group: &color_resources.bind_group,
                 amount: color_resources.num_indices,
-                id: self.id,
+                id: 0,
             }),
         }
     }

@@ -14,6 +14,7 @@ use crate::{
     pipelines::gui::{mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     ui::{
+        HAlign, Placement, VAlign,
         background::{Background, BackgroundTexture},
         image::{Frame, pixels_to_ndc, vertices_from_coords},
         layout::{Layout, UIElement},
@@ -71,26 +72,22 @@ impl BgResources {
 /// use flow_ngin::ui::{HAlign, VAlign, container::Container, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:
-/// let icon = Icon::new(ctx, atlas, 100, 17, 64, 64)
+/// let icon = Icon::new(ctx, atlas, 17)
 ///     .halign(HAlign::Center)
 ///     .valign(VAlign::Center);
 ///
-/// let container = Container::<State, Event>::new(0, 0, ctx.config.width, ctx.config.height)
+/// let container = Container::<State, Event>::new()
+///     .width(ctx.config.width)
+///     .height(ctx.config.height)
 ///     .with_child(icon)
 ///     .with_child(TextLabel::new("Score: 0").position(16.0, 16.0));
 /// ```
 pub struct Container<S, E> {
-    // Absolute screen position (computed by resolve or same as local for root)
+    placement: Placement,
     x: u32,
     y: u32,
     width: u32,
     height: u32,
-    // Position/size relative to parent, set at construction
-    local_x: u32,
-    local_y: u32,
-    local_w: u32,
-    local_h: u32,
-    // Screen dimensions for NDC conversion in resolve
     screen_width: u32,
     screen_height: u32,
     children: Vec<Box<dyn UIElement<S, E>>>,
@@ -99,23 +96,42 @@ pub struct Container<S, E> {
 }
 
 impl<S: 'static, E: 'static> Container<S, E> {
-    /// Create a container at absolute pixel position `(x, y)` with the given dimensions.
-    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+    /// Create a container that fills its parent by default.
+    ///
+    /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
+    pub fn new() -> Self {
         Self {
-            x,
-            y,
-            width,
-            height,
-            local_x: x,
-            local_y: y,
-            local_w: width,
-            local_h: height,
+            placement: Placement::default(),
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
             screen_width: 0,
             screen_height: 0,
             children: Vec::new(),
             background: None,
             bg_resources: None,
         }
+    }
+
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
+        self
     }
 
     /// Add a child element. Any type implementing both [`GraphicsFlow`] and [`Layout`] is accepted.
@@ -158,6 +174,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
         self.screen_width = ctx.config.width;
         self.screen_height = ctx.config.height;
+
+        // Resolve own placement against screen dimensions.
+        // For nested containers, the parent's Layout::resolve will override afterward.
+        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         for child in &mut self.children {
             child.on_init(ctx, state);
@@ -215,10 +239,6 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
         merge_outs(self.children.iter_mut().map(|c| c.on_update(ctx, state, dt)))
     }
 
-    fn on_click(&mut self, ctx: &Context, state: &mut S, id: u32) -> Out<S, E> {
-        merge_outs(self.children.iter_mut().map(|c| c.on_click(ctx, state, id)))
-    }
-
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         let mut renders: Vec<Render<'_, 'pass>> = Vec::new();
 
@@ -241,12 +261,13 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
 }
 
 impl<S: 'static, E: 'static> Layout for Container<S, E> {
-    /// Offset the container by the parent's origin and re-resolve all children.
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, _parent_w: u32, _parent_h: u32, queue: &wgpu::Queue) {
-        self.x = parent_x + self.local_x;
-        self.y = parent_y + self.local_y;
-        self.width = self.local_w;
-        self.height = self.local_h;
+    /// Resolve the container's position from parent bounds and re-resolve all children.
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         // Update the background vertex buffer to match the new absolute position.
         if let Some(bg) = &self.bg_resources {

@@ -7,7 +7,7 @@ use crate::{
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
-        Positioning,
+        HAlign, Placement, VAlign,
         image::Icon,
         layout::Layout,
         text_label::TextLabel,
@@ -30,26 +30,29 @@ pub enum ButtonContent {
 
 /// A clickable button with text or icon content.
 ///
-/// Supported hooks:
-/// - **Hover** just checks current context's coords agains button position.
-/// - **Click** high accuracy (done via picking).
+/// Click detection is coordinate-based: the button tracks mouse state transitions
+/// and fires when the mouse is released while hovering over the button.
 ///
 /// # Example
 ///
 /// ```no_run
 /// use flow_ngin::ui::button::Button;
 ///
-/// let btn = Button::<State, Event>::new(1, 10, 10, 120, 40)
-///     .normal_color([60, 60, 60, 255])
-///     .hover_color([90, 90, 90, 255])
-///     .pressed_color([30, 30, 30, 255])
+/// let btn = Button::<State, Event>::new()
+///     .width(120)
+///     .height(40)
+///     .fill(normal_icon)
+///     .hover_fill(hover_icon)
+///     .click_fill(pressed_icon)
 ///     .with_text(TextLabel::new("Click me"))
 ///     .on_click(|| Event::ButtonPressed);
 /// ```
 pub struct Button<S, E> {
-    id: u32,
-    pos: Positioning,
-    local: Positioning,
+    placement: Placement,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
     screen_width: u32,
     screen_height: u32,
     content: Option<ButtonContent>,
@@ -58,24 +61,21 @@ pub struct Button<S, E> {
     pressed: Option<Icon>,
     on_click_fn: Option<Box<dyn Fn() -> E + 'static>>,
     visual_state: VisualState,
+    was_pressed: bool,
     _marker: PhantomData<S>,
 }
 
 impl<S: 'static, E: 'static> Button<S, E> {
-    /// Create a button at pixel position `(x, y)` relative to its parent, with a unique pick `id`.
+    /// Create a button that fills its parent by default.
     ///
-    /// The `id` must be non-zero and unique across all pickable objects in the scene.
-    pub fn new(id: u32, x: u32, y: u32, width: u32, height: u32) -> Self {
-        let pos = Positioning {
-            x,
-            y,
-            width,
-            height,
-        };
+    /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
+    pub fn new() -> Self {
         Self {
-            id,
-            pos,
-            local: pos,
+            placement: Placement::default(),
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
             screen_width: 0,
             screen_height: 0,
             content: None,
@@ -84,8 +84,29 @@ impl<S: 'static, E: 'static> Button<S, E> {
             pressed: None,
             on_click_fn: None,
             visual_state: VisualState::Normal,
+            was_pressed: false,
             _marker: PhantomData,
         }
+    }
+
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
+        self
     }
 
     /// Set a text label as the button content.
@@ -122,38 +143,37 @@ impl<S: 'static, E: 'static> Button<S, E> {
     }
 
     fn contains(&self, x: f64, y: f64) -> bool {
-        x >= self.pos.x as f64
-            && x < (self.pos.x + self.pos.width) as f64
-            && y >= self.pos.y as f64
-            && y < (self.pos.y + self.pos.height) as f64
+        x >= self.x as f64
+            && x < (self.x + self.width) as f64
+            && y >= self.y as f64
+            && y < (self.y + self.height) as f64
     }
 
     fn layout_content(&mut self, queue: &wgpu::Queue) {
         match &mut self.content {
             Some(ButtonContent::Icon(icon)) => {
-                let ix = self.pos.x + self.pos.width.saturating_sub(icon.width_px) / 2;
-                let iy = self.pos.y + self.pos.height.saturating_sub(icon.height_px) / 2;
+                let ix = self.x + self.width.saturating_sub(icon.width_px) / 2;
+                let iy = self.y + self.height.saturating_sub(icon.height_px) / 2;
                 icon.set_position(ix, iy, queue);
             }
             Some(ButtonContent::Text(label)) => {
-                // Centre vertically with a small horizontal inset.
                 const INSET: u32 = 6;
                 label.resolve(
-                    (self.pos.x + INSET) as f32,
-                    self.pos.y as f32,
-                    self.pos.width.saturating_sub(2 * INSET) as f32,
-                    self.pos.height as f32,
+                    (self.x + INSET) as f32,
+                    self.y as f32,
+                    self.width.saturating_sub(2 * INSET) as f32,
+                    self.height as f32,
                 );
             }
             None => {}
         }
     }
 
-    fn layout_icon(&self, icon: Option<Icon>, queue: &wgpu::Queue) -> Option<Icon> {
+    fn layout_fill(&self, icon: Option<Icon>, queue: &wgpu::Queue) -> Option<Icon> {
         let mut icon = icon?;
-        let ix = self.pos.x + self.pos.width.saturating_sub(icon.width_px) / 2;
-        let iy = self.pos.y + self.pos.height.saturating_sub(icon.height_px) / 2;
-        icon.set_position(ix, iy, queue);
+        icon.width_px = self.width;
+        icon.height_px = self.height;
+        icon.set_position(self.x, self.y, queue);
         Some(icon)
     }
 }
@@ -163,22 +183,23 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
         &mut self,
         parent_x: u32,
         parent_y: u32,
-        _parent_w: u32,
-        _parent_h: u32,
+        parent_w: u32,
+        parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        self.pos.x = parent_x + self.local.x;
-        self.pos.y = parent_y + self.local.y;
-        self.pos.width = self.local.width;
-        self.pos.height = self.local.height;
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         self.layout_content(queue);
         let fill = self.fill.take();
-        self.fill = self.layout_icon(fill, queue);
+        self.fill = self.layout_fill(fill, queue);
         let hover = self.hover.take();
-        self.hover = self.layout_icon(hover, queue);
+        self.hover = self.layout_fill(hover, queue);
         let pressed = self.pressed.take();
-        self.pressed = self.layout_icon(pressed, queue);
+        self.pressed = self.layout_fill(pressed, queue);
     }
 }
 
@@ -186,6 +207,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
         self.screen_width = ctx.config.width;
         self.screen_height = ctx.config.height;
+
+        // Resolve own placement against screen dimensions.
+        // For nested buttons, the parent's Layout::resolve will override afterward.
+        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         // Init content GPU resources.
         match &mut self.content {
@@ -200,24 +229,25 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_update(&mut self, ctx: &Context, _state: &mut S, _dt: Duration) -> Out<S, E> {
         let pos = ctx.mouse.coords;
         let hovered = self.contains(pos.x, pos.y);
-        self.visual_state = match (hovered, &ctx.mouse.pressed) {
-            (true, MouseButtonState::Left) => VisualState::Pressed,
-            (true, _) => VisualState::Hovered,
+        let is_pressed = matches!(ctx.mouse.pressed, MouseButtonState::Left);
+
+        self.visual_state = match (hovered, is_pressed) {
+            (true, true) => VisualState::Pressed,
+            (true, false) => VisualState::Hovered,
             (false, _) => VisualState::Normal,
         };
-        Out::Empty
-    }
 
-    fn on_click(&mut self, _ctx: &Context, _state: &mut S, id: u32) -> Out<S, E> {
-        if id != self.id {
-            return Out::Empty;
+        // Detect click: was pressed last frame, now released, still hovering.
+        let clicked = self.was_pressed && !is_pressed && hovered;
+        self.was_pressed = is_pressed && hovered;
+
+        if clicked {
+            if let Some(f) = &self.on_click_fn {
+                let event = f();
+                return Out::FutEvent(vec![Box::new(async move { event })]);
+            }
         }
-        if let Some(f) = &self.on_click_fn {
-            let event = f();
-            Out::FutEvent(vec![Box::new(async move { event })])
-        } else {
-            Out::Empty
-        }
+        Out::Empty
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {

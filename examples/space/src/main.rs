@@ -69,9 +69,13 @@ impl GraphicsFlow<State, Event> for Astroids {
         Out::Empty
     }
 
-    fn on_click(&mut self, _: &Context, state: &mut State, _: u32) -> Out<State, Event> {
-        state.rotating = !state.rotating;
-        Out::Empty
+    fn on_custom_events(&mut self, _: &Context, state: &mut State, event: Event) -> Option<Event> {
+        match event {
+            Event::Spin => {
+                state.rotating = !state.rotating;
+                None
+            }
+        }
     }
 
     fn on_update(
@@ -122,29 +126,30 @@ impl GUI {
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 100, 18, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let click = Icon::new(ctx, Arc::clone(&self.atlas), 100, 19, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
+        let fill = Icon::new(ctx, Arc::clone(&self.atlas), 17);
+        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 18);
+        let click = Icon::new(ctx, Arc::clone(&self.atlas), 19);
         let bg = Arc::clone(&self.background);
-        let button = Button::new(200, 0, 0, 100, 50)
+        let button = Button::new()
+            .width(100)
+            .height(50)
             .with_text(TextLabel::new("spin").color([255, 0, 0]))
-            .fill(icon)
+            .fill(fill)
             .hover_fill(hover)
             .click_fill(click)
             .on_click(|| Event::Spin);
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
+        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 17)
+            .width(100)
+            .height(100)
             .halign(HAlign::Center)
             .valign(VAlign::Center);
-        let mut container = Container::new(0, 0, 500, 500)
+        let mut container = Container::new()
+            .width(500)
+            .height(500)
             .with_background_texture(bg)
             .with_child(icon)
-            .with_child(button);
+            .with_child(button)
+            .valign(VAlign::Center);
         container.resolve(&ctx.queue);
         self.container = Some(container);
         self.container.as_mut().unwrap().on_init(ctx, state)
@@ -157,7 +162,7 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         dt: std::time::Duration,
     ) -> Out<State, Event> {
         if let Some(container) = &mut self.container {
-            container.on_update(ctx, state, dt);
+            return container.on_update(ctx, state, dt);
         }
         Out::Empty
     }
