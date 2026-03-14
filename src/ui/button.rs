@@ -1,19 +1,14 @@
 use std::marker::PhantomData;
 
 use instant::Duration;
-use wgpu::{
-    BufferUsages,
-    util::{BufferInitDescriptor, DeviceExt},
-};
 
 use crate::{
     context::{Context, MouseButtonState},
-    data_structures::texture::Texture,
     flow::{GraphicsFlow, Out},
-    pipelines::gui::{mk_bind_group, mk_bind_group_layout},
-    render::{Flat, Render},
+    render::Render,
     ui::{
-        image::{Frame, Icon, pixels_to_ndc, vertices_from_coords},
+        Positioning,
+        image::Icon,
         layout::Layout,
         text_label::TextLabel,
     },
@@ -31,14 +26,6 @@ enum VisualState {
 pub enum ButtonContent {
     Text(TextLabel),
     Icon(Icon),
-}
-
-struct ButtonBgResources {
-    vertex_buffer: wgpu::Buffer, // shared across all three states
-    index_buffer: wgpu::Buffer,
-    normal: wgpu::BindGroup,
-    hover: wgpu::BindGroup,
-    pressed: wgpu::BindGroup,
 }
 
 /// A clickable button with text or icon content.
@@ -61,24 +48,17 @@ struct ButtonBgResources {
 /// ```
 pub struct Button<S, E> {
     id: u32,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    local_x: u32,
-    local_y: u32,
-    local_w: u32,
-    local_h: u32,
+    pos: Positioning,
+    local: Positioning,
     screen_width: u32,
     screen_height: u32,
     content: Option<ButtonContent>,
-    normal_color: [u8; 4],
-    hover_color: [u8; 4],
-    pressed_color: [u8; 4],
+    fill: Option<Icon>,
+    hover: Option<Icon>,
+    pressed: Option<Icon>,
     on_click_fn: Option<Box<dyn Fn() -> E + 'static>>,
     visual_state: VisualState,
-    resources: Option<ButtonBgResources>,
-    _marker: PhantomData<fn(S, E)>,
+    _marker: PhantomData<S>,
 }
 
 impl<S: 'static, E: 'static> Button<S, E> {
@@ -86,25 +66,24 @@ impl<S: 'static, E: 'static> Button<S, E> {
     ///
     /// The `id` must be non-zero and unique across all pickable objects in the scene.
     pub fn new(id: u32, x: u32, y: u32, width: u32, height: u32) -> Self {
-        Self {
-            id,
+        let pos = Positioning {
             x,
             y,
             width,
             height,
-            local_x: x,
-            local_y: y,
-            local_w: width,
-            local_h: height,
+        };
+        Self {
+            id,
+            pos,
+            local: pos,
             screen_width: 0,
             screen_height: 0,
             content: None,
-            normal_color: [80, 80, 80, 255],
-            hover_color: [110, 110, 110, 255],
-            pressed_color: [50, 50, 50, 255],
+            fill: None,
+            hover: None,
+            pressed: None,
             on_click_fn: None,
             visual_state: VisualState::Normal,
-            resources: None,
             _marker: PhantomData,
         }
     }
@@ -121,18 +100,18 @@ impl<S: 'static, E: 'static> Button<S, E> {
         self
     }
 
-    pub fn normal_color(mut self, rgba: [u8; 4]) -> Self {
-        self.normal_color = rgba;
+    pub fn fill(mut self, icon: Icon) -> Self {
+        self.fill = Some(icon);
         self
     }
 
-    pub fn hover_color(mut self, rgba: [u8; 4]) -> Self {
-        self.hover_color = rgba;
+    pub fn hover_fill(mut self, icon: Icon) -> Self {
+        self.hover = Some(icon);
         self
     }
 
-    pub fn pressed_color(mut self, rgba: [u8; 4]) -> Self {
-        self.pressed_color = rgba;
+    pub fn click_fill(mut self, icon: Icon) -> Self {
+        self.pressed = Some(icon);
         self
     }
 
@@ -143,42 +122,39 @@ impl<S: 'static, E: 'static> Button<S, E> {
     }
 
     fn contains(&self, x: f64, y: f64) -> bool {
-        x >= self.x as f64
-            && x < (self.x + self.width) as f64
-            && y >= self.y as f64
-            && y < (self.y + self.height) as f64
+        x >= self.pos.x as f64
+            && x < (self.pos.x + self.pos.width) as f64
+            && y >= self.pos.y as f64
+            && y < (self.pos.y + self.pos.height) as f64
     }
 
     fn layout_content(&mut self, queue: &wgpu::Queue) {
         match &mut self.content {
             Some(ButtonContent::Icon(icon)) => {
-                let ix = self.x + self.width.saturating_sub(icon.width_px) / 2;
-                let iy = self.y + self.height.saturating_sub(icon.height_px) / 2;
+                let ix = self.pos.x + self.pos.width.saturating_sub(icon.width_px) / 2;
+                let iy = self.pos.y + self.pos.height.saturating_sub(icon.height_px) / 2;
                 icon.set_position(ix, iy, queue);
             }
             Some(ButtonContent::Text(label)) => {
                 // Centre vertically with a small horizontal inset.
                 const INSET: u32 = 6;
                 label.resolve(
-                    (self.x + INSET) as f32,
-                    self.y as f32,
-                    self.width.saturating_sub(2 * INSET) as f32,
-                    self.height as f32,
+                    (self.pos.x + INSET) as f32,
+                    self.pos.y as f32,
+                    self.pos.width.saturating_sub(2 * INSET) as f32,
+                    self.pos.height as f32,
                 );
             }
             None => {}
         }
     }
 
-    fn mk_bind_group_for(
-        &self,
-        rgba: [u8; 4],
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) -> wgpu::BindGroup {
-        let tex = Texture::from_color(rgba, device, queue);
-        let layout = mk_bind_group_layout(device);
-        mk_bind_group(device, &tex, &layout)
+    fn layout_icon(&self, icon: Option<Icon>, queue: &wgpu::Queue) -> Option<Icon> {
+        let mut icon = icon?;
+        let ix = self.pos.x + self.pos.width.saturating_sub(icon.width_px) / 2;
+        let iy = self.pos.y + self.pos.height.saturating_sub(icon.height_px) / 2;
+        icon.set_position(ix, iy, queue);
+        Some(icon)
     }
 }
 
@@ -191,23 +167,18 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
         _parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        self.x = parent_x + self.local_x;
-        self.y = parent_y + self.local_y;
-        self.width = self.local_w;
-        self.height = self.local_h;
-
-        // Update the background vertex buffer to match the new absolute position.
-        if let Some(res) = &self.resources {
-            let screen_pos = pixels_to_ndc(
-                self.x, self.y, self.width, self.height,
-                self.screen_width, self.screen_height,
-            );
-            let full_tex = Frame { start_x: 0.0, start_y: 0.0, end_x: 1.0, end_y: 1.0 };
-            let vertices = vertices_from_coords(&screen_pos, &full_tex);
-            queue.write_buffer(&res.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
-        }
+        self.pos.x = parent_x + self.local.x;
+        self.pos.y = parent_y + self.local.y;
+        self.pos.width = self.local.width;
+        self.pos.height = self.local.height;
 
         self.layout_content(queue);
+        let fill = self.fill.take();
+        self.fill = self.layout_icon(fill, queue);
+        let hover = self.hover.take();
+        self.hover = self.layout_icon(hover, queue);
+        let pressed = self.pressed.take();
+        self.pressed = self.layout_icon(pressed, queue);
     }
 }
 
@@ -221,46 +192,6 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
             Some(ButtonContent::Text(label)) => label.init(ctx),
             Some(ButtonContent::Icon(_)) | None => {}
         }
-
-        // Build three 1×1 textures similar to default normal map.
-        let normal = self.mk_bind_group_for(self.normal_color, &ctx.device, &ctx.queue);
-        let hover = self.mk_bind_group_for(self.hover_color, &ctx.device, &ctx.queue);
-        let pressed = self.mk_bind_group_for(self.pressed_color, &ctx.device, &ctx.queue);
-
-        let screen_pos = pixels_to_ndc(
-            self.x,
-            self.y,
-            self.width,
-            self.height,
-            ctx.config.width,
-            ctx.config.height,
-        );
-        let full_tex = Frame {
-            start_x: 0.0,
-            start_y: 0.0,
-            end_x: 1.0,
-            end_y: 1.0,
-        };
-        let vertices = vertices_from_coords(&screen_pos, &full_tex);
-        let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-        });
-        let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
-        let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Index Buffer"),
-            contents: bytemuck::cast_slice(indices),
-            usage: BufferUsages::INDEX,
-        });
-
-        self.resources = Some(ButtonBgResources {
-            vertex_buffer,
-            index_buffer,
-            normal,
-            hover,
-            pressed,
-        });
 
         self.layout_content(&ctx.queue);
         Out::Empty
@@ -290,22 +221,23 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        let Some(res) = &self.resources else {
-            return Render::None;
-        };
         let bind_group = match self.visual_state {
-            VisualState::Normal => &res.normal,
-            VisualState::Hovered => &res.hover,
-            VisualState::Pressed => &res.pressed,
+            VisualState::Normal => if let Some(fill) = &self.fill {
+                GraphicsFlow::<S, E>::on_render(fill)
+            } else {
+                Render::None
+            },
+            VisualState::Hovered => if let Some(hover) = &self.hover {
+                GraphicsFlow::<S, E>::on_render(hover)
+            } else {
+                Render::None
+            },
+            VisualState::Pressed => if let Some(pressed) = &self.pressed {
+                GraphicsFlow::<S, E>::on_render(pressed)
+            } else {
+                Render::None
+            },
         };
-
-        let bg = Render::GUI(Flat {
-            vertex: &res.vertex_buffer,
-            index: &res.index_buffer,
-            group: bind_group,
-            amount: 6,
-            id: self.id,
-        });
 
         match &self.content {
             Some(content) => {
@@ -313,9 +245,9 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
                     ButtonContent::Text(label) => label.render(),
                     ButtonContent::Icon(icon) => GraphicsFlow::<S, E>::on_render(icon),
                 };
-                Render::Composed(vec![bg, content_render])
+                Render::Composed(vec![bind_group, content_render])
             }
-            None => bg,
+            None => bind_group,
         }
     }
 }

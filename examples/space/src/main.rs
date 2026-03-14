@@ -1,7 +1,15 @@
 use std::sync::Arc;
 
 use flow_ngin::{
-    Color, Deg, One, Quaternion, Rotation3, Vector3, context::{Context, GPUResource, InitContext}, data_structures::block::BuildingBlocks, flow::{FlowConsturctor, GraphicsFlow, Out}, ui::{HAlign, VAlign, Container, image::{Atlas, Icon}}
+    Color, Deg, One, Quaternion, Rotation3, Vector3,
+    context::{Context, GPUResource, InitContext},
+    data_structures::block::BuildingBlocks,
+    flow::{FlowConsturctor, GraphicsFlow, Out},
+    ui::{
+        BackgroundTexture, Button, Container, HAlign, VAlign,
+        image::{Atlas, Icon},
+        text_label::TextLabel,
+    },
 };
 
 struct State {
@@ -13,7 +21,9 @@ impl Default for State {
     }
 }
 
-enum Event {}
+enum Event {
+    Spin,
+}
 
 struct Astroids {
     astroids: BuildingBlocks,
@@ -94,12 +104,20 @@ impl GraphicsFlow<State, Event> for Astroids {
 
 struct GUI {
     atlas: Arc<Atlas>,
+    background: Arc<BackgroundTexture>,
     container: Option<Container<State, Event>>,
 }
 impl GUI {
     async fn new(ctx: InitContext) -> GUI {
-        let atlas = Arc::new(Atlas::new(&ctx.device, &ctx.queue, "minecraft_beta.png", 16, 16).await);
-        Self { atlas, container: None }
+        let atlas =
+            Arc::new(Atlas::new(&ctx.device, &ctx.queue, "minecraft_beta.png", 16, 16).await);
+        let background =
+            Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "bg_card.png").await);
+        Self {
+            atlas,
+            background,
+            container: None,
+        }
     }
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
@@ -107,11 +125,41 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
             .halign(HAlign::Center)
             .valign(VAlign::Center);
-        self.container = Some(
-            Container::new(0, 0, ctx.config.width, ctx.config.height)
-                .with_child(icon),
-        );
+        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 100, 18, 100, 100)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center);
+        let click = Icon::new(ctx, Arc::clone(&self.atlas), 100, 19, 100, 100)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center);
+        let bg = Arc::clone(&self.background);
+        let button = Button::new(200, 0, 0, 100, 50)
+            .with_text(TextLabel::new("spin").color([255, 0, 0]))
+            .fill(icon)
+            .hover_fill(hover)
+            .click_fill(click)
+            .on_click(|| Event::Spin);
+        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center);
+        let mut container = Container::new(0, 0, 500, 500)
+            .with_background_texture(bg)
+            .with_child(icon)
+            .with_child(button);
+        container.resolve(&ctx.queue);
+        self.container = Some(container);
         self.container.as_mut().unwrap().on_init(ctx, state)
+    }
+
+    fn on_update(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        dt: std::time::Duration,
+    ) -> Out<State, Event> {
+        if let Some(container) = &mut self.container {
+            container.on_update(ctx, state, dt);
+        }
+        Out::Empty
     }
 
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {

@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use wgpu::{
     BufferUsages,
@@ -96,7 +96,6 @@ pub struct Container<S, E> {
     children: Vec<Box<dyn UIElement<S, E>>>,
     background: Option<Background>,
     bg_resources: Option<BgResources>,
-    _marker: PhantomData<fn(S, E)>,
 }
 
 impl<S: 'static, E: 'static> Container<S, E> {
@@ -116,7 +115,6 @@ impl<S: 'static, E: 'static> Container<S, E> {
             children: Vec::new(),
             background: None,
             bg_resources: None,
-            _marker: PhantomData,
         }
     }
 

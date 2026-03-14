@@ -2,12 +2,13 @@ use std::{sync::Arc, u16};
 
 use cgmath::num_traits::ToPrimitive;
 use wgpu::{
-    BufferUsages,
+    BufferUsages, Color,
     util::{BufferInitDescriptor, DeviceExt},
 };
 
 use crate::{
     context::Context,
+    data_structures::texture::Texture,
     flow::GraphicsFlow,
     pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
@@ -15,12 +16,24 @@ use crate::{
     ui::layout::Layout,
 };
 
-struct ImageResources {
+pub struct ImageResources {
     num_indices: usize,
     // This is an `Arc` to simplify the interface for a user of the lib (avoid handling lifetimes for a shared atlas)
     atlas: Arc<Atlas>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+}
+
+struct ColorResources {
+    num_indices: usize,
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+}
+
+enum Resources {
+    Image(ImageResources),
+    Color(ColorResources),
 }
 
 /// NDC-space rectangle [start_x, end_x] x [end_y, start_y] (x left→right, y bottom→top).
@@ -38,17 +51,23 @@ pub struct Atlas {
     v_grids: u8,
 }
 impl Atlas {
-    pub async fn new(device: &wgpu::Device, queue: &wgpu::Queue, file_name: &str, h_grids: u8, v_grids: u8) -> Self {
-            let atlas = load_texture(file_name, false, device, queue, None)
-                .await
-                .unwrap();
-            let texture_bind_group_layout = mk_bind_group_layout(device);
-            let bind_group = mk_bind_group(device, &atlas, &texture_bind_group_layout);
-            Atlas {
-                bind_group,
-                h_grids,
-                v_grids,
-            }
+    pub async fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        file_name: &str,
+        h_grids: u8,
+        v_grids: u8,
+    ) -> Self {
+        let atlas = load_texture(file_name, false, device, queue, None)
+            .await
+            .unwrap();
+        let texture_bind_group_layout = mk_bind_group_layout(device);
+        let bind_group = mk_bind_group(device, &atlas, &texture_bind_group_layout);
+        Atlas {
+            bind_group,
+            h_grids,
+            v_grids,
+        }
     }
     fn to_tex_coords(&self, slot: u8) -> Option<Frame> {
         let row = slot % self.h_grids;
@@ -91,26 +110,90 @@ pub struct Icon {
     screen_height: u32,
     screen_pos: Frame,
     tex_coords: Frame,
-    resources: ImageResources,
+    resources: Resources,
 }
 
 /// Convert a pixel-space rectangle to an NDC Frame.
 ///
 /// Pixel origin is top-left; NDC origin is center with y pointing up.
-pub(crate) fn pixels_to_ndc(x_px: u32, y_px: u32, width_px: u32, height_px: u32, screen_width: u32, screen_height: u32) -> Frame {
+pub(crate) fn pixels_to_ndc(
+    x_px: u32,
+    y_px: u32,
+    width_px: u32,
+    height_px: u32,
+    screen_width: u32,
+    screen_height: u32,
+) -> Frame {
     let sw = screen_width as f32;
     let sh = screen_height as f32;
-    let left  = -1.0 + 2.0 * x_px as f32 / sw;
-    let top   =  1.0 - 2.0 * y_px as f32 / sh;
+    let left = -1.0 + 2.0 * x_px as f32 / sw;
+    let top = 1.0 - 2.0 * y_px as f32 / sh;
     Frame {
         start_x: left,
         start_y: top,
-        end_x:   left + 2.0 * width_px  as f32 / sw,
-        end_y:   top  - 2.0 * height_px as f32 / sh,
+        end_x: left + 2.0 * width_px as f32 / sw,
+        end_y: top - 2.0 * height_px as f32 / sh,
     }
 }
 
 impl Icon {
+    /// Create a new icon from a solid color.
+    ///
+    /// `(width_px, height_px)` is the desired size in pixels.
+    /// The icon won't appear until a container calls `set_position`.
+    pub fn from_color(
+        ctx: &Context,
+        rgba: [u8; 4],
+        id: u32,
+        width_px: u32,
+        height_px: u32,
+    ) -> Self {
+        let screen_width = ctx.config.width;
+        let screen_height = ctx.config.height;
+        let screen_pos = Frame {
+            start_x: 0.0,
+            start_y: 0.0,
+            end_x: 0.0,
+            end_y: 0.0,
+        };
+
+        let tex = Texture::from_color(rgba, &ctx.device, &ctx.queue);
+        let layout = mk_bind_group_layout(&ctx.device);
+        let normal = mk_bind_group(&ctx.device, &tex, &layout);
+
+        let vertices = vertices_from_coords(&screen_pos, &screen_pos);
+        let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Button Vertex Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+        });
+        let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
+        let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Button Index Buffer"),
+            contents: bytemuck::cast_slice(indices),
+            usage: BufferUsages::INDEX,
+        });
+        let num_indices = indices.len();
+
+        Self {
+            id,
+            width_px,
+            height_px,
+            halign: HAlign::default(),
+            valign: VAlign::default(),
+            screen_width,
+            screen_height,
+            screen_pos,
+            tex_coords: screen_pos,
+            resources: Resources::Color(ColorResources {
+                num_indices,
+                vertex_buffer,
+                index_buffer,
+                bind_group: normal,
+            }),
+        }
+    }
+
     /// Create a new icon from an atlas slot.
     ///
     /// `(width_px, height_px)` is the desired size in pixels.
@@ -123,9 +206,14 @@ impl Icon {
         width_px: u32,
         height_px: u32,
     ) -> Self {
-        let screen_width  = ctx.config.width;
+        let screen_width = ctx.config.width;
         let screen_height = ctx.config.height;
-        let screen_pos = Frame { start_x: 0.0, start_y: 0.0, end_x: 0.0, end_y: 0.0 };
+        let screen_pos = Frame {
+            start_x: 0.0,
+            start_y: 0.0,
+            end_x: 0.0,
+            end_y: 0.0,
+        };
 
         let Some(tex_coords) = atlas.to_tex_coords(slot) else {
             panic!("Texture coordinates overflowed when calculating UI for slot {slot}")
@@ -155,12 +243,12 @@ impl Icon {
             screen_height,
             screen_pos,
             tex_coords,
-            resources: ImageResources {
+            resources: Resources::Image(ImageResources {
                 num_indices,
                 atlas,
                 vertex_buffer,
                 index_buffer,
-            },
+            }),
         }
     }
 
@@ -178,9 +266,27 @@ impl Icon {
     ///
     /// Intended to be called by containers that manage this icon's layout.
     pub fn set_position(&mut self, x_px: u32, y_px: u32, queue: &wgpu::Queue) {
-        self.screen_pos = pixels_to_ndc(x_px, y_px, self.width_px, self.height_px, self.screen_width, self.screen_height);
+        self.screen_pos = pixels_to_ndc(
+            x_px,
+            y_px,
+            self.width_px,
+            self.height_px,
+            self.screen_width,
+            self.screen_height,
+        );
         let vertices = vertices_from_coords(&self.screen_pos, &self.tex_coords);
-        queue.write_buffer(&self.resources.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+        match &self.resources {
+            Resources::Image(image_resources) => queue.write_buffer(
+                &image_resources.vertex_buffer,
+                0,
+                bytemuck::cast_slice(&vertices),
+            ),
+            Resources::Color(color_resource) => queue.write_buffer(
+                &color_resource.vertex_buffer,
+                0,
+                bytemuck::cast_slice(&vertices),
+            ),
+        }
     }
 }
 
@@ -207,16 +313,23 @@ pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Ve
 
 impl Layout for Icon {
     // TODO: mitigate overflows (instead of just set position also scale containered UI elems)
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+    fn resolve(
+        &mut self,
+        parent_x: u32,
+        parent_y: u32,
+        parent_w: u32,
+        parent_h: u32,
+        queue: &wgpu::Queue,
+    ) {
         let x = match self.halign {
-            HAlign::Left   => parent_x,
+            HAlign::Left => parent_x,
             HAlign::Center => parent_x + (parent_w - self.width_px) / 2,
-            HAlign::Right  => parent_x +  parent_w - self.width_px,
+            HAlign::Right => parent_x + parent_w - self.width_px,
         };
         let y = match self.valign {
-            VAlign::Top    => parent_y,
+            VAlign::Top => parent_y,
             VAlign::Center => parent_y + (parent_h - self.height_px) / 2,
-            VAlign::Bottom => parent_y +  parent_h - self.height_px,
+            VAlign::Bottom => parent_y + parent_h - self.height_px,
         };
         self.set_position(x, y, queue);
     }
@@ -224,13 +337,22 @@ impl Layout for Icon {
 
 impl<S, E> GraphicsFlow<S, E> for Icon {
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        Render::GUI(Flat {
-            vertex: &self.resources.vertex_buffer,
-            index: &self.resources.index_buffer,
-            group: &self.resources.atlas.bind_group,
-            amount: self.resources.num_indices,
-            id: self.id,
-        })
+        match &self.resources {
+            Resources::Image(image_resources) => Render::GUI(Flat {
+                vertex: &image_resources.vertex_buffer,
+                index: &image_resources.index_buffer,
+                group: &image_resources.atlas.bind_group,
+                amount: image_resources.num_indices,
+                id: self.id,
+            }),
+            Resources::Color(color_resources) => Render::GUI(Flat {
+                vertex: &color_resources.vertex_buffer,
+                index: &color_resources.index_buffer,
+                group: &color_resources.bind_group,
+                amount: color_resources.num_indices,
+                id: self.id,
+            }),
+        }
     }
 
     // TODO: custom resize mechanism or custom event for resizing or re-use of resize window event.

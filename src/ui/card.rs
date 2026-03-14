@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     context::Context,
@@ -47,7 +47,6 @@ pub struct Card<S, E> {
     labels: Vec<TextLabel>,
     background: Option<Background>,
     bg_container: Option<Container<S, E>>,
-    _marker: PhantomData<fn(S, E)>,
 }
 
 impl<S: 'static, E: 'static> Card<S, E> {
@@ -66,7 +65,6 @@ impl<S: 'static, E: 'static> Card<S, E> {
             labels: Vec::new(),
             background: None,
             bg_container: None,
-            _marker: PhantomData,
         }
     }
 
