@@ -157,6 +157,14 @@ impl<S: 'static, E: 'static> Layout for Card<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
+        // Resolve own placement against screen dimensions.
+        // For nested cards, the parent's Layout::resolve will override afterward.
+        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
+
         // Build a background-only container — resolve places it at the card's position.
         let mut bg = Container::<S, E>::new()
             .width(self.width)

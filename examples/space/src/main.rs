@@ -69,9 +69,13 @@ impl GraphicsFlow<State, Event> for Astroids {
         Out::Empty
     }
 
-    fn on_click(&mut self, _: &Context, state: &mut State, _: u32) -> Out<State, Event> {
-        state.rotating = !state.rotating;
-        Out::Empty
+    fn on_custom_events(&mut self, _: &Context, state: &mut State, event: Event) -> Option<Event> {
+        match event {
+            Event::Spin => {
+                state.rotating = !state.rotating;
+                None
+            }
+        }
     }
 
     fn on_update(
@@ -144,7 +148,8 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
             .height(500)
             .with_background_texture(bg)
             .with_child(icon)
-            .with_child(button);
+            .with_child(button)
+            .valign(VAlign::Center);
         container.resolve(&ctx.queue);
         self.container = Some(container);
         self.container.as_mut().unwrap().on_init(ctx, state)

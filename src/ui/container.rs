@@ -175,6 +175,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
         self.screen_width = ctx.config.width;
         self.screen_height = ctx.config.height;
 
+        // Resolve own placement against screen dimensions.
+        // For nested containers, the parent's Layout::resolve will override afterward.
+        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
+
         for child in &mut self.children {
             child.on_init(ctx, state);
         }

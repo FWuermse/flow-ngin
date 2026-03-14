@@ -211,6 +211,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
         self.screen_width = ctx.config.width;
         self.screen_height = ctx.config.height;
 
+        // Resolve own placement against screen dimensions.
+        // For nested buttons, the parent's Layout::resolve will override afterward.
+        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
+
         // Init content GPU resources.
         match &mut self.content {
             Some(ButtonContent::Text(label)) => label.init(ctx),
