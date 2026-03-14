@@ -122,9 +122,9 @@ impl GUI {
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let fill = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17);
-        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 100, 18);
-        let click = Icon::new(ctx, Arc::clone(&self.atlas), 100, 19);
+        let fill = Icon::new(ctx, Arc::clone(&self.atlas), 17);
+        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 18);
+        let click = Icon::new(ctx, Arc::clone(&self.atlas), 19);
         let bg = Arc::clone(&self.background);
         let button = Button::new(200)
             .width(100)
@@ -134,7 +134,7 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
             .hover_fill(hover)
             .click_fill(click)
             .on_click(|| Event::Spin);
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17)
+        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 17)
             .width(100)
             .height(100)
             .halign(HAlign::Center)

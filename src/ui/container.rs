@@ -72,7 +72,7 @@ impl BgResources {
 /// use flow_ngin::ui::{HAlign, VAlign, container::Container, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:
-/// let icon = Icon::new(ctx, atlas, 100, 17)
+/// let icon = Icon::new(ctx, atlas, 17)
 ///     .halign(HAlign::Center)
 ///     .valign(VAlign::Center);
 ///

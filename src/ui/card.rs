@@ -26,7 +26,7 @@ const LABEL_HEIGHT: u32 = 42;
 /// use flow_ngin::ui::{HAlign, VAlign, background::BackgroundTexture, card::Card, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:
-/// let icon = Icon::new(ctx, atlas, 0, 0).width(64).height(64);
+/// let icon = Icon::new(ctx, atlas, 0).width(64).height(64);
 /// let card_bg = Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "card.png").await);
 ///
 /// let card = Card::<State, Event>::new()

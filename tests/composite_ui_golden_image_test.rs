@@ -34,7 +34,7 @@ fn should_match_composite_ui_render() {
                     .width(200)
                     .height(280)
                     .with_background_texture(card_bg)
-                    .with_icon(Icon::new(ctx, atlas, 0, 0).width(64).height(64))
+                    .with_icon(Icon::new(ctx, atlas, 0).width(64).height(64))
                     .with_label(TextLabel::new("Hero").font_size(22.0))
                     .with_label(TextLabel::new("Strength: 10"))
                     .with_label(TextLabel::new("Health: 100"));
@@ -43,14 +43,14 @@ fn should_match_composite_ui_render() {
                     .width(160)
                     .height(50)
                     .with_text(TextLabel::new("Attack").font_size(18.0).color([255, 255, 255]))
-                    .fill(Icon::from_color(ctx, [180, 60, 60, 255], 0))
+                    .fill(Icon::from_color(ctx, [180, 60, 60, 255]))
                     .halign(HAlign::Center);
 
                 let defend_btn = Button::<FrameCounter, ()>::new(2)
                     .width(160)
                     .height(50)
                     .with_text(TextLabel::new("Defend").font_size(18.0).color([255, 255, 255]))
-                    .fill(Icon::from_color(ctx, [60, 60, 180, 255], 0))
+                    .fill(Icon::from_color(ctx, [60, 60, 180, 255]))
                     .halign(HAlign::Right);
 
                 let info = TextLabel::new("flow-NGIN")

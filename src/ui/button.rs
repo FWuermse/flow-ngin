@@ -175,6 +175,7 @@ impl<S: 'static, E: 'static> Button<S, E> {
         let mut icon = icon?;
         icon.width_px = self.width;
         icon.height_px = self.height;
+        icon.set_pick_id(self.id);
         icon.set_position(self.x, self.y, queue);
         Some(icon)
     }

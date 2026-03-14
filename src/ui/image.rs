@@ -139,10 +139,10 @@ impl Icon {
     /// Create a new icon from a solid color.
     ///
     /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
+    /// Icons are non-pickable (`id: 0`). Clickable elements like Button set their own pick ID.
     pub fn from_color(
         ctx: &Context,
         rgba: [u8; 4],
-        id: u32,
     ) -> Self {
         let screen_width = ctx.config.width;
         let screen_height = ctx.config.height;
@@ -172,7 +172,7 @@ impl Icon {
         let num_indices = indices.len();
 
         Self {
-            id,
+            id: 0,
             width_px: 0,
             height_px: 0,
             placement: Placement::default(),
@@ -192,10 +192,10 @@ impl Icon {
     /// Create a new icon from an atlas slot.
     ///
     /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
+    /// Icons are non-pickable (`id: 0`). Clickable elements like Button set their own pick ID.
     pub fn new(
         ctx: &Context,
         atlas: Arc<Atlas>,
-        id: u32,
         slot: u8,
     ) -> Self {
         let screen_width = ctx.config.width;
@@ -213,20 +213,20 @@ impl Icon {
 
         let vertices = vertices_from_coords(&screen_pos, &tex_coords);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon Vertex Buffer {}", id)),
+            label: Some(&format!("Icon Vertex Buffer slot {}", slot)),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon Index Buffer {}", id)),
+            label: Some(&format!("Icon Index Buffer slot {}", slot)),
             contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
         let num_indices = indices.len();
 
         Self {
-            id,
+            id: 0,
             width_px: 0,
             height_px: 0,
             placement: Placement::default(),
@@ -288,6 +288,11 @@ impl Icon {
                 bytemuck::cast_slice(&vertices),
             ),
         }
+    }
+
+    /// Set the pick ID for this icon. Used by Button to make fill icons pickable.
+    pub(crate) fn set_pick_id(&mut self, id: u32) {
+        self.id = id;
     }
 }
 
