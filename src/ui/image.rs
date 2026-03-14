@@ -138,14 +138,11 @@ pub(crate) fn pixels_to_ndc(
 impl Icon {
     /// Create a new icon from a solid color.
     ///
-    /// `(width_px, height_px)` is the desired size in pixels.
-    /// The icon won't appear until a container calls `set_position`.
+    /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn from_color(
         ctx: &Context,
         rgba: [u8; 4],
         id: u32,
-        width_px: u32,
-        height_px: u32,
     ) -> Self {
         let screen_width = ctx.config.width;
         let screen_height = ctx.config.height;
@@ -162,13 +159,13 @@ impl Icon {
 
         let vertices = vertices_from_coords(&screen_pos, &screen_pos);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Vertex Buffer"),
+            label: Some("Icon Color Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Index Buffer"),
+            label: Some("Icon Color Index Buffer"),
             contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
@@ -176,13 +173,9 @@ impl Icon {
 
         Self {
             id,
-            width_px,
-            height_px,
-            placement: Placement {
-                width: Some(width_px),
-                height: Some(height_px),
-                ..Default::default()
-            },
+            width_px: 0,
+            height_px: 0,
+            placement: Placement::default(),
             screen_width,
             screen_height,
             screen_pos,
@@ -198,15 +191,12 @@ impl Icon {
 
     /// Create a new icon from an atlas slot.
     ///
-    /// `(width_px, height_px)` is the desired size in pixels.
-    /// The icon won't appear until a container calls `set_position`.
+    /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn new(
         ctx: &Context,
         atlas: Arc<Atlas>,
         id: u32,
         slot: u8,
-        width_px: u32,
-        height_px: u32,
     ) -> Self {
         let screen_width = ctx.config.width;
         let screen_height = ctx.config.height;
@@ -237,13 +227,9 @@ impl Icon {
 
         Self {
             id,
-            width_px,
-            height_px,
-            placement: Placement {
-                width: Some(width_px),
-                height: Some(height_px),
-                ..Default::default()
-            },
+            width_px: 0,
+            height_px: 0,
+            placement: Placement::default(),
             screen_width,
             screen_height,
             screen_pos,

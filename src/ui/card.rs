@@ -26,10 +26,12 @@ const LABEL_HEIGHT: u32 = 42;
 /// use flow_ngin::ui::{HAlign, VAlign, background::BackgroundTexture, card::Card, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:
-/// let icon = Icon::new(ctx, atlas, 0, 0, 64, 64);
+/// let icon = Icon::new(ctx, atlas, 0, 0).width(64).height(64);
 /// let card_bg = Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "card.png").await);
 ///
-/// let card = Card::<State, Event>::new(200, 300)
+/// let card = Card::<State, Event>::new()
+///     .width(200)
+///     .height(300)
 ///     .with_background_texture(Arc::clone(&card_bg))
 ///     .with_icon(icon)
 ///     .with_label(TextLabel::new("Title").font_size(20.0))
@@ -48,20 +50,16 @@ pub struct Card<S, E> {
 }
 
 impl<S: 'static, E: 'static> Card<S, E> {
-    /// Create a card with the given dimensions.
+    /// Create a card that fills its parent by default.
     ///
-    /// Position within the parent is controlled via `halign`/`valign` builders.
-    pub fn new(width: u32, height: u32) -> Self {
+    /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
+    pub fn new() -> Self {
         Self {
-            placement: Placement {
-                width: Some(width),
-                height: Some(height),
-                ..Default::default()
-            },
+            placement: Placement::default(),
             x: 0,
             y: 0,
-            width,
-            height,
+            width: 0,
+            height: 0,
             icon: None,
             labels: Vec::new(),
             background: None,
@@ -76,6 +74,16 @@ impl<S: 'static, E: 'static> Card<S, E> {
 
     pub fn valign(mut self, align: VAlign) -> Self {
         self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 
@@ -150,7 +158,9 @@ impl<S: 'static, E: 'static> Layout for Card<S, E> {
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
         // Build a background-only container — resolve places it at the card's position.
-        let mut bg = Container::<S, E>::new(self.width, self.height);
+        let mut bg = Container::<S, E>::new()
+            .width(self.width)
+            .height(self.height);
         if let Some(background) = self.background.take() {
             bg = match background {
                 Background::Color(rgba) => bg.with_background_color(rgba),

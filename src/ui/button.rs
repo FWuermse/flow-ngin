@@ -39,7 +39,9 @@ pub enum ButtonContent {
 /// ```no_run
 /// use flow_ngin::ui::button::Button;
 ///
-/// let btn = Button::<State, Event>::new(1, 120, 40)
+/// let btn = Button::<State, Event>::new(1)
+///     .width(120)
+///     .height(40)
 ///     .fill(normal_icon)
 ///     .hover_fill(hover_icon)
 ///     .click_fill(pressed_icon)
@@ -65,22 +67,18 @@ pub struct Button<S, E> {
 }
 
 impl<S: 'static, E: 'static> Button<S, E> {
-    /// Create a button with a unique pick `id` and the given dimensions.
+    /// Create a button with a unique pick `id`.
     ///
     /// The `id` must be non-zero and unique across all pickable objects in the scene.
-    /// Position within the parent is controlled via `halign`/`valign` builders.
-    pub fn new(id: u32, width: u32, height: u32) -> Self {
+    /// By default the button fills its parent; use `.width()`/`.height()` to set explicit sizes.
+    pub fn new(id: u32) -> Self {
         Self {
             id,
-            placement: Placement {
-                width: Some(width),
-                height: Some(height),
-                ..Default::default()
-            },
+            placement: Placement::default(),
             x: 0,
             y: 0,
-            width,
-            height,
+            width: 0,
+            height: 0,
             screen_width: 0,
             screen_height: 0,
             content: None,
@@ -100,6 +98,16 @@ impl<S: 'static, E: 'static> Button<S, E> {
 
     pub fn valign(mut self, align: VAlign) -> Self {
         self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 

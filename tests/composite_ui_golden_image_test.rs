@@ -16,6 +16,7 @@ fn should_match_composite_ui_render() {
             container::Container,
             image::{Atlas, Icon},
             text_label::TextLabel,
+            HAlign, VAlign,
         },
     };
 
@@ -29,31 +30,37 @@ fn should_match_composite_ui_render() {
 
         TestUIRender::new(
             move |ctx| {
-                let card = Card::<FrameCounter, ()>::new(20, 20, 200, 280)
+                let card = Card::<FrameCounter, ()>::new()
+                    .width(200)
+                    .height(280)
                     .with_background_texture(card_bg)
-                    .with_icon(Icon::new(ctx, atlas, 0, 0, 64, 64))
+                    .with_icon(Icon::new(ctx, atlas, 0, 0).width(64).height(64))
                     .with_label(TextLabel::new("Hero").font_size(22.0))
                     .with_label(TextLabel::new("Strength: 10"))
                     .with_label(TextLabel::new("Health: 100"));
 
-                let attack_btn = Button::<FrameCounter, ()>::new(1, 240, 20, 160, 50)
+                let attack_btn = Button::<FrameCounter, ()>::new(1)
+                    .width(160)
+                    .height(50)
                     .with_text(TextLabel::new("Attack").font_size(18.0).color([255, 255, 255]))
-                    .normal_color([180, 60, 60, 255])
-                    .hover_color([210, 80, 80, 255])
-                    .pressed_color([140, 40, 40, 255]);
+                    .fill(Icon::from_color(ctx, [180, 60, 60, 255], 0))
+                    .halign(HAlign::Center);
 
-                let defend_btn = Button::<FrameCounter, ()>::new(2, 420, 20, 160, 50)
+                let defend_btn = Button::<FrameCounter, ()>::new(2)
+                    .width(160)
+                    .height(50)
                     .with_text(TextLabel::new("Defend").font_size(18.0).color([255, 255, 255]))
-                    .normal_color([60, 60, 180, 255])
-                    .hover_color([80, 80, 210, 255])
-                    .pressed_color([40, 40, 140, 255]);
+                    .fill(Icon::from_color(ctx, [60, 60, 180, 255], 0))
+                    .halign(HAlign::Right);
 
                 let info = TextLabel::new("flow-NGIN")
                     .position(240.0, 90.0)
                     .font_size(20.0)
                     .color([220, 220, 220]);
 
-                Container::<FrameCounter, ()>::new(0, 0, 640, 480)
+                Container::<FrameCounter, ()>::new()
+                    .width(640)
+                    .height(480)
                     .with_background_color([30, 30, 40, 255])
                     .with_child(card)
                     .with_child(attack_btn)

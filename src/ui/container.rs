@@ -72,11 +72,13 @@ impl BgResources {
 /// use flow_ngin::ui::{HAlign, VAlign, container::Container, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:
-/// let icon = Icon::new(ctx, atlas, 100, 17, 64, 64)
+/// let icon = Icon::new(ctx, atlas, 100, 17)
 ///     .halign(HAlign::Center)
 ///     .valign(VAlign::Center);
 ///
-/// let container = Container::<State, Event>::new(ctx.config.width, ctx.config.height)
+/// let container = Container::<State, Event>::new()
+///     .width(ctx.config.width)
+///     .height(ctx.config.height)
 ///     .with_child(icon)
 ///     .with_child(TextLabel::new("Score: 0").position(16.0, 16.0));
 /// ```
@@ -94,20 +96,16 @@ pub struct Container<S, E> {
 }
 
 impl<S: 'static, E: 'static> Container<S, E> {
-    /// Create a container with the given dimensions.
+    /// Create a container that fills its parent by default.
     ///
-    /// Position within the parent is controlled via `halign`/`valign` builders.
-    pub fn new(width: u32, height: u32) -> Self {
+    /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
+    pub fn new() -> Self {
         Self {
-            placement: Placement {
-                width: Some(width),
-                height: Some(height),
-                ..Default::default()
-            },
+            placement: Placement::default(),
             x: 0,
             y: 0,
-            width,
-            height,
+            width: 0,
+            height: 0,
             screen_width: 0,
             screen_height: 0,
             children: Vec::new(),
@@ -123,6 +121,16 @@ impl<S: 'static, E: 'static> Container<S, E> {
 
     pub fn valign(mut self, align: VAlign) -> Self {
         self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 
