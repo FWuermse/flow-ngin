@@ -43,9 +43,9 @@ You may want to use this engine if:
   - [ ] Multi-texture Terrain
   - [ ] Deterministic Terrain generation
   - [ ] Seed as input parameter
-- [ ] User Interface
-  - [ ] Button
-  - [ ] Icons (including transparency)
+- [x] User Interface
+  - [x] Button
+  - [x] Icons (including transparency)
   - [ ] Responsiveness
 
 ## Running Integration Tests
@@ -53,7 +53,7 @@ You may want to use this engine if:
 Note: integrations tests with golden-image-tests can currently only be executed on Wayland and Windows.
 
 ```sh
-cargo test --features integration-tests
+cargo test --features integration-tests,ui
 ```
 
 ## Supported Backends

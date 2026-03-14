@@ -16,6 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 integration-tests = []
+ui = ["dep:glyphon"]
 
 [build-dependencies]
 anyhow = "1.0.100"
@@ -25,6 +26,7 @@ glob = "0.3.3"
 [dependencies]
 anyhow = "1.0.100"
 bytemuck = "1.24.0"
+glyphon = { version = "0.10", optional = true }
 cgmath = "0.18.0"
 gltf = "1.4.1"
 image = "0.25.9"

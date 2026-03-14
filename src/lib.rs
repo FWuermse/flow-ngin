@@ -25,6 +25,8 @@ pub mod pick;
 pub mod pipelines;
 pub mod resources;
 pub mod render;
+#[cfg(feature = "ui")]
+pub mod ui;
 
 // Re-exports commonly used types for convenience in downstream code.
 pub use winit::dpi::PhysicalPosition;

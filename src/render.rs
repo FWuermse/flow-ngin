@@ -142,6 +142,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
         trans: &mut Vec<Instanced<'a>>,
         guis: &mut Vec<Flat<'a>>,
         terrain: &mut Vec<Flat<'a>>,
+        customs: &mut Vec<Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>>,
     ) {
         match self {
             Render::Default(instanced) => {
@@ -154,9 +155,9 @@ impl<'a, 'pass> Render<'a, 'pass> {
             Render::Terrain(flat) => terrain.push(flat),
             Render::Composed(renders) => renders
                 .into_iter()
-                .map(|render| render.set_pipelines(ctx, render_pass, basics, trans, guis, terrain))
+                .map(|render| render.set_pipelines(ctx, render_pass, basics, trans, guis, terrain, customs))
                 .collect(),
-            Render::Custom(f) => f(ctx, render_pass),
+            Render::Custom(f) => customs.push(f),
             Render::None => (),
         }
     }
