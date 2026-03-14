@@ -130,7 +130,7 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         let hover = Icon::new(ctx, Arc::clone(&self.atlas), 18);
         let click = Icon::new(ctx, Arc::clone(&self.atlas), 19);
         let bg = Arc::clone(&self.background);
-        let button = Button::new(200)
+        let button = Button::new()
             .width(100)
             .height(50)
             .with_text(TextLabel::new("spin").color([255, 0, 0]))
@@ -162,7 +162,7 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         dt: std::time::Duration,
     ) -> Out<State, Event> {
         if let Some(container) = &mut self.container {
-            container.on_update(ctx, state, dt);
+            return container.on_update(ctx, state, dt);
         }
         Out::Empty
     }

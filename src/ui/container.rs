@@ -239,10 +239,6 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
         merge_outs(self.children.iter_mut().map(|c| c.on_update(ctx, state, dt)))
     }
 
-    fn on_click(&mut self, ctx: &Context, state: &mut S, id: u32) -> Out<S, E> {
-        merge_outs(self.children.iter_mut().map(|c| c.on_click(ctx, state, id)))
-    }
-
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         let mut renders: Vec<Render<'_, 'pass>> = Vec::new();
 

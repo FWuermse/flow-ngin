@@ -30,16 +30,15 @@ pub enum ButtonContent {
 
 /// A clickable button with text or icon content.
 ///
-/// Supported hooks:
-/// - **Hover** just checks current context's coords agains button position.
-/// - **Click** high accuracy (done via picking).
+/// Click detection is coordinate-based: the button tracks mouse state transitions
+/// and fires when the mouse is released while hovering over the button.
 ///
 /// # Example
 ///
 /// ```no_run
 /// use flow_ngin::ui::button::Button;
 ///
-/// let btn = Button::<State, Event>::new(1)
+/// let btn = Button::<State, Event>::new()
 ///     .width(120)
 ///     .height(40)
 ///     .fill(normal_icon)
@@ -49,7 +48,6 @@ pub enum ButtonContent {
 ///     .on_click(|| Event::ButtonPressed);
 /// ```
 pub struct Button<S, E> {
-    id: u32,
     placement: Placement,
     x: u32,
     y: u32,
@@ -63,17 +61,16 @@ pub struct Button<S, E> {
     pressed: Option<Icon>,
     on_click_fn: Option<Box<dyn Fn() -> E + 'static>>,
     visual_state: VisualState,
+    was_pressed: bool,
     _marker: PhantomData<S>,
 }
 
 impl<S: 'static, E: 'static> Button<S, E> {
-    /// Create a button with a unique pick `id`.
+    /// Create a button that fills its parent by default.
     ///
-    /// The `id` must be non-zero and unique across all pickable objects in the scene.
-    /// By default the button fills its parent; use `.width()`/`.height()` to set explicit sizes.
-    pub fn new(id: u32) -> Self {
+    /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
+    pub fn new() -> Self {
         Self {
-            id,
             placement: Placement::default(),
             x: 0,
             y: 0,
@@ -87,6 +84,7 @@ impl<S: 'static, E: 'static> Button<S, E> {
             pressed: None,
             on_click_fn: None,
             visual_state: VisualState::Normal,
+            was_pressed: false,
             _marker: PhantomData,
         }
     }
@@ -175,7 +173,6 @@ impl<S: 'static, E: 'static> Button<S, E> {
         let mut icon = icon?;
         icon.width_px = self.width;
         icon.height_px = self.height;
-        icon.set_pick_id(self.id);
         icon.set_position(self.x, self.y, queue);
         Some(icon)
     }
@@ -232,24 +229,25 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_update(&mut self, ctx: &Context, _state: &mut S, _dt: Duration) -> Out<S, E> {
         let pos = ctx.mouse.coords;
         let hovered = self.contains(pos.x, pos.y);
-        self.visual_state = match (hovered, &ctx.mouse.pressed) {
-            (true, MouseButtonState::Left) => VisualState::Pressed,
-            (true, _) => VisualState::Hovered,
+        let is_pressed = matches!(ctx.mouse.pressed, MouseButtonState::Left);
+
+        self.visual_state = match (hovered, is_pressed) {
+            (true, true) => VisualState::Pressed,
+            (true, false) => VisualState::Hovered,
             (false, _) => VisualState::Normal,
         };
-        Out::Empty
-    }
 
-    fn on_click(&mut self, _ctx: &Context, _state: &mut S, id: u32) -> Out<S, E> {
-        if id != self.id {
-            return Out::Empty;
+        // Detect click: was pressed last frame, now released, still hovering.
+        let clicked = self.was_pressed && !is_pressed && hovered;
+        self.was_pressed = is_pressed && hovered;
+
+        if clicked {
+            if let Some(f) = &self.on_click_fn {
+                let event = f();
+                return Out::FutEvent(vec![Box::new(async move { event })]);
+            }
         }
-        if let Some(f) = &self.on_click_fn {
-            let event = f();
-            Out::FutEvent(vec![Box::new(async move { event })])
-        } else {
-            Out::Empty
-        }
+        Out::Empty
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {

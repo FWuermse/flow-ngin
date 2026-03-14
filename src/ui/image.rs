@@ -101,7 +101,6 @@ pub enum VAlign {
 }
 
 pub struct Icon {
-    id: u32,
     pub width_px: u32,
     pub height_px: u32,
     pub placement: Placement,
@@ -139,7 +138,6 @@ impl Icon {
     /// Create a new icon from a solid color.
     ///
     /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
-    /// Icons are non-pickable (`id: 0`). Clickable elements like Button set their own pick ID.
     pub fn from_color(
         ctx: &Context,
         rgba: [u8; 4],
@@ -172,7 +170,6 @@ impl Icon {
         let num_indices = indices.len();
 
         Self {
-            id: 0,
             width_px: 0,
             height_px: 0,
             placement: Placement::default(),
@@ -192,7 +189,6 @@ impl Icon {
     /// Create a new icon from an atlas slot.
     ///
     /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
-    /// Icons are non-pickable (`id: 0`). Clickable elements like Button set their own pick ID.
     pub fn new(
         ctx: &Context,
         atlas: Arc<Atlas>,
@@ -226,7 +222,6 @@ impl Icon {
         let num_indices = indices.len();
 
         Self {
-            id: 0,
             width_px: 0,
             height_px: 0,
             placement: Placement::default(),
@@ -290,10 +285,6 @@ impl Icon {
         }
     }
 
-    /// Set the pick ID for this icon. Used by Button to make fill icons pickable.
-    pub(crate) fn set_pick_id(&mut self, id: u32) {
-        self.id = id;
-    }
 }
 
 pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
@@ -341,14 +332,14 @@ impl<S, E> GraphicsFlow<S, E> for Icon {
                 index: &image_resources.index_buffer,
                 group: &image_resources.atlas.bind_group,
                 amount: image_resources.num_indices,
-                id: self.id,
+                id: 0,
             }),
             Resources::Color(color_resources) => Render::GUI(Flat {
                 vertex: &color_resources.vertex_buffer,
                 index: &color_resources.index_buffer,
                 group: &color_resources.bind_group,
                 amount: color_resources.num_indices,
-                id: self.id,
+                id: 0,
             }),
         }
     }
