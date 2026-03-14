@@ -122,26 +122,20 @@ impl GUI {
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 100, 18, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let click = Icon::new(ctx, Arc::clone(&self.atlas), 100, 19, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
+        let fill = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100);
+        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 100, 18, 100, 100);
+        let click = Icon::new(ctx, Arc::clone(&self.atlas), 100, 19, 100, 100);
         let bg = Arc::clone(&self.background);
-        let button = Button::new(200, 0, 0, 100, 50)
+        let button = Button::new(200, 100, 50)
             .with_text(TextLabel::new("spin").color([255, 0, 0]))
-            .fill(icon)
+            .fill(fill)
             .hover_fill(hover)
             .click_fill(click)
             .on_click(|| Event::Spin);
         let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
             .halign(HAlign::Center)
             .valign(VAlign::Center);
-        let mut container = Container::new(0, 0, 500, 500)
+        let mut container = Container::new(500, 500)
             .with_background_texture(bg)
             .with_child(icon)
             .with_child(button);

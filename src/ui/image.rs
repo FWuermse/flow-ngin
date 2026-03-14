@@ -13,7 +13,7 @@ use crate::{
     pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     resources::texture::load_texture,
-    ui::layout::Layout,
+    ui::{Placement, layout::Layout},
 };
 
 pub struct ImageResources {
@@ -104,8 +104,7 @@ pub struct Icon {
     id: u32,
     pub width_px: u32,
     pub height_px: u32,
-    pub halign: HAlign,
-    pub valign: VAlign,
+    pub placement: Placement,
     screen_width: u32,
     screen_height: u32,
     screen_pos: Frame,
@@ -179,8 +178,11 @@ impl Icon {
             id,
             width_px,
             height_px,
-            halign: HAlign::default(),
-            valign: VAlign::default(),
+            placement: Placement {
+                width: Some(width_px),
+                height: Some(height_px),
+                ..Default::default()
+            },
             screen_width,
             screen_height,
             screen_pos,
@@ -237,8 +239,11 @@ impl Icon {
             id,
             width_px,
             height_px,
-            halign: HAlign::default(),
-            valign: VAlign::default(),
+            placement: Placement {
+                width: Some(width_px),
+                height: Some(height_px),
+                ..Default::default()
+            },
             screen_width,
             screen_height,
             screen_pos,
@@ -253,12 +258,22 @@ impl Icon {
     }
 
     pub fn halign(mut self, align: HAlign) -> Self {
-        self.halign = align;
+        self.placement.halign = align;
         self
     }
 
     pub fn valign(mut self, align: VAlign) -> Self {
-        self.valign = align;
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 
@@ -312,7 +327,6 @@ pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Ve
 }
 
 impl Layout for Icon {
-    // TODO: mitigate overflows (instead of just set position also scale containered UI elems)
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -321,16 +335,9 @@ impl Layout for Icon {
         parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        let x = match self.halign {
-            HAlign::Left => parent_x,
-            HAlign::Center => parent_x + (parent_w - self.width_px) / 2,
-            HAlign::Right => parent_x + parent_w - self.width_px,
-        };
-        let y = match self.valign {
-            VAlign::Top => parent_y,
-            VAlign::Center => parent_y + (parent_h - self.height_px) / 2,
-            VAlign::Bottom => parent_y + parent_h - self.height_px,
-        };
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.width_px = w;
+        self.height_px = h;
         self.set_position(x, y, queue);
     }
 }

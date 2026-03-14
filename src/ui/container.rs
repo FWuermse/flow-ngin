@@ -14,6 +14,7 @@ use crate::{
     pipelines::gui::{mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     ui::{
+        HAlign, Placement, VAlign,
         background::{Background, BackgroundTexture},
         image::{Frame, pixels_to_ndc, vertices_from_coords},
         layout::{Layout, UIElement},
@@ -75,22 +76,16 @@ impl BgResources {
 ///     .halign(HAlign::Center)
 ///     .valign(VAlign::Center);
 ///
-/// let container = Container::<State, Event>::new(0, 0, ctx.config.width, ctx.config.height)
+/// let container = Container::<State, Event>::new(ctx.config.width, ctx.config.height)
 ///     .with_child(icon)
 ///     .with_child(TextLabel::new("Score: 0").position(16.0, 16.0));
 /// ```
 pub struct Container<S, E> {
-    // Absolute screen position (computed by resolve or same as local for root)
+    placement: Placement,
     x: u32,
     y: u32,
     width: u32,
     height: u32,
-    // Position/size relative to parent, set at construction
-    local_x: u32,
-    local_y: u32,
-    local_w: u32,
-    local_h: u32,
-    // Screen dimensions for NDC conversion in resolve
     screen_width: u32,
     screen_height: u32,
     children: Vec<Box<dyn UIElement<S, E>>>,
@@ -99,23 +94,36 @@ pub struct Container<S, E> {
 }
 
 impl<S: 'static, E: 'static> Container<S, E> {
-    /// Create a container at absolute pixel position `(x, y)` with the given dimensions.
-    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+    /// Create a container with the given dimensions.
+    ///
+    /// Position within the parent is controlled via `halign`/`valign` builders.
+    pub fn new(width: u32, height: u32) -> Self {
         Self {
-            x,
-            y,
+            placement: Placement {
+                width: Some(width),
+                height: Some(height),
+                ..Default::default()
+            },
+            x: 0,
+            y: 0,
             width,
             height,
-            local_x: x,
-            local_y: y,
-            local_w: width,
-            local_h: height,
             screen_width: 0,
             screen_height: 0,
             children: Vec::new(),
             background: None,
             bg_resources: None,
         }
+    }
+
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
     }
 
     /// Add a child element. Any type implementing both [`GraphicsFlow`] and [`Layout`] is accepted.
@@ -241,12 +249,13 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
 }
 
 impl<S: 'static, E: 'static> Layout for Container<S, E> {
-    /// Offset the container by the parent's origin and re-resolve all children.
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, _parent_w: u32, _parent_h: u32, queue: &wgpu::Queue) {
-        self.x = parent_x + self.local_x;
-        self.y = parent_y + self.local_y;
-        self.width = self.local_w;
-        self.height = self.local_h;
+    /// Resolve the container's position from parent bounds and re-resolve all children.
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         // Update the background vertex buffer to match the new absolute position.
         if let Some(bg) = &self.bg_resources {

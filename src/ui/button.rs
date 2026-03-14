@@ -7,7 +7,7 @@ use crate::{
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
-        Positioning,
+        HAlign, Placement, VAlign,
         image::Icon,
         layout::Layout,
         text_label::TextLabel,
@@ -39,17 +39,20 @@ pub enum ButtonContent {
 /// ```no_run
 /// use flow_ngin::ui::button::Button;
 ///
-/// let btn = Button::<State, Event>::new(1, 10, 10, 120, 40)
-///     .normal_color([60, 60, 60, 255])
-///     .hover_color([90, 90, 90, 255])
-///     .pressed_color([30, 30, 30, 255])
+/// let btn = Button::<State, Event>::new(1, 120, 40)
+///     .fill(normal_icon)
+///     .hover_fill(hover_icon)
+///     .click_fill(pressed_icon)
 ///     .with_text(TextLabel::new("Click me"))
 ///     .on_click(|| Event::ButtonPressed);
 /// ```
 pub struct Button<S, E> {
     id: u32,
-    pos: Positioning,
-    local: Positioning,
+    placement: Placement,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
     screen_width: u32,
     screen_height: u32,
     content: Option<ButtonContent>,
@@ -62,20 +65,22 @@ pub struct Button<S, E> {
 }
 
 impl<S: 'static, E: 'static> Button<S, E> {
-    /// Create a button at pixel position `(x, y)` relative to its parent, with a unique pick `id`.
+    /// Create a button with a unique pick `id` and the given dimensions.
     ///
     /// The `id` must be non-zero and unique across all pickable objects in the scene.
-    pub fn new(id: u32, x: u32, y: u32, width: u32, height: u32) -> Self {
-        let pos = Positioning {
-            x,
-            y,
-            width,
-            height,
-        };
+    /// Position within the parent is controlled via `halign`/`valign` builders.
+    pub fn new(id: u32, width: u32, height: u32) -> Self {
         Self {
             id,
-            pos,
-            local: pos,
+            placement: Placement {
+                width: Some(width),
+                height: Some(height),
+                ..Default::default()
+            },
+            x: 0,
+            y: 0,
+            width,
+            height,
             screen_width: 0,
             screen_height: 0,
             content: None,
@@ -86,6 +91,16 @@ impl<S: 'static, E: 'static> Button<S, E> {
             visual_state: VisualState::Normal,
             _marker: PhantomData,
         }
+    }
+
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
     }
 
     /// Set a text label as the button content.
@@ -122,38 +137,37 @@ impl<S: 'static, E: 'static> Button<S, E> {
     }
 
     fn contains(&self, x: f64, y: f64) -> bool {
-        x >= self.pos.x as f64
-            && x < (self.pos.x + self.pos.width) as f64
-            && y >= self.pos.y as f64
-            && y < (self.pos.y + self.pos.height) as f64
+        x >= self.x as f64
+            && x < (self.x + self.width) as f64
+            && y >= self.y as f64
+            && y < (self.y + self.height) as f64
     }
 
     fn layout_content(&mut self, queue: &wgpu::Queue) {
         match &mut self.content {
             Some(ButtonContent::Icon(icon)) => {
-                let ix = self.pos.x + self.pos.width.saturating_sub(icon.width_px) / 2;
-                let iy = self.pos.y + self.pos.height.saturating_sub(icon.height_px) / 2;
+                let ix = self.x + self.width.saturating_sub(icon.width_px) / 2;
+                let iy = self.y + self.height.saturating_sub(icon.height_px) / 2;
                 icon.set_position(ix, iy, queue);
             }
             Some(ButtonContent::Text(label)) => {
-                // Centre vertically with a small horizontal inset.
                 const INSET: u32 = 6;
                 label.resolve(
-                    (self.pos.x + INSET) as f32,
-                    self.pos.y as f32,
-                    self.pos.width.saturating_sub(2 * INSET) as f32,
-                    self.pos.height as f32,
+                    (self.x + INSET) as f32,
+                    self.y as f32,
+                    self.width.saturating_sub(2 * INSET) as f32,
+                    self.height as f32,
                 );
             }
             None => {}
         }
     }
 
-    fn layout_icon(&self, icon: Option<Icon>, queue: &wgpu::Queue) -> Option<Icon> {
+    fn layout_fill(&self, icon: Option<Icon>, queue: &wgpu::Queue) -> Option<Icon> {
         let mut icon = icon?;
-        let ix = self.pos.x + self.pos.width.saturating_sub(icon.width_px) / 2;
-        let iy = self.pos.y + self.pos.height.saturating_sub(icon.height_px) / 2;
-        icon.set_position(ix, iy, queue);
+        icon.width_px = self.width;
+        icon.height_px = self.height;
+        icon.set_position(self.x, self.y, queue);
         Some(icon)
     }
 }
@@ -163,22 +177,23 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
         &mut self,
         parent_x: u32,
         parent_y: u32,
-        _parent_w: u32,
-        _parent_h: u32,
+        parent_w: u32,
+        parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        self.pos.x = parent_x + self.local.x;
-        self.pos.y = parent_y + self.local.y;
-        self.pos.width = self.local.width;
-        self.pos.height = self.local.height;
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         self.layout_content(queue);
         let fill = self.fill.take();
-        self.fill = self.layout_icon(fill, queue);
+        self.fill = self.layout_fill(fill, queue);
         let hover = self.hover.take();
-        self.hover = self.layout_icon(hover, queue);
+        self.hover = self.layout_fill(hover, queue);
         let pressed = self.pressed.take();
-        self.pressed = self.layout_icon(pressed, queue);
+        self.pressed = self.layout_fill(pressed, queue);
     }
 }
 

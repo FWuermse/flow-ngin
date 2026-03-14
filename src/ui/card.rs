@@ -5,6 +5,7 @@ use crate::{
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
+        HAlign, Placement, VAlign,
         background::{Background, BackgroundTexture},
         container::Container,
         image::Icon,
@@ -28,21 +29,18 @@ const LABEL_HEIGHT: u32 = 42;
 /// let icon = Icon::new(ctx, atlas, 0, 0, 64, 64);
 /// let card_bg = Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "card.png").await);
 ///
-/// let card = Card::<State, Event>::new(100, 100, 200, 300)
+/// let card = Card::<State, Event>::new(200, 300)
 ///     .with_background_texture(Arc::clone(&card_bg))
 ///     .with_icon(icon)
 ///     .with_label(TextLabel::new("Title").font_size(20.0))
 ///     .with_label(TextLabel::new("Subtitle"));
 /// ```
 pub struct Card<S, E> {
+    placement: Placement,
     x: u32,
     y: u32,
     width: u32,
     height: u32,
-    local_x: u32,
-    local_y: u32,
-    local_w: u32,
-    local_h: u32,
     icon: Option<Icon>,
     labels: Vec<TextLabel>,
     background: Option<Background>,
@@ -50,22 +48,35 @@ pub struct Card<S, E> {
 }
 
 impl<S: 'static, E: 'static> Card<S, E> {
-    /// Create a card at pixel position `(x, y)` relative to its parent.
-    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+    /// Create a card with the given dimensions.
+    ///
+    /// Position within the parent is controlled via `halign`/`valign` builders.
+    pub fn new(width: u32, height: u32) -> Self {
         Self {
-            x,
-            y,
+            placement: Placement {
+                width: Some(width),
+                height: Some(height),
+                ..Default::default()
+            },
+            x: 0,
+            y: 0,
             width,
             height,
-            local_x: x,
-            local_y: y,
-            local_w: width,
-            local_h: height,
             icon: None,
             labels: Vec::new(),
             background: None,
             bg_container: None,
         }
+    }
+
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
     }
 
     /// Set the icon shown centred in the top section of the card.
@@ -119,12 +130,13 @@ impl<S: 'static, E: 'static> Card<S, E> {
 }
 
 impl<S: 'static, E: 'static> Layout for Card<S, E> {
-    /// Offset the card by the parent's origin and re-layout children.
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, _parent_w: u32, _parent_h: u32, queue: &wgpu::Queue) {
-        self.x = parent_x + self.local_x;
-        self.y = parent_y + self.local_y;
-        self.width = self.local_w;
-        self.height = self.local_h;
+    /// Resolve the card's position from parent bounds and re-layout children.
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
 
         // Update bg_container to match our new absolute position.
         if let Some(bg) = &mut self.bg_container {
@@ -137,8 +149,8 @@ impl<S: 'static, E: 'static> Layout for Card<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
-        // Build a background-only container at (0,0) local — resolve places it at the card's position.
-        let mut bg = Container::<S, E>::new(0, 0, self.width, self.height);
+        // Build a background-only container — resolve places it at the card's position.
+        let mut bg = Container::<S, E>::new(self.width, self.height);
         if let Some(background) = self.background.take() {
             bg = match background {
                 Background::Color(rgba) => bg.with_background_color(rgba),
