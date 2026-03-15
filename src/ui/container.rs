@@ -147,8 +147,8 @@ impl<S: 'static, E: 'static> Container<S, E> {
     }
 
     /// Set a custom container texture as background.
-    pub fn with_background_texture(mut self, texture: Arc<BackgroundTexture>) -> Self {
-        self.background = Some(Background::Texture(texture));
+    pub fn with_background_texture(mut self, texture: &Arc<BackgroundTexture>) -> Self {
+        self.background = Some(Background::Texture(Arc::clone(&texture)));
         self
     }
 

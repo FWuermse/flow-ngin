@@ -114,7 +114,7 @@ struct GUI {
 impl GUI {
     async fn new(ctx: InitContext) -> GUI {
         let atlas =
-            Arc::new(Atlas::new(&ctx.device, &ctx.queue, "minecraft_beta.png", 16, 16).await);
+            Arc::new(Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 16, 16).await);
         let background =
             Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "bg_card.png").await);
         Self {
@@ -126,10 +126,9 @@ impl GUI {
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let fill = Icon::new(ctx, Arc::clone(&self.atlas), 17);
-        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 18);
-        let click = Icon::new(ctx, Arc::clone(&self.atlas), 19);
-        let bg = Arc::clone(&self.background);
+        let fill = Icon::new(ctx, &self.atlas, 17);
+        let hover = Icon::new(ctx, &self.atlas, 18);
+        let click = Icon::new(ctx, &self.atlas, 19);
         let button = Button::new()
             .width(100)
             .height(50)
@@ -138,7 +137,7 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
             .hover_fill(hover)
             .click_fill(click)
             .on_click(|| Event::Spin);
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 17)
+        let icon = Icon::new(ctx, &self.atlas, 17)
             .width(100)
             .height(100)
             .halign(HAlign::Center)
@@ -146,7 +145,7 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         let mut container = Container::new()
             .width(500)
             .height(500)
-            .with_background_texture(bg)
+            .with_background_texture(&self.background)
             .with_child(icon)
             .with_child(button)
             .valign(VAlign::Center);

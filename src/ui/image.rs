@@ -60,7 +60,7 @@ impl Atlas {
     ) -> Self {
         let atlas = load_texture(file_name, false, device, queue, None)
             .await
-            .unwrap();
+            .expect(&format!("File does not exist: {}", file_name));
         let texture_bind_group_layout = mk_bind_group_layout(device);
         let bind_group = mk_bind_group(device, &atlas, &texture_bind_group_layout);
         Atlas {
@@ -191,7 +191,7 @@ impl Icon {
     /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn new(
         ctx: &Context,
-        atlas: Arc<Atlas>,
+        atlas: &Arc<Atlas>,
         slot: u8,
     ) -> Self {
         let screen_width = ctx.config.width;
@@ -231,7 +231,7 @@ impl Icon {
             tex_coords,
             resources: Resources::Image(ImageResources {
                 num_indices,
-                atlas,
+                atlas: Arc::clone(atlas),
                 vertex_buffer,
                 index_buffer,
             }),

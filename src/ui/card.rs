@@ -172,7 +172,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
         if let Some(background) = self.background.take() {
             bg = match background {
                 Background::Color(rgba) => bg.with_background_color(rgba),
-                Background::Texture(tex) => bg.with_background_texture(tex),
+                Background::Texture(tex) => bg.with_background_texture(&tex),
             };
         }
         bg.on_init(ctx, state);
