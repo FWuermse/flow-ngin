@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
+pub(crate) fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
     let mut events = Vec::new();
     let mut fns: Vec<Box<dyn std::future::Future<Output = Box<dyn FnOnce(&mut S)>>>> = Vec::new();
     for out in outs {

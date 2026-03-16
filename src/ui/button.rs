@@ -60,6 +60,7 @@ pub struct Button<S, E> {
     hover: Option<Icon>,
     pressed: Option<Icon>,
     on_click_fn: Option<Box<dyn Fn() -> E + 'static>>,
+    content_scale: f32,
     visual_state: VisualState,
     was_pressed: bool,
     _marker: PhantomData<S>,
@@ -83,6 +84,7 @@ impl<S: 'static, E: 'static> Button<S, E> {
             hover: None,
             pressed: None,
             on_click_fn: None,
+            content_scale: 0.8,
             visual_state: VisualState::Normal,
             was_pressed: false,
             _marker: PhantomData,
@@ -142,6 +144,12 @@ impl<S: 'static, E: 'static> Button<S, E> {
         self
     }
 
+    /// Set the scale of the content icon relative to the button size (default: `0.8`).
+    fn content_scale(mut self, scale: f32) -> Self {
+        self.content_scale = scale.clamp(0.0, 1.0);
+        self
+    }
+
     fn contains(&self, x: f64, y: f64) -> bool {
         x >= self.x as f64
             && x < (self.x + self.width) as f64
@@ -152,8 +160,12 @@ impl<S: 'static, E: 'static> Button<S, E> {
     fn layout_content(&mut self, queue: &wgpu::Queue) {
         match &mut self.content {
             Some(ButtonContent::Icon(icon)) => {
-                let ix = self.x + self.width.saturating_sub(icon.width_px) / 2;
-                let iy = self.y + self.height.saturating_sub(icon.height_px) / 2;
+                let icon_w = (self.width as f32 * self.content_scale) as u32;
+                let icon_h = (self.height as f32 * self.content_scale) as u32;
+                icon.width_px = icon_w;
+                icon.height_px = icon_h;
+                let ix = self.x + (self.width - icon_w) / 2;
+                let iy = self.y + (self.height - icon_h) / 2;
                 icon.set_position(ix, iy, queue);
             }
             Some(ButtonContent::Text(label)) => {

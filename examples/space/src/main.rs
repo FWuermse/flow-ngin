@@ -6,9 +6,8 @@ use flow_ngin::{
     data_structures::block::BuildingBlocks,
     flow::{FlowConsturctor, GraphicsFlow, Out},
     ui::{
-        BackgroundTexture, Button, Container, HAlign, VAlign,
+        Button, Grid, HAlign, VAlign,
         image::{Atlas, Icon},
-        text_label::TextLabel,
     },
 };
 
@@ -108,50 +107,48 @@ impl GraphicsFlow<State, Event> for Astroids {
 
 struct GUI {
     atlas: Arc<Atlas>,
-    background: Arc<BackgroundTexture>,
-    container: Option<Container<State, Event>>,
+    grid: Option<Grid<State, Event>>,
 }
 impl GUI {
     async fn new(ctx: InitContext) -> GUI {
         let atlas =
             Arc::new(Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 16, 16).await);
-        let background =
-            Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "bg_card.png").await);
         Self {
             atlas,
-            background,
-            container: None,
+            grid: None,
         }
+    }
+
+    fn make_button(&self, ctx: &Context, icon_slot: u8, on_click: impl Fn() -> Event + 'static) -> Button<State, Event> {
+        Button::new()
+            .width(80)
+            .height(80)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center)
+            .with_icon(Icon::new(ctx, &self.atlas, icon_slot))
+            .fill(Icon::from_color(ctx, [40, 40, 60, 200]))
+            .hover_fill(Icon::from_color(ctx, [60, 60, 90, 220]))
+            .click_fill(Icon::from_color(ctx, [80, 80, 120, 255]))
+            .on_click(on_click)
     }
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let fill = Icon::new(ctx, &self.atlas, 17);
-        let hover = Icon::new(ctx, &self.atlas, 18);
-        let click = Icon::new(ctx, &self.atlas, 19);
-        let button = Button::new()
-            .width(100)
-            .height(50)
-            .with_text(TextLabel::new("spin").color([255, 0, 0]))
-            .fill(fill)
-            .hover_fill(hover)
-            .click_fill(click)
-            .on_click(|| Event::Spin);
-        let icon = Icon::new(ctx, &self.atlas, 17)
-            .width(100)
+        let spin_btn = self.make_button(ctx, 17, || Event::Spin);
+        let btn2 = self.make_button(ctx, 18, || Event::Spin);
+        let btn3 = self.make_button(ctx, 19, || Event::Spin);
+        let btn4 = self.make_button(ctx, 20, || Event::Spin);
+
+        let grid = Grid::new(4, 1)
             .height(100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let mut container = Container::new()
-            .width(500)
-            .height(500)
-            .with_background_texture(&self.background)
-            .with_child(icon)
-            .with_child(button)
-            .valign(VAlign::Center);
-        container.resolve(&ctx.queue);
-        self.container = Some(container);
-        self.container.as_mut().unwrap().on_init(ctx, state)
+            .valign(VAlign::Bottom)
+            .with_child(0, 0, spin_btn)
+            .with_child(1, 0, btn2)
+            .with_child(2, 0, btn3)
+            .with_child(3, 0, btn4);
+
+        self.grid = Some(grid);
+        self.grid.as_mut().unwrap().on_init(ctx, state)
     }
 
     fn on_update(
@@ -160,15 +157,15 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         state: &mut State,
         dt: std::time::Duration,
     ) -> Out<State, Event> {
-        if let Some(container) = &mut self.container {
-            return container.on_update(ctx, state, dt);
+        if let Some(grid) = &mut self.grid {
+            return grid.on_update(ctx, state, dt);
         }
         Out::Empty
     }
 
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
-        match &self.container {
-            Some(c) => c.on_render(),
+        match &self.grid {
+            Some(g) => g.on_render(),
             None => flow_ngin::render::Render::None,
         }
     }

@@ -5,6 +5,7 @@ pub mod container;
 pub mod background;
 pub mod card;
 pub mod button;
+pub mod grid;
 
 pub use image::{HAlign, VAlign};
 pub use container::Container;
@@ -12,6 +13,7 @@ pub use layout::{Layout, UIElement};
 pub use background::{Background, BackgroundTexture};
 pub use card::Card;
 pub use button::Button;
+pub use grid::Grid;
 
 /// Alignment-based positioning within a parent's bounds.
 ///
