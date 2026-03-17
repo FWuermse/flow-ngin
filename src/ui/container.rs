@@ -172,6 +172,24 @@ impl<S: 'static, E: 'static> Container<S, E> {
         self
     }
 
+    /// Add a child at runtime. The child must already be initialized via `on_init`.
+    pub fn add_child(&mut self, child: impl UIElement<S, E> + 'static) {
+        self.children.push(Box::new(child));
+    }
+
+    /// Remove a child by index. Returns `None` if out of bounds.
+    pub fn remove_child(&mut self, index: usize) -> Option<Box<dyn UIElement<S, E>>> {
+        if index < self.children.len() {
+            Some(self.children.remove(index))
+        } else {
+            None
+        }
+    }
+
+    pub fn clear_children(&mut self) {
+        self.children.clear();
+    }
+
     /// Compute and apply positions for all children.
     ///
     /// Called automatically from `on_init`; call manually when embedding in a custom flow.
