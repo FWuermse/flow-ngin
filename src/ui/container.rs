@@ -93,6 +93,7 @@ pub struct Container<S, E> {
     children: Vec<Box<dyn UIElement<S, E>>>,
     background: Option<Background>,
     bg_resources: Option<BgResources>,
+    pick_id: u32,
 }
 
 impl<S: 'static, E: 'static> Container<S, E> {
@@ -111,6 +112,7 @@ impl<S: 'static, E: 'static> Container<S, E> {
             children: Vec::new(),
             background: None,
             bg_resources: None,
+            pick_id: 0,
         }
     }
 
@@ -149,6 +151,15 @@ impl<S: 'static, E: 'static> Container<S, E> {
     /// Set a custom container texture as background.
     pub fn with_background_texture(mut self, texture: &Arc<BackgroundTexture>) -> Self {
         self.background = Some(Background::Texture(Arc::clone(&texture)));
+        self
+    }
+
+    /// Make this container a click shield with the given pick ID.
+    ///
+    /// A non-zero pick ID causes the background quad to absorb GPU picks,
+    /// preventing 3D objects behind this container from receiving `on_click`.
+    pub fn clickable(mut self, pick_id: u32) -> Self {
+        self.pick_id = pick_id;
         self
     }
 
@@ -248,7 +259,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
                 index: &bg.index_buffer,
                 group: bg.bind_group(),
                 amount: 6,
-                id: 0,
+                id: self.pick_id,
             }));
         }
 
