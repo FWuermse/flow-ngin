@@ -119,29 +119,28 @@ impl GUI {
         }
     }
 
-    fn make_button(&self, ctx: &Context, icon_slot: u8, on_click: impl Fn() -> Event + 'static) -> Button<State, Event> {
+    fn make_button(&self, ctx: &Context, icon_slot: u8, bg_start: u8, on_click: impl Fn() -> Event + 'static) -> Button<State, Event> {
         Button::new()
-            .width(80)
-            .height(80)
+            .square(80)
             .halign(HAlign::Center)
             .valign(VAlign::Center)
             .with_icon(Icon::new(ctx, &self.atlas, icon_slot))
-            .fill(Icon::from_color(ctx, [40, 40, 60, 200]))
-            .hover_fill(Icon::from_color(ctx, [60, 60, 90, 220]))
-            .click_fill(Icon::from_color(ctx, [80, 80, 120, 255]))
+            .fill(Icon::new(ctx, &self.atlas, bg_start))
+            .hover_fill(Icon::new(ctx, &self.atlas, bg_start + 1))
+            .click_fill(Icon::new(ctx, &self.atlas, bg_start + 2))
             .on_click(on_click)
     }
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let spin_btn = self.make_button(ctx, 17, || Event::Spin);
-        let btn2 = self.make_button(ctx, 18, || Event::Spin);
-        let btn3 = self.make_button(ctx, 19, || Event::Spin);
-        let btn4 = self.make_button(ctx, 20, || Event::Spin);
+        let spin_btn = self.make_button(ctx, 28, 22, || Event::Spin);
+        let btn2 = self.make_button(ctx, 29, 22 + 6*16, || Event::Spin);
+        let btn3 = self.make_button(ctx, 13, 32, || Event::Spin);
+        let btn4 = self.make_button(ctx, 12, 32, || Event::Spin);
 
         let grid = Grid::new(4, 1)
             .height(100)
-            .valign(VAlign::Bottom)
+            .valign(VAlign::Top)
             .with_child(0, 0, spin_btn)
             .with_child(1, 0, btn2)
             .with_child(2, 0, btn3)

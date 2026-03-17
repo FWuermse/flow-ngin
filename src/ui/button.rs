@@ -91,61 +91,78 @@ impl<S: 'static, E: 'static> Button<S, E> {
         }
     }
 
+    #[inline]
     pub fn halign(mut self, align: HAlign) -> Self {
         self.placement.halign = align;
         self
     }
 
+    #[inline]
     pub fn valign(mut self, align: VAlign) -> Self {
         self.placement.valign = align;
         self
     }
 
+    #[inline]
     pub fn width(mut self, w: u32) -> Self {
         self.placement.width = Some(w);
         self
     }
 
+    #[inline]
     pub fn height(mut self, h: u32) -> Self {
         self.placement.height = Some(h);
         self
     }
 
+    #[inline]
+    pub fn square(mut self, dim: u32) -> Self {
+        self.placement.height = Some(dim);
+        self.placement.width = Some(dim);
+        self
+    }
+
     /// Set a text label as the button content.
+    #[inline]
     pub fn with_text(mut self, label: TextLabel) -> Self {
         self.content = Some(ButtonContent::Text(label));
         self
     }
 
     /// Set an icon as the button content.
+    #[inline]
     pub fn with_icon(mut self, icon: Icon) -> Self {
         self.content = Some(ButtonContent::Icon(icon));
         self
     }
 
+    #[inline]
     pub fn fill(mut self, icon: Icon) -> Self {
         self.fill = Some(icon);
         self
     }
 
+    #[inline]
     pub fn hover_fill(mut self, icon: Icon) -> Self {
         self.hover = Some(icon);
         self
     }
 
+    #[inline]
     pub fn click_fill(mut self, icon: Icon) -> Self {
         self.pressed = Some(icon);
         self
     }
 
     /// Register a callback that produces an event `E` when the button is clicked.
+    #[inline]
     pub fn on_click(mut self, f: impl Fn() -> E + 'static) -> Self {
         self.on_click_fn = Some(Box::new(f));
         self
     }
 
     /// Set the scale of the content icon relative to the button size (default: `0.8`).
-    fn content_scale(mut self, scale: f32) -> Self {
+    pub fn content_scale(mut self, scale: f32) -> Self {
         self.content_scale = scale.clamp(0.0, 1.0);
         self
     }
