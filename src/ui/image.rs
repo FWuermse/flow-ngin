@@ -49,6 +49,8 @@ pub struct Atlas {
     bind_group: wgpu::BindGroup,
     h_grids: u8,
     v_grids: u8,
+    atlas_width_px: u32,
+    atlas_height_px: u32,
 }
 impl Atlas {
     pub async fn new(
@@ -58,27 +60,48 @@ impl Atlas {
         h_grids: u8,
         v_grids: u8,
     ) -> Self {
-        let atlas = load_texture(file_name, false, device, queue, None)
+        let mut atlas = load_texture(file_name, false, device, queue, None)
             .await
             .expect(&format!("File does not exist: {}", file_name));
+        let size = atlas.texture.size();
+
+        // Use ClampToEdge to prevent UV wrapping at atlas cell boundaries.
+        atlas.sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        }));
+
         let texture_bind_group_layout = mk_bind_group_layout(device);
         let bind_group = mk_bind_group(device, &atlas, &texture_bind_group_layout);
         Atlas {
             bind_group,
             h_grids,
             v_grids,
+            atlas_width_px: size.width,
+            atlas_height_px: size.height,
         }
     }
     fn to_tex_coords(&self, slot: u8) -> Option<Frame> {
         let row = slot % self.h_grids;
         let col = slot / self.h_grids;
-        let row_len = 1.0 / self.h_grids.to_f32()?;
-        let col_len = 1.0 / self.v_grids.to_f32()?;
+        let cell_w = 1.0 / self.h_grids.to_f32()?;
+        let cell_h = 1.0 / self.v_grids.to_f32()?;
+
+        // Inset by half a texel to prevent linear filtering from sampling
+        // neighbouring cells at atlas cell boundaries.
+        let half_texel_u = 0.5 / self.atlas_width_px as f32;
+        let half_texel_v = 0.5 / self.atlas_height_px as f32;
+
         let frame = Frame {
-            start_x: row.to_f32()? * row_len,
-            start_y: col.to_f32()? * col_len,
-            end_x: (row + 1).to_f32()? * row_len,
-            end_y: (col + 1).to_f32()? * col_len,
+            start_x: row.to_f32()? * cell_w + half_texel_u,
+            start_y: col.to_f32()? * cell_h + half_texel_v,
+            end_x: (row + 1).to_f32()? * cell_w - half_texel_u,
+            end_y: (col + 1).to_f32()? * cell_h - half_texel_v,
         };
         Some(frame)
     }

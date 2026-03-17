@@ -243,7 +243,7 @@ where
 pub(crate) struct TestUIRender<'a, T> {
     inner: Option<T>,
     build: Option<Box<dyn FnOnce(&mut Context) -> T>>,
-    fixture_path: &'a str,
+    validator: Validator<'a>,
 }
 
 #[cfg(feature = "integration-tests")]
@@ -255,7 +255,22 @@ impl<'a, T> TestUIRender<'a, T> {
         Self {
             inner: None,
             build: Some(Box::new(build)),
-            fixture_path,
+            validator: Validator::Fixture(fixture_path),
+        }
+    }
+
+    pub(crate) fn with_validator(
+        build: impl FnOnce(&mut Context) -> T + 'static,
+        validate: &'a dyn Fn(
+            &Context,
+            &mut FrameCounter,
+            &mut image::RgbaImage,
+        ) -> Result<ImageTestResult, anyhow::Error>,
+    ) -> Self {
+        Self {
+            inner: None,
+            build: Some(Box::new(build)),
+            validator: Validator::Custom(validate),
         }
     }
 }
@@ -295,8 +310,11 @@ where
         if s.frame() == 0 {
             return Ok(ImageTestResult::Waiting);
         }
-        let actual = to_rgba(ctx, texture);
-        save_or_compare(self.fixture_path, &actual)
+        let mut actual = to_rgba(ctx, texture);
+        match &self.validator {
+            Validator::Fixture(path) => save_or_compare(path, &actual),
+            Validator::Custom(validate) => validate(ctx, s, &mut actual),
+        }
     }
 }
 

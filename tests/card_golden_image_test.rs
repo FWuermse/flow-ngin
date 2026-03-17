@@ -31,7 +31,7 @@ fn should_match_card_render() {
                     .width(200)
                     .height(300)
                     .with_background_texture(bg)
-                    .with_icon(Icon::new(ctx, atlas, 0).width(64).height(64))
+                    .with_icon(Icon::new(ctx, &atlas, 0).width(64).height(64))
                     .with_label(TextLabel::new("Hero").font_size(22.0))
                     .with_label(TextLabel::new("Strength: 10"))
                     .with_label(TextLabel::new("Health: 100"))
