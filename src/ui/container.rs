@@ -6,6 +6,7 @@ use wgpu::{
 };
 
 use instant::Duration;
+use winit::event::WindowEvent;
 
 use crate::{
     context::Context,
@@ -248,6 +249,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
 
     fn on_update(&mut self, ctx: &Context, state: &mut S, dt: Duration) -> Out<S, E> {
         merge_outs(self.children.iter_mut().map(|c| c.on_update(ctx, state, dt)))
+    }
+
+    fn on_window_events(&mut self, ctx: &Context, state: &mut S, event: &WindowEvent) -> Out<S, E> {
+        merge_outs(self.children.iter_mut().map(|c| c.on_window_events(ctx, state, event)))
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
