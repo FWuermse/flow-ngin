@@ -53,8 +53,6 @@ pub struct Button<S, E> {
     y: u32,
     width: u32,
     height: u32,
-    screen_width: u32,
-    screen_height: u32,
     content: Option<ButtonContent>,
     fill: Option<Icon>,
     hover: Option<Icon>,
@@ -77,8 +75,6 @@ impl<S: 'static, E: 'static> Button<S, E> {
             y: 0,
             width: 0,
             height: 0,
-            screen_width: 0,
-            screen_height: 0,
             content: None,
             fill: None,
             hover: None,
@@ -234,9 +230,6 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
-        self.screen_width = ctx.config.width;
-        self.screen_height = ctx.config.height;
-
         // Resolve own placement against screen dimensions.
         // For nested buttons, the parent's Layout::resolve will override afterward.
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);

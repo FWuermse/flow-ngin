@@ -17,7 +17,7 @@ use crate::{
     ui::{
         HAlign, Placement, VAlign,
         background::{Background, BackgroundTexture},
-        image::{Frame, pixels_to_ndc, vertices_from_coords},
+        image::{Frame, pixels_to_frame, vertices_from_coords},
         layout::{Layout, UIElement},
     },
 };
@@ -97,8 +97,6 @@ pub struct Container<S, E> {
     y: u32,
     width: u32,
     height: u32,
-    screen_width: u32,
-    screen_height: u32,
     children: Vec<Box<dyn UIElement<S, E>>>,
     background: Option<Background>,
     bg_resources: Option<BgResources>,
@@ -116,8 +114,6 @@ impl<S: 'static, E: 'static> Container<S, E> {
             y: 0,
             width: 0,
             height: 0,
-            screen_width: 0,
-            screen_height: 0,
             children: Vec::new(),
             background: None,
             bg_resources: None,
@@ -210,9 +206,6 @@ impl<S: 'static, E: 'static> Container<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
-        self.screen_width = ctx.config.width;
-        self.screen_height = ctx.config.height;
-
         // Resolve own placement against screen dimensions.
         // For nested containers, the parent's Layout::resolve will override afterward.
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
@@ -236,14 +229,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
                 Background::Texture(arc) => BgSource::Texture(Arc::clone(arc)),
             };
 
-            let screen_pos = pixels_to_ndc(
-                self.x,
-                self.y,
-                self.width,
-                self.height,
-                ctx.config.width,
-                ctx.config.height,
-            );
+            let screen_pos = pixels_to_frame(self.x, self.y, self.width, self.height);
             let full_tex = Frame {
                 start_x: 0.0,
                 start_y: 0.0,
@@ -313,10 +299,7 @@ impl<S: 'static, E: 'static> Layout for Container<S, E> {
 
         // Update the background vertex buffer to match the new absolute position.
         if let Some(bg) = &self.bg_resources {
-            let screen_pos = pixels_to_ndc(
-                self.x, self.y, self.width, self.height,
-                self.screen_width, self.screen_height,
-            );
+            let screen_pos = pixels_to_frame(self.x, self.y, self.width, self.height);
             let full_tex = Frame { start_x: 0.0, start_y: 0.0, end_x: 1.0, end_y: 1.0 };
             let vertices = vertices_from_coords(&screen_pos, &full_tex);
             queue.write_buffer(&bg.vertex_buffer, 0, bytemuck::cast_slice(&vertices));

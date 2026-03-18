@@ -8,7 +8,7 @@ use crate::{
     data_structures::texture,
     pipelines::{
         basic::mk_basic_pipeline,
-        gui::mk_gui_pipeline,
+        gui::{mk_gui_pipeline, mk_screen_size_bind_group, mk_screen_size_bind_group_layout},
         light::{LightResources, LightUniform, mk_light_pipeline},
         pick::mk_pick_pipeline,
         pick_gui::mk_gui_pick_pipelin,
@@ -83,6 +83,13 @@ pub struct Pipelines {
 }
 
 #[derive(Debug)]
+pub struct ScreenSizeResources {
+    pub buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub bind_group_layout: wgpu::BindGroupLayout,
+}
+
+#[derive(Debug)]
 pub struct Context {
     pub window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
@@ -97,6 +104,7 @@ pub struct Context {
     pub projection: Projection,
     pub light: LightResources,
     pub pipelines: Pipelines,
+    pub screen_size: ScreenSizeResources,
 }
 impl Context {
     pub(crate) async fn new(window: Arc<Window>) -> Result<Self, anyhow::Error> {
@@ -238,6 +246,21 @@ impl Context {
             a: 1.0,
         };
 
+        // Screen size uniform is shared by GUI and GUI pick pipelines
+        let screen_size_data = [config.width as f32, config.height as f32];
+        let screen_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Screen Size Uniform Buffer"),
+            contents: bytemuck::cast_slice(&screen_size_data),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let screen_size_bind_group_layout = mk_screen_size_bind_group_layout(&device);
+        let screen_size_bind_group = mk_screen_size_bind_group(&device, &screen_size_buffer, &screen_size_bind_group_layout);
+        let screen_size = ScreenSizeResources {
+            buffer: screen_size_buffer,
+            bind_group: screen_size_bind_group,
+            bind_group_layout: screen_size_bind_group_layout,
+        };
+
         // Generate pipelines once so they can be reused without being initialized every frame
         let light_pipeline = mk_light_pipeline(
             &device,
@@ -260,8 +283,8 @@ impl Context {
             &camera.bind_group_layout,
         );
         let pick_pipeline = mk_pick_pipeline(&device, &camera.bind_group_layout);
-        let gui_pipeline = mk_gui_pipeline(&device, &config);
-        let gui_pick_pipeline = mk_gui_pick_pipelin(&device);
+        let gui_pipeline = mk_gui_pipeline(&device, &config, &screen_size.bind_group_layout);
+        let gui_pick_pipeline = mk_gui_pick_pipelin(&device, &screen_size.bind_group_layout);
         let transparent_pipeline = mk_transparent_pipeline(
             &device,
             &config,
@@ -302,6 +325,7 @@ impl Context {
             pipelines,
             projection,
             queue,
+            screen_size,
             surface,
             tick_duration_millis,
             window,

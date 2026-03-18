@@ -33,8 +33,6 @@ pub struct Grid<S, E> {
     y: u32,
     width: u32,
     height: u32,
-    screen_width: u32,
-    screen_height: u32,
     cols: u32,
     rows: u32,
     /// Flat vec of `cols * rows` cells, row-major order.
@@ -56,8 +54,6 @@ impl<S: 'static, E: 'static> Grid<S, E> {
             y: 0,
             width: 0,
             height: 0,
-            screen_width: 0,
-            screen_height: 0,
             cols,
             rows,
             cells,
@@ -140,9 +136,6 @@ impl<S: 'static, E: 'static> Grid<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Grid<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
-        self.screen_width = ctx.config.width;
-        self.screen_height = ctx.config.height;
-
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
         self.x = x;
         self.y = y;

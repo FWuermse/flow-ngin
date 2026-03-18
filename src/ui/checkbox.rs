@@ -34,8 +34,6 @@ pub struct Checkbox<S, E> {
     y: u32,
     width: u32,
     height: u32,
-    screen_width: u32,
-    screen_height: u32,
     checked_icon: Option<Icon>,
     unchecked_icon: Option<Icon>,
     value: Option<Value<bool>>,
@@ -51,8 +49,6 @@ impl<S: 'static, E: 'static> Checkbox<S, E> {
             y: 0,
             width: 0,
             height: 0,
-            screen_width: 0,
-            screen_height: 0,
             checked_icon: None,
             unchecked_icon: None,
             value: None,
@@ -147,9 +143,6 @@ impl<S: 'static, E: 'static> Layout for Checkbox<S, E> {
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
-        self.screen_width = ctx.config.width;
-        self.screen_height = ctx.config.height;
-
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
         self.x = x;
         self.y = y;

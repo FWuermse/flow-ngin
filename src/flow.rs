@@ -242,7 +242,12 @@ impl<'a, State: Default> AppState<State> {
                 [self.ctx.config.width, self.ctx.config.height],
                 "depth_texture",
             );
-            // TODO: re-render GUI
+            let screen_size_data = [width as f32, height as f32];
+            self.ctx.queue.write_buffer(
+                &self.ctx.screen_size.buffer,
+                0,
+                bytemuck::cast_slice(&screen_size_data),
+            );
         }
     }
 
@@ -455,6 +460,7 @@ impl<'a, State: Default> AppState<State> {
             }
 
             render_pass.set_pipeline(&self.ctx.pipelines.gui);
+            render_pass.set_bind_group(1, &self.ctx.screen_size.bind_group, &[]);
             for button in guis {
                 render_pass.set_bind_group(0, button.group, &[]);
                 render_pass.set_vertex_buffer(0, button.vertex.slice(..));

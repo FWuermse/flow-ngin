@@ -2,7 +2,7 @@ use std::{sync::Arc, u16};
 
 use cgmath::num_traits::ToPrimitive;
 use wgpu::{
-    BufferUsages, Color,
+    BufferUsages,
     util::{BufferInitDescriptor, DeviceExt},
 };
 
@@ -36,7 +36,7 @@ enum Resources {
     Color(ColorResources),
 }
 
-/// NDC-space rectangle [start_x, end_x] x [end_y, start_y] (x left→right, y bottom→top).
+/// Rectangle in either pixel-space (for screen positions) or UV-space (for texture coordinates).
 #[derive(Clone, Copy)]
 pub struct Frame {
     pub start_x: f32,
@@ -127,33 +127,23 @@ pub struct Icon {
     pub width_px: u32,
     pub height_px: u32,
     pub placement: Placement,
-    screen_width: u32,
-    screen_height: u32,
     screen_pos: Frame,
     tex_coords: Frame,
     resources: Resources,
 }
 
-/// Convert a pixel-space rectangle to an NDC Frame.
-///
-/// Pixel origin is top-left; NDC origin is center with y pointing up.
-pub(crate) fn pixels_to_ndc(
+/// Build a pixel-space Frame. The shader converts to NDC using the screen_size uniform.
+pub(crate) fn pixels_to_frame(
     x_px: u32,
     y_px: u32,
     width_px: u32,
     height_px: u32,
-    screen_width: u32,
-    screen_height: u32,
 ) -> Frame {
-    let sw = screen_width as f32;
-    let sh = screen_height as f32;
-    let left = -1.0 + 2.0 * x_px as f32 / sw;
-    let top = 1.0 - 2.0 * y_px as f32 / sh;
     Frame {
-        start_x: left,
-        start_y: top,
-        end_x: left + 2.0 * width_px as f32 / sw,
-        end_y: top - 2.0 * height_px as f32 / sh,
+        start_x: x_px as f32,
+        start_y: y_px as f32,
+        end_x: (x_px + width_px) as f32,
+        end_y: (y_px + height_px) as f32,
     }
 }
 
@@ -165,8 +155,6 @@ impl Icon {
         ctx: &Context,
         rgba: [u8; 4],
     ) -> Self {
-        let screen_width = ctx.config.width;
-        let screen_height = ctx.config.height;
         let screen_pos = Frame {
             start_x: 0.0,
             start_y: 0.0,
@@ -196,8 +184,6 @@ impl Icon {
             width_px: 0,
             height_px: 0,
             placement: Placement::default(),
-            screen_width,
-            screen_height,
             screen_pos,
             tex_coords: screen_pos,
             resources: Resources::Color(ColorResources {
@@ -217,8 +203,6 @@ impl Icon {
         atlas: &Arc<Atlas>,
         slot: u8,
     ) -> Self {
-        let screen_width = ctx.config.width;
-        let screen_height = ctx.config.height;
         let screen_pos = Frame {
             start_x: 0.0,
             start_y: 0.0,
@@ -248,8 +232,6 @@ impl Icon {
             width_px: 0,
             height_px: 0,
             placement: Placement::default(),
-            screen_width,
-            screen_height,
             screen_pos,
             tex_coords,
             resources: Resources::Image(ImageResources {
@@ -285,14 +267,7 @@ impl Icon {
     ///
     /// Intended to be called by containers that manage this icon's layout.
     pub fn set_position(&mut self, x_px: u32, y_px: u32, queue: &wgpu::Queue) {
-        self.screen_pos = pixels_to_ndc(
-            x_px,
-            y_px,
-            self.width_px,
-            self.height_px,
-            self.screen_width,
-            self.screen_height,
-        );
+        self.screen_pos = pixels_to_frame(x_px, y_px, self.width_px, self.height_px);
         let vertices = vertices_from_coords(&self.screen_pos, &self.tex_coords);
         match &self.resources {
             Resources::Image(image_resources) => queue.write_buffer(
@@ -366,6 +341,4 @@ impl<S, E> GraphicsFlow<S, E> for Icon {
             }),
         }
     }
-
-    // TODO: custom resize mechanism or custom event for resizing or re-use of resize window event.
 }
