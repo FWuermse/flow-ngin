@@ -36,8 +36,8 @@ fn atlas_should_not_bleed_neighbouring_cell_colors() {
 
                     if a > 0 && b > 0 {
                         assert!(
-                            r <= 255,
-                            "Atlas bleeding detected at ({x}, {y}): red channel = {r} (threshold {RED_THRESHOLD})"
+                            r == 255,
+                            "Atlas bleeding detected at ({x}, {y}): red channel = {r}"
                         );
                     }
                 }

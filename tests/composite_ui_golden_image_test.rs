@@ -66,6 +66,8 @@ fn should_match_composite_ui_render() {
                     .with_child(attack_btn)
                     .with_child(defend_btn)
                     .with_child(info)
+                    .halign(HAlign::Right)
+                    .valign(VAlign::Bottom)
             },
             "tests/fixtures/composite_ui_golden.png",
         )
