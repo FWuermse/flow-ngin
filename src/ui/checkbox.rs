@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use instant::Duration;
 
 use crate::{
@@ -43,7 +41,6 @@ pub struct Checkbox<S, E> {
     value: Option<Value<bool>>,
     on_change: Option<Box<dyn Fn(bool) -> Out<S, E>>>,
     was_pressed: bool,
-    _marker: PhantomData<S>,
 }
 
 impl<S: 'static, E: 'static> Checkbox<S, E> {
@@ -61,7 +58,6 @@ impl<S: 'static, E: 'static> Checkbox<S, E> {
             value: None,
             on_change: None,
             was_pressed: false,
-            _marker: PhantomData,
         }
     }
 
@@ -174,6 +170,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
         self.was_pressed = is_pressed && hovered;
 
         if clicked {
+            // TODO: if no value is bound the on_click hook should still work.
             if let Some(value) = &self.value {
                 let new_val = !value.get();
                 value.set(new_val);

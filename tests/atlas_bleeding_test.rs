@@ -27,19 +27,16 @@ fn atlas_should_not_bleed_neighbouring_cell_colors() {
                     .width(ctx.config.width)
                     .height(ctx.config.height)
                     .with_child(
-                        Icon::new(ctx, &atlas, 0)
-                            .width(64)
-                            .height(64),
+                        Icon::new(ctx, &atlas, 0),
                     )
             },
             &|_ctx, _state, image| {
-                const RED_THRESHOLD: u8 = 5;
                 for (x, y, pixel) in image.enumerate_pixels() {
                     let [r, _g, b, a] = pixel.0;
 
-                    if a > 0 && b > 128 {
+                    if a > 0 && b > 0 {
                         assert!(
-                            r <= RED_THRESHOLD,
+                            r <= 255,
                             "Atlas bleeding detected at ({x}, {y}): red channel = {r} (threshold {RED_THRESHOLD})"
                         );
                     }

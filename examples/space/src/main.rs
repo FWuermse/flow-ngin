@@ -6,27 +6,33 @@ use flow_ngin::{
     data_structures::block::BuildingBlocks,
     flow::{FlowConsturctor, GraphicsFlow, Out},
     ui::{
-        Button, Grid, HAlign, VAlign,
-        image::{Atlas, Icon},
+        Button, Checkbox, Grid, HAlign, VAlign, Value, image::{Atlas, Icon}
     },
 };
 
+/// This is an arbitraty state shared between all rendered objects
 struct State {
     pub rotating: bool,
+    pub checked: Value<bool>,
 }
 impl Default for State {
     fn default() -> Self {
-        Self { rotating: false }
+        Self { rotating: false, checked: Value::new(false) }
     }
 }
 
+/// A collection of events that can be sent between flows
 enum Event {
     Spin,
+    Checked(bool),
 }
 
+/// Note that the Astroids struct only holds information neccessary for rendering
 struct Astroids {
     astroids: BuildingBlocks,
+    background: Color,
 }
+/// The constructor is usually async because it loads assets
 impl Astroids {
     async fn new(ctx: InitContext) -> Astroids {
         let astroids = BuildingBlocks::new(
@@ -39,7 +45,11 @@ impl Astroids {
             "Rock1.obj",
         )
         .await;
-        Self { astroids }
+        let background = Color::BLACK;
+        Self {
+            astroids,
+            background,
+        }
     }
 }
 impl GraphicsFlow<State, Event> for Astroids {
@@ -74,6 +84,11 @@ impl GraphicsFlow<State, Event> for Astroids {
                 state.rotating = !state.rotating;
                 None
             }
+            Event::Checked(checked) => {
+                let background = if checked { Color::WHITE } else { Color::BLACK };
+                self.background = background;
+                None
+            }
         }
     }
 
@@ -97,6 +112,10 @@ impl GraphicsFlow<State, Event> for Astroids {
                 });
             self.astroids.write_to_buffer(&ctx.queue, &ctx.device);
         }
+        if self.background != ctx.clear_colour {
+            let bg = self.background;
+            return Out::Configure(Box::new(move |ctx: &mut Context| ctx.clear_colour = bg));
+        }
         Out::Empty
     }
 
@@ -111,15 +130,17 @@ struct GUI {
 }
 impl GUI {
     async fn new(ctx: InitContext) -> GUI {
-        let atlas =
-            Arc::new(Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 16, 16).await);
-        Self {
-            atlas,
-            grid: None,
-        }
+        let atlas = Arc::new(Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 16, 16).await);
+        Self { atlas, grid: None }
     }
 
-    fn make_button(&self, ctx: &Context, icon_slot: u8, bg_start: u8, on_click: impl Fn() -> Event + 'static) -> Button<State, Event> {
+    fn make_button(
+        &self,
+        ctx: &Context,
+        icon_slot: u8,
+        bg_start: u8,
+        on_click: impl Fn() -> Event + 'static,
+    ) -> Button<State, Event> {
         Button::new()
             .square(80)
             .halign(HAlign::Center)
@@ -134,16 +155,29 @@ impl GUI {
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
         let spin_btn = self.make_button(ctx, 28, 22, || Event::Spin);
-        let btn2 = self.make_button(ctx, 29, 22 + 6*16, || Event::Spin);
+        let btn2 = self.make_button(ctx, 29, 22 + 6 * 16, || Event::Spin);
         let btn3 = self.make_button(ctx, 13, 32, || Event::Spin);
         let btn4 = self.make_button(ctx, 12, 32, || Event::Spin);
 
-        let grid = Grid::new(4, 1)
-            .height(100)
+        let grid = Grid::new(4, 2)
+            .height(200)
             .valign(VAlign::Top)
             .with_child(0, 0, spin_btn)
             .with_child(1, 0, btn2)
             .with_child(2, 0, btn3)
+            .with_child(
+                0,
+                1,
+                Checkbox::new()
+                    .on_change(|pressed| {
+                        Out::FutEvent(vec![Box::new(async move { Event::Checked(pressed) })])
+                    })
+                    .valign(VAlign::Center)
+                    .halign(HAlign::Center)
+                    .checked(Icon::new(ctx, &self.atlas, 3 + 9 * 16))
+                    .unchecked(Icon::new(ctx, &self.atlas, 3 + 8 * 16)).width(80).height(80)
+                    .bind(&state.checked),
+            )
             .with_child(3, 0, btn4);
 
         self.grid = Some(grid);
