@@ -1,6 +1,6 @@
 # ADR-0003: Input Data Flow Through the GraphicsFlow Hierarchy
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-03-17
 **Priority:** Decide together with ADR-0004 (value representation). Both must be settled before implementing input widgets.
 
@@ -102,29 +102,57 @@ TextInput::new()
 | Widget coupling | Widgets are generic over callback return type |
 | Trait bloat | None — no changes to `UIElement` or `GraphicsFlow` |
 
+### Option E — Hybrid: shared `Value<T>` cell + optional `on_change` callback
+
+Input widgets bind to an engine-provided `Value<T>` cell (`Rc<RefCell<T>>` wrapper). The widget mutates the value internally on user interaction. An optional `on_change` callback returning `Out<S, E>` fires after the mutation, allowing the application to react via the existing output plumbing.
+
+```rust
+let checked = Value::new(false);
+
+Checkbox::<S, E>::new()
+    .bind(&checked)
+    .on_change(|new_val| Out::FutFn(vec![Box::new(async move {
+        Box::new(move |s: &mut S| s.accepted = new_val) as Box<dyn FnOnce(&mut S)>
+    })]));
+```
+
+The application can also read `checked.get()` on demand (e.g., on form submit) without needing a callback at all.
+
+| Dimension | Assessment |
+|---|---|
+| Simplicity | Clean — `.bind(&val)` for state, optional `.on_change()` for side-effects |
+| Type safety | Full — `Value<T>` is generic; callback parameter matches widget output type |
+| Composability | Good — each widget binds its own cell; forms collect cells on demand |
+| Performance | No per-frame overhead; value mutation + callback only on actual interaction |
+| Form submission | Natural — read `Value<T>` cells directly, no event stream assembly needed |
+| Widget coupling | Widgets are generic over `S`/`E` only if `on_change` is used; `Value<T>` is standalone |
+| Trait bloat | None — no changes to `UIElement` or `GraphicsFlow` |
+
 ---
 
-## Recommendation
+## Decision
 
-**Option D (callback closures)** is recommended.
+**Option E (hybrid: `Value<T>` + optional callback)** is adopted.
 
 Rationale:
-- It follows the pattern already established by `Button::on_click`, which accepts a callback that returns an event `E`. Extending this to `on_change` callbacks for input widgets is consistent.
+- Combines the strengths of Option C (on-demand value reading) and Option D (callback-driven output).
+- Widgets own their display state via `Value<T>`, so they can render the current value without round-tripping through application state.
+- The optional `on_change` callback follows the pattern established by `Button::on_click`, keeping the API consistent.
 - No changes to the `GraphicsFlow` or `UIElement` traits are required.
-- The application chooses whether to use `FutEvent` or `FutFn` in the callback, keeping flexibility.
-- Avoids trait method bloat from Option C's `value()` method.
-- Avoids the event-variant explosion of Option A.
-- The callback verbosity can be reduced with helper functions (e.g., `Out::mutate(|s| s.field = val)`).
+- `Value<T>` is a simple `Rc<RefCell<T>>` — lightweight, no trait bloat, no value enum.
+- Forms can read `Value<T>` cells directly on submit, avoiding the event-variant explosion of Option A and the event-stream assembly problem.
+- The callback is optional: simple use cases only need `.bind()`, while reactive use cases add `.on_change()`.
 
-For form-level extraction (collecting all inputs at once), a `Form` component can combine Option D with internal value storage: each child widget updates both its internal value (for display) and the application state (via callback). A submit button then just signals that the current state is final.
+Reference implementation: `Checkbox<S, E>` in `src/ui/checkbox.rs`.
 
 ---
 
 ## Consequences
 
-If accepted:
-- Input widgets (`TextInput`, `Checkbox`, `Slider`) accept `on_change` callbacks returning `Out<S, E>`.
-- Widgets call the callback in `on_update` when internal state changes.
+- The engine provides `Value<T>` (`Rc<RefCell<T>>` wrapper) in `src/ui/value.rs`.
+- Input widgets (`TextInput`, `Checkbox`, `Slider`) accept `.bind(&Value<T>)` to hold a shared value cell.
+- Widgets mutate the bound `Value<T>` directly in `on_update` when internal state changes.
+- Widgets optionally accept `.on_change(Fn(T) -> Out<S, E>)` callbacks; the callback fires after the value mutation.
 - The returned `Out` is propagated through `Container`'s `merge_outs`.
 - A convenience method on `Out` (e.g., `Out::mutate`) may be added to reduce closure boilerplate.
 - No changes to `GraphicsFlow`, `UIElement`, or `Layout` traits.

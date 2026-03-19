@@ -8,7 +8,7 @@
 
 ## Cross-references
 
-- **ADR-0003** is a hard dependency: Option B here (typed widgets) assumes ADR-0003 Option D (callbacks). If ADR-0003 chose Option C (shared value refs) instead, this ADR would need revisiting.
+- **ADR-0003** is a hard dependency: its adopted Option E (hybrid `Value<T>` + callbacks) influences but does not settle this ADR. If ADR-0003 had chosen Option C (shared value refs) instead, this ADR would need revisiting.
 - **Input Widgets Plan** implements this: `TextInput` callbacks take `&str`, `Checkbox` takes `bool`, `Slider` takes `f32` — exactly the typed-widget pattern.
 - If a **Form** component is added later (mentioned in ADR-0003 consequences and Option C here), it could be built on top of typed widgets without requiring a value enum — see Dynamic UI Plan Phase 1 for the runtime child management that a Form would also need.
 
@@ -101,13 +101,6 @@ let form = Form::new()
 ## Recommendation
 
 **Option B (typed widgets, no value enum)** is recommended.
-
-Rationale:
-- Each widget naturally has a fixed output type: `TextInput` → `&str`, `Checkbox` → `bool`, `Slider` → `f32`. Encoding this in the callback signature gives compile-time safety with zero abstraction overhead.
-- An `InputValue` enum adds runtime matching that Rust's type system can prevent.
-- This aligns with ADR-0003's recommendation: callbacks carry the value directly, so no shared representation is needed.
-- Form composition is handled at the application level via state `S`, not by an engine-provided value container. This keeps the engine lean and avoids prescribing a form model.
-- If a dynamic value bag is needed in the future (e.g., for a JSON form builder), it can be implemented as a user-space library on top of the typed primitives, without changing the engine.
 
 ---
 
