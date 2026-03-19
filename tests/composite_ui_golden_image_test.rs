@@ -54,7 +54,7 @@ fn should_match_composite_ui_render() {
                     .halign(HAlign::Right);
 
                 let info = TextLabel::new("flow-NGIN")
-                    .position(240.0, 90.0)
+                    .halign(HAlign::Center)
                     .font_size(20.0)
                     .color([220, 220, 220]);
 

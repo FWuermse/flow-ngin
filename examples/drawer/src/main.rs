@@ -5,7 +5,7 @@ use flow_ngin::{
     flow::{FlowConsturctor, GraphicsFlow, Out},
     render::Render,
     ui::{
-        Button, Container, HAlign, Layout, Slider, TextInput, VAlign, Value,
+        Button, Container, HAlign, Layout, Slider, TextInput, VAlign, VStack, Value,
         image::{Atlas, Icon},
         text_label::TextLabel,
     },
@@ -90,68 +90,66 @@ impl GraphicsFlow<State, Event> for DrawerExample {
             .width(dw)
             .with_background_color([30, 30, 30, 240])
             .with_child(
-                TextLabel::new("Settings")
-                    .font_size(24.0)
-                    .color([255, 255, 255])
-                    .position(12.0, 12.0),
-            )
-            .with_child(
-                TextLabel::new("Username:")
-                    .font_size(18.0)
-                    .color([200, 200, 200])
-                    .position(12.0, 60.0),
-            )
-            .with_child(
-                Container::<State, Event>::new()
-                    .width(dw - 24)
-                    .height(32)
-                    .halign(HAlign::Center)
+                VStack::<State, Event>::new()
+                    .padding(12)
+                    .spacing(8)
                     .with_child(
+                        36,
+                        TextLabel::new("Settings")
+                            .font_size(24.0)
+                            .color([255, 255, 255]),
+                    )
+                    .with_child(
+                        28,
+                        TextLabel::new("Username:")
+                            .font_size(18.0)
+                            .color([200, 200, 200]),
+                    )
+                    .with_child(
+                        32,
                         TextInput::<State, Event>::new()
                             .width(dw - 24)
                             .height(32)
+                            .halign(HAlign::Center)
                             .background(Icon::from_color(ctx, [40, 40, 40, 255]))
                             .font_size(18.0)
                             .text_color([255, 255, 255])
                             .bind(&state.username),
-                    ),
-            )
-            .with_child(
-                TextLabel::new("Volume:")
-                    .font_size(18.0)
-                    .color([200, 200, 200])
-                    .position(12.0, 140.0),
-            )
-            .with_child(
-                Container::<State, Event>::new()
-                    .width(dw - 24)
-                    .height(24)
-                    .halign(HAlign::Center)
+                    )
                     .with_child(
+                        28,
+                        TextLabel::new("Volume:")
+                            .font_size(18.0)
+                            .color([200, 200, 200]),
+                    )
+                    .with_child(
+                        24,
                         Slider::<State, Event>::new()
                             .width(dw - 24)
                             .height(24)
+                            .halign(HAlign::Center)
                             .track(Icon::from_color(ctx, [80, 80, 80, 255]))
                             .handle(Icon::from_color(ctx, [200, 200, 200, 255]))
                             .track_height(4)
                             .handle_width(16)
                             .bind(&state.volume),
-                    ),
-            )
-            .with_child(
-                Button::<State, Event>::new()
-                    .width(dw - 24)
-                    .height(36)
-                    .halign(HAlign::Center)
-                    .fill(Icon::from_color(ctx, [60, 140, 60, 255]))
-                    .hover_fill(Icon::from_color(ctx, [80, 160, 80, 255]))
-                    .click_fill(Icon::from_color(ctx, [40, 120, 40, 255]))
-                    .with_text(
-                        TextLabel::new("Close")
-                            .font_size(18.0)
-                            .color([255, 255, 255]),
                     )
-                    .on_click(|| Event::ToggleDrawer),
+                    .with_child(
+                        36,
+                        Button::<State, Event>::new()
+                            .width(dw - 24)
+                            .height(36)
+                            .halign(HAlign::Center)
+                            .fill(Icon::from_color(ctx, [60, 140, 60, 255]))
+                            .hover_fill(Icon::from_color(ctx, [80, 160, 80, 255]))
+                            .click_fill(Icon::from_color(ctx, [40, 120, 40, 255]))
+                            .with_text(
+                                TextLabel::new("Close")
+                                    .font_size(18.0)
+                                    .color([255, 255, 255]),
+                            )
+                            .on_click(|| Event::ToggleDrawer),
+                    ),
             );
 
         drawer.on_init(ctx, state);

@@ -9,7 +9,7 @@ use crate::{
     context::Context,
     flow::{FlowConsturctor, GraphicsFlow, Out},
     render::Render,
-    ui::layout::Layout,
+    ui::{HAlign, Placement, VAlign, layout::Layout},
 };
 
 struct GlyphonResources {
@@ -23,9 +23,8 @@ struct GlyphonResources {
 
 /// A text label UI component backed by glyphon.
 ///
-/// Positions and bounds are relative to the parent (screen when used standalone).
-/// Use [`resolve`](TextLabel::resolve) to re-layout after a parent resize or when
-/// embedding inside a container.
+/// Uses [`Placement`] for positioning, like all other UI components.
+/// Use `.halign()` / `.valign()` for alignment.
 ///
 /// # Standalone usage
 ///
@@ -34,7 +33,6 @@ struct GlyphonResources {
 ///
 /// flow_ngin::flow::run::<(), ()>(vec![
 ///     TextLabel::new("Hello, flow-ngin!")
-///         .position(10.0, 10.0)
 ///         .color([255, 255, 255])
 ///         .into_constructor(),
 /// ]);
@@ -62,8 +60,7 @@ struct GlyphonResources {
 /// ```
 pub struct TextLabel {
     text: String,
-    position: (f32, f32),
-    size: Option<(f32, f32)>,
+    placement: Placement,
     font_size: f32,
     line_height: f32,
     color: [u8; 3],
@@ -79,8 +76,7 @@ impl TextLabel {
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
-            position: (0.0, 0.0),
-            size: None,
+            placement: Placement::default(),
             font_size: 30.0,
             line_height: 42.0,
             color: [255, 255, 255],
@@ -92,17 +88,23 @@ impl TextLabel {
         }
     }
 
-    /// Offset from the parent's top-left corner, in pixels.
-    pub fn position(mut self, x: f32, y: f32) -> Self {
-        self.position = (x, y);
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
         self
     }
 
-    /// Maximum width and height the text may occupy, in pixels.
-    /// Text wraps and is clipped to this box.
-    /// Defaults to the remaining space inside the parent.
-    pub fn size(mut self, w: f32, h: f32) -> Self {
-        self.size = Some((w, h));
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 
@@ -136,24 +138,16 @@ impl TextLabel {
         }
     }
 
-    /// Resolve relative position against a parent rectangle (pixels).
-    ///
-    /// Computes absolute screen coordinates from the declared relative `position`
-    /// and `size`. If `size` was not set, the remaining parent space is used.
-    ///
-    /// Call this from a container before rendering children, or let `init` call
-    /// it automatically against the full screen.
-    pub fn resolve(&mut self, parent_x: f32, parent_y: f32, parent_w: f32, parent_h: f32) {
-        self.resolved_x = parent_x + self.position.0;
-        self.resolved_y = parent_y + self.position.1;
-        let (w, h) = self
-            .size
-            .unwrap_or((parent_w - self.position.0, parent_h - self.position.1));
-        self.resolved_w = w;
-        self.resolved_h = h;
+    /// Resolve position against parent bounds using [`Placement`].
+    fn resolve_placement(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32) {
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.resolved_x = x as f32;
+        self.resolved_y = y as f32;
+        self.resolved_w = w as f32;
+        self.resolved_h = h as f32;
         if let Some(res) = self.resources.borrow_mut().as_mut() {
             res.text_buffer
-                .set_size(&mut res.font_system, Some(w), Some(h));
+                .set_size(&mut res.font_system, Some(w as f32), Some(h as f32));
             res.text_buffer.shape_until_scroll(&mut res.font_system, false);
         }
     }
@@ -161,7 +155,7 @@ impl TextLabel {
     /// Initialize GPU resources. Called automatically by `GraphicsFlow::on_init`;
     /// call directly when embedding in a custom flow.
     pub fn init(&mut self, ctx: &mut Context) {
-        self.resolve(0.0, 0.0, ctx.config.width as f32, ctx.config.height as f32);
+        self.resolve_placement(0, 0, ctx.config.width, ctx.config.height);
 
         let mut font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
@@ -273,7 +267,7 @@ impl TextLabel {
 
 impl Layout for TextLabel {
     fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, _queue: &wgpu::Queue) {
-        self.resolve(parent_x as f32, parent_y as f32, parent_w as f32, parent_h as f32);
+        self.resolve_placement(parent_x, parent_y, parent_w, parent_h);
     }
 }
 

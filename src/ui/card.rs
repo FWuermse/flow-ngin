@@ -127,12 +127,12 @@ impl<S: 'static, E: 'static> Card<S, E> {
             .map(|i| i.height_px + 2 * PADDING)
             .unwrap_or(0);
         let label_start_y = self.y + icon_area_h + PADDING;
-        let label_x = (self.x + PADDING) as f32;
-        let label_w = self.width.saturating_sub(2 * PADDING) as f32;
+        let label_x = self.x + PADDING;
+        let label_w = self.width.saturating_sub(2 * PADDING);
 
         for (i, label) in self.labels.iter_mut().enumerate() {
-            let ly = (label_start_y + i as u32 * LABEL_HEIGHT) as f32;
-            label.resolve(label_x, ly, label_w, LABEL_HEIGHT as f32);
+            let ly = label_start_y + i as u32 * LABEL_HEIGHT;
+            Layout::resolve(label, label_x, ly, label_w, LABEL_HEIGHT, queue);
         }
     }
 }

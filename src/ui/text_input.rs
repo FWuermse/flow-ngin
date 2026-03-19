@@ -163,12 +163,14 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
         }
     }
 
-    fn layout_label(&mut self) {
-        self.label.resolve(
-            (self.x + TEXT_INSET) as f32,
-            self.y as f32,
-            self.width.saturating_sub(2 * TEXT_INSET) as f32,
-            self.height as f32,
+    fn layout_label(&mut self, queue: &wgpu::Queue) {
+        Layout::resolve(
+            &mut self.label,
+            self.x + TEXT_INSET,
+            self.y,
+            self.width.saturating_sub(2 * TEXT_INSET),
+            self.height,
+            queue,
         );
     }
 
@@ -238,7 +240,7 @@ impl<S: 'static, E: 'static> Layout for TextInput<S, E> {
         self.height = h;
 
         self.layout_background(queue);
-        self.layout_label();
+        self.layout_label(queue);
         self.layout_cursor(queue);
     }
 }
@@ -252,7 +254,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for TextInput<S, E> {
         self.height = h;
 
         self.label.init(ctx);
-        self.layout_label();
+        self.layout_label(&ctx.queue);
 
         self.layout_background(&ctx.queue);
 

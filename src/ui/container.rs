@@ -89,7 +89,7 @@ impl BgResources {
 ///     .width(ctx.config.width)
 ///     .height(ctx.config.height)
 ///     .with_child(icon)
-///     .with_child(TextLabel::new("Score: 0").position(16.0, 16.0));
+///     .with_child(TextLabel::new("Score: 0"));
 /// ```
 pub struct Container<S, E> {
     placement: Placement,

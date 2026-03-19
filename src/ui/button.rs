@@ -183,11 +183,13 @@ impl<S: 'static, E: 'static> Button<S, E> {
             }
             Some(ButtonContent::Text(label)) => {
                 const INSET: u32 = 6;
-                label.resolve(
-                    (self.x + INSET) as f32,
-                    self.y as f32,
-                    self.width.saturating_sub(2 * INSET) as f32,
-                    self.height as f32,
+                Layout::resolve(
+                    label,
+                    self.x + INSET,
+                    self.y,
+                    self.width.saturating_sub(2 * INSET),
+                    self.height,
+                    queue,
                 );
             }
             None => {}
