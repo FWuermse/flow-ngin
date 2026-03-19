@@ -140,9 +140,10 @@ impl<S: 'static, E: 'static> Slider<S, E> {
     }
 
     fn layout_handle(&mut self, queue: &wgpu::Queue) {
+        let val = self.current_value();
         if let Some(handle) = &mut self.handle {
             let usable = self.width.saturating_sub(self.handle_width);
-            let handle_x = self.x + (self.current_value() * usable as f32) as u32;
+            let handle_x = self.x + (val * usable as f32) as u32;
             handle.width_px = self.handle_width;
             handle.height_px = self.height;
             handle.set_position(handle_x, self.y, queue);

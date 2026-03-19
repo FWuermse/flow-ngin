@@ -7,6 +7,7 @@ pub mod card;
 pub mod button;
 pub mod checkbox;
 pub mod slider;
+pub mod text_input;
 pub mod grid;
 pub mod value;
 
@@ -18,6 +19,7 @@ pub use card::Card;
 pub use button::Button;
 pub use checkbox::Checkbox;
 pub use slider::Slider;
+pub use text_input::TextInput;
 pub use grid::Grid;
 pub use value::Value;
 
