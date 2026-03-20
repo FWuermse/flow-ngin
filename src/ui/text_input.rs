@@ -50,7 +50,6 @@ pub struct TextInput<S, E> {
     cursor: Option<Icon>,
     cursor_visible: bool,
     cursor_timer: Duration,
-    font_size_px: f32,
 
     text: String,
     cursor_pos: usize,
@@ -75,7 +74,6 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
             cursor: None,
             cursor_visible: true,
             cursor_timer: Duration::from_millis(0),
-            font_size_px: 30.0,
             text: String::new(),
             cursor_pos: 0,
             focused: false,
@@ -120,7 +118,6 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
     }
 
     pub fn font_size(mut self, size: f32) -> Self {
-        self.font_size_px = size;
         self.label = self.label.font_size(size);
         self
     }
@@ -176,17 +173,12 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
 
     fn layout_cursor(&mut self, queue: &wgpu::Queue) {
         if let Some(cursor) = &mut self.cursor {
-            // Approximate cursor x: count characters before cursor_pos.
-            // This assumes roughly uniform glyph widths.
-            // TODO: do this better :D
-            let char_count = self.text[..self.cursor_pos].chars().count() as u32;
-            // Estimate char width from font size (roughly 0.6 * font_size for sans-serif).
-            // TODO: same here
-            let char_width = (self.font_size_px * 0.6) as u32;
-            let cursor_x = self.x + TEXT_INSET + char_count * char_width;
+            let cursor_x =
+                self.x + TEXT_INSET + self.label.cursor_x_for_byte_pos(self.cursor_pos) as u32;
+            let cursor_h = self.label.get_line_height() as u32;
 
             cursor.width_px = CURSOR_WIDTH_PX;
-            cursor.height_px = self.height;
+            cursor.height_px = cursor_h;
             cursor.set_position(cursor_x, self.y, queue);
         }
     }

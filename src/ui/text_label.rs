@@ -257,6 +257,30 @@ impl TextLabel {
         }))
     }
 
+    /// Return the x-offset (in pixels) where a cursor at the given byte position
+    /// should be placed, relative to the start of the text.
+    pub fn cursor_x_for_byte_pos(&self, byte_pos: usize) -> f32 {
+        let guard = self.resources.borrow();
+        let Some(res) = guard.as_ref() else {
+            return 0.0;
+        };
+        for run in res.text_buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                if byte_pos >= glyph.start && byte_pos < glyph.end {
+                    return glyph.x;
+                }
+            }
+            // Cursor is past last glyph — return end of line.
+            return run.line_w;
+        }
+        0.0
+    }
+
+    /// Return the line height in pixels.
+    pub fn get_line_height(&self) -> f32 {
+        self.line_height
+    }
+
     /// Wrap this label in a [`FlowConsturctor`] for use with [`flow_ngin::flow::run`].
     pub fn into_constructor<S: 'static, E: 'static>(self) -> FlowConsturctor<S, E> {
         Box::new(|_ctx| {
