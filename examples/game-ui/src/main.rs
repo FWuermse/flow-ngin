@@ -298,16 +298,16 @@ impl DetailCard {
         }
     }
 
-    fn card_info(id: u32) -> Option<(u8, &'static str, &'static str)> {
+    fn card_info(id: u32) -> Option<(u8, &'static str, &'static str, &'static str, f32)> {
         match id {
-            1 => Some((11, "Mine", "Extracts precious ore from deep underground.")),
-            2 => Some((15, "Farm", "Grows crops and raises livestock for food.")),
+            1 => Some((11, "Mine", "Extracts precious ore from deep underground.", "Mine #1", 0.6)),
+            2 => Some((15, "Farm", "Grows crops and raises livestock for food.", "Farm #1", 0.4)),
             _ => None,
         }
     }
 
     fn build_card(&self, ctx: &Context, id: u32) -> Option<Container<State, Event>> {
-        let (icon_slot, title, desc) = Self::card_info(id)?;
+        let (icon_slot, title, desc, default_name, default_capacity) = Self::card_info(id)?;
 
         let icon = Icon::new(ctx, &self.atlas, icon_slot)
             .width(80)
@@ -323,6 +323,22 @@ impl DetailCard {
             .font_size(16.0)
             .line_height(22.0)
             .color([200, 200, 200]);
+
+        let name_value = Value::new(default_name.to_string());
+        let name_input = TextInput::<State, Event>::new()
+            .width(248)
+            .height(28)
+            .font_size(16.0)
+            .background(Icon::from_color(ctx, [40, 40, 40, 200]))
+            .bind(&name_value);
+
+        let capacity_value = Value::new(default_capacity);
+        let capacity_slider = Slider::<State, Event>::new()
+            .width(248)
+            .height(24)
+            .track(Icon::from_color(ctx, [60, 60, 60, 255]))
+            .handle(Icon::from_color(ctx, [200, 200, 200, 255]))
+            .bind(&capacity_value);
 
         let btn_build = Button::new()
             .square(60)
@@ -352,12 +368,14 @@ impl DetailCard {
             .with_child(96, icon)
             .with_child(36, title)
             .with_child(80, desc)
+            .with_child(32, name_input)
+            .with_child(28, capacity_slider)
             .with_child(60, buttons);
 
         Some(
             Container::new()
                 .width(280)
-                .height(400)
+                .height(480)
                 .valign(VAlign::Center)
                 .with_background_texture(&self.bg)
                 .with_child(content),
@@ -380,7 +398,7 @@ impl GraphicsFlow<State, Event> for DetailCard {
     fn on_custom_events(&mut self, _: &Context, state: &mut State, event: Event) -> Option<Event> {
         match event {
             Event::Build => {
-                if let Some((_, title, _)) = Self::card_info(self.current_id) {
+                if let Some((_, title, _, _, _)) = Self::card_info(self.current_id) {
                     println!("Building {title}!");
                 }
                 state.selected_id = 0;
