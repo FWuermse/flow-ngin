@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use glyphon::{
     Attrs, Buffer, Cache, Color, Family, FontSystem, Metrics, Resolution, Shaping, SwashCache,
     TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
+    cosmic_text::Align,
 };
 
 use crate::{
@@ -132,9 +133,17 @@ impl TextLabel {
                 text,
                 &Attrs::new().family(Family::SansSerif),
                 Shaping::Advanced,
-                None,
+                self.text_align(),
             );
             res.text_buffer.shape_until_scroll(&mut res.font_system, false);
+        }
+    }
+
+    fn text_align(&self) -> Option<Align> {
+        match self.placement.halign {
+            HAlign::Left => None,
+            HAlign::Center => Some(Align::Center),
+            HAlign::Right => Some(Align::Right),
         }
     }
 
@@ -187,7 +196,7 @@ impl TextLabel {
             &self.text,
             &Attrs::new().family(Family::SansSerif),
             Shaping::Advanced,
-            None,
+            self.text_align(),
         );
         text_buffer.shape_until_scroll(&mut font_system, false);
 
@@ -226,6 +235,16 @@ impl TextLabel {
                 },
             );
 
+            let text_height: f32 = text_buffer
+                .layout_runs()
+                .map(|run| run.line_height)
+                .sum();
+            let top = match self.placement.valign {
+                VAlign::Top => self.resolved_y,
+                VAlign::Center => self.resolved_y + (self.resolved_h - text_height) / 2.0,
+                VAlign::Bottom => self.resolved_y + self.resolved_h - text_height,
+            };
+
             text_renderer
                 .prepare(
                     &ctx.device,
@@ -236,7 +255,7 @@ impl TextLabel {
                     [TextArea {
                         buffer: text_buffer,
                         left: self.resolved_x,
-                        top: self.resolved_y,
+                        top,
                         scale: 1.0,
                         bounds: TextBounds {
                             left: self.resolved_x as i32,
