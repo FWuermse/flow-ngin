@@ -338,6 +338,7 @@ impl DetailCard {
             .height(24)
             .track(Icon::from_color(ctx, [60, 60, 60, 255]))
             .handle(Icon::from_color(ctx, [200, 200, 200, 255]))
+            .active_handle(Icon::from_color(ctx, [255, 255, 255, 255]))
             .bind(&capacity_value);
 
         let btn_build = Button::new()

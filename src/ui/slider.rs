@@ -14,6 +14,10 @@ use crate::{
 
 /// A draggable slider that binds to a `Value<f32>` in the range `[0.0, 1.0]`.
 ///
+/// The handle is always square (side = component height). Provide separate
+/// `handle` and `active_handle` icons for idle vs dragging visuals, similar
+/// to `Button`'s `fill` / `click_fill`.
+///
 /// # Example
 ///
 /// ```ignore
@@ -25,7 +29,8 @@ use crate::{
 ///     .width(200)
 ///     .height(24)
 ///     .track(track_icon)
-///     .handle(handle_icon)
+///     .handle(idle_icon)
+///     .active_handle(dragging_icon)
 ///     .bind(&volume);
 /// ```
 pub struct Slider<S, E> {
@@ -37,8 +42,8 @@ pub struct Slider<S, E> {
 
     track: Option<Icon>,
     handle: Option<Icon>,
+    active_handle: Option<Icon>,
     track_height: u32,
-    handle_width: u32,
 
     value: Option<Value<f32>>,
     on_change: Option<Box<dyn Fn(f32) -> Out<S, E>>>,
@@ -55,8 +60,8 @@ impl<S: 'static, E: 'static> Slider<S, E> {
             height: 0,
             track: None,
             handle: None,
+            active_handle: None,
             track_height: 4,
-            handle_width: 16,
             value: None,
             on_change: None,
             dragging: false,
@@ -89,21 +94,21 @@ impl<S: 'static, E: 'static> Slider<S, E> {
         self
     }
 
-    /// Set the handle icon (draggable knob).
+    /// Set the handle icon for the idle state.
     pub fn handle(mut self, icon: Icon) -> Self {
         self.handle = Some(icon);
+        self
+    }
+
+    /// Set the handle icon shown while dragging.
+    pub fn active_handle(mut self, icon: Icon) -> Self {
+        self.active_handle = Some(icon);
         self
     }
 
     /// Height of the track bar in pixels (default: 4).
     pub fn track_height(mut self, h: u32) -> Self {
         self.track_height = h;
-        self
-    }
-
-    /// Width of the handle in pixels (default: 16).
-    pub fn handle_width(mut self, w: u32) -> Self {
-        self.handle_width = w;
         self
     }
 
@@ -117,6 +122,11 @@ impl<S: 'static, E: 'static> Slider<S, E> {
     pub fn on_change(mut self, f: impl Fn(f32) -> Out<S, E> + 'static) -> Self {
         self.on_change = Some(Box::new(f));
         self
+    }
+
+    /// Handle side length (square, equals component height).
+    fn handle_size(&self) -> u32 {
+        self.height
     }
 
     fn contains(&self, x: f64, y: f64) -> bool {
@@ -139,23 +149,33 @@ impl<S: 'static, E: 'static> Slider<S, E> {
         }
     }
 
-    fn layout_handle(&mut self, queue: &wgpu::Queue) {
+    fn layout_handle_icon(icon: &mut Icon, x: u32, y: u32, size: u32, queue: &wgpu::Queue) {
+        icon.width_px = size;
+        icon.height_px = size;
+        icon.set_position(x, y, queue);
+    }
+
+    fn layout_handles(&mut self, queue: &wgpu::Queue) {
         let val = self.current_value();
+        let size = self.handle_size();
+        let usable = self.width.saturating_sub(size);
+        let handle_x = self.x + (val * usable as f32) as u32;
+
         if let Some(handle) = &mut self.handle {
-            let usable = self.width.saturating_sub(self.handle_width);
-            let handle_x = self.x + (val * usable as f32) as u32;
-            handle.width_px = self.handle_width;
-            handle.height_px = self.height;
-            handle.set_position(handle_x, self.y, queue);
+            Self::layout_handle_icon(handle, handle_x, self.y, size, queue);
+        }
+        if let Some(active) = &mut self.active_handle {
+            Self::layout_handle_icon(active, handle_x, self.y, size, queue);
         }
     }
 
     fn value_from_mouse(&self, mouse_x: f64) -> f32 {
-        let usable = self.width.saturating_sub(self.handle_width) as f64;
+        let size = self.handle_size();
+        let usable = self.width.saturating_sub(size) as f64;
         if usable <= 0.0 {
             return 0.0;
         }
-        let offset = mouse_x - self.x as f64 - self.handle_width as f64 / 2.0;
+        let offset = mouse_x - self.x as f64 - size as f64 / 2.0;
         (offset / usable).clamp(0.0, 1.0) as f32
     }
 }
@@ -176,7 +196,7 @@ impl<S: 'static, E: 'static> Layout for Slider<S, E> {
         self.height = h;
 
         self.layout_track(queue);
-        self.layout_handle(queue);
+        self.layout_handles(queue);
     }
 }
 
@@ -189,7 +209,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Slider<S, E> {
         self.height = h;
 
         self.layout_track(&ctx.queue);
-        self.layout_handle(&ctx.queue);
+        self.layout_handles(&ctx.queue);
         Out::Empty
     }
 
@@ -212,7 +232,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Slider<S, E> {
                 if let Some(value) = &self.value {
                     value.set(new_val);
                 }
-                self.layout_handle(&ctx.queue);
+                self.layout_handles(&ctx.queue);
 
                 if let Some(cb) = &self.on_change {
                     return cb(new_val);
@@ -228,9 +248,19 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Slider<S, E> {
             Some(icon) => GraphicsFlow::<S, E>::on_render(icon),
             None => Render::None,
         };
-        let handle_render = match &self.handle {
-            Some(icon) => GraphicsFlow::<S, E>::on_render(icon),
-            None => Render::None,
+        let handle_render = if self.dragging {
+            match &self.active_handle {
+                Some(icon) => GraphicsFlow::<S, E>::on_render(icon),
+                None => match &self.handle {
+                    Some(icon) => GraphicsFlow::<S, E>::on_render(icon),
+                    None => Render::None,
+                },
+            }
+        } else {
+            match &self.handle {
+                Some(icon) => GraphicsFlow::<S, E>::on_render(icon),
+                None => Render::None,
+            }
         };
         Render::Composed(vec![track_render, handle_render])
     }
