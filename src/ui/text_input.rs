@@ -175,7 +175,7 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
         if let Some(cursor) = &mut self.cursor {
             let cursor_x =
                 self.x + TEXT_INSET + self.label.cursor_x_for_byte_pos(self.cursor_pos) as u32;
-            let cursor_h = self.label.get_line_height() as u32;
+            let cursor_h = (self.label.get_line_height() as u32).min(self.height);
 
             cursor.width_px = CURSOR_WIDTH_PX;
             cursor.height_px = cursor_h;
@@ -245,6 +245,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for TextInput<S, E> {
         self.width = w;
         self.height = h;
 
+        if self.label.get_line_height() > self.height as f32 {
+            self.label = std::mem::replace(&mut self.label, TextLabel::new(""))
+                .line_height(self.height as f32);
+        }
         self.label.init(ctx);
         self.layout_label(&ctx.queue);
 
