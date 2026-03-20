@@ -814,6 +814,11 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             state.ctx.mouse.coords = position;
         };
 
+        // Update config before dispatching so components see current dimensions.
+        if let WindowEvent::Resized(size) = event {
+            state.resize(size.width, size.height);
+        }
+
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
@@ -829,7 +834,6 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => state.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
                 let dt = self.last_time.elapsed();
                 self.last_time = Instant::now();

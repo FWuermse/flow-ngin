@@ -143,6 +143,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for VStack<S, E> {
     }
 
     fn on_window_events(&mut self, ctx: &Context, state: &mut S, event: &WindowEvent) -> Out<S, E> {
+        if let WindowEvent::Resized(_) = event {
+            Layout::resolve(self, 0, 0, ctx.config.width, ctx.config.height, &ctx.queue);
+            return Out::Empty;
+        }
         merge_outs(self.children.iter_mut().map(|(_, c)| c.on_window_events(ctx, state, event)))
     }
 

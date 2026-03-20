@@ -196,6 +196,18 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         Out::Empty
     }
 
+    fn on_window_events(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        event: &flow_ngin::WindowEvent,
+    ) -> Out<State, Event> {
+        if let Some(grid) = &mut self.grid {
+            return grid.on_window_events(ctx, state, event);
+        }
+        Out::Empty
+    }
+
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
         match &self.grid {
             Some(g) => g.on_render(),

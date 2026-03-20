@@ -216,6 +216,13 @@ impl GraphicsFlow<State, Event> for DrawerExample {
         state: &mut State,
         event: &flow_ngin::WindowEvent,
     ) -> Out<State, Event> {
+        if let flow_ngin::WindowEvent::Resized(_) = event {
+            if let Some(btn) = &mut self.toggle_btn {
+                Layout::resolve(btn, 0, 0, ctx.config.width, ctx.config.height, &ctx.queue);
+            }
+            self.resolve_drawer(ctx);
+            return Out::Empty;
+        }
         if let Some(drawer) = &mut self.drawer {
             let out = drawer.on_window_events(ctx, state, event);
             if !matches!(out, Out::Empty) {
