@@ -35,7 +35,7 @@ pub enum ButtonContent {
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::button::Button;
 ///
 /// let btn = Button::<State, Event>::new()

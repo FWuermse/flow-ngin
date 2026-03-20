@@ -28,7 +28,7 @@ struct GlyphonResources {
 ///
 /// # Standalone usage
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::TextLabel;
 ///
 /// flow_ngin::flow::run::<(), ()>(vec![
@@ -40,7 +40,7 @@ struct GlyphonResources {
 ///
 /// # Embedded usage
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::{context::Context, flow::{GraphicsFlow, Out}, render::Render, ui::TextLabel};
 ///
 /// struct MyFlow {

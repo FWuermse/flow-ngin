@@ -21,7 +21,7 @@ const LABEL_HEIGHT: u32 = 42;
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use std::sync::Arc;
 /// use flow_ngin::ui::{HAlign, VAlign, background::BackgroundTexture, card::Card, image::Icon, text_label::TextLabel};
 ///

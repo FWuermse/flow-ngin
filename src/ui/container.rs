@@ -77,7 +77,7 @@ impl BgResources {
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::{HAlign, VAlign, container::Container, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:

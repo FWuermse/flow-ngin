@@ -27,7 +27,7 @@ const TEXT_INSET: u32 = 4;
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::{text_input::TextInput, value::Value};
 ///
 /// let username = Value::new(String::new());

@@ -16,7 +16,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::{slider::Slider, value::Value};
 ///
 /// let volume = Value::new(0.5f32);

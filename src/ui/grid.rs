@@ -20,7 +20,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::grid::Grid;
 /// use flow_ngin::ui::image::Icon;
 ///

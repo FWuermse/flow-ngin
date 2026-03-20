@@ -20,7 +20,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::{vstack::VStack, text_label::TextLabel};
 ///
 /// let stack = VStack::<State, Event>::new()

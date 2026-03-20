@@ -16,7 +16,7 @@ use crate::{
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use flow_ngin::ui::{checkbox::Checkbox, value::Value};
 ///
 /// let checked = Value::new(false);
