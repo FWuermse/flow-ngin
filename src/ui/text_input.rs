@@ -362,6 +362,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for TextInput<S, E> {
                                 return cb(&self.text);
                             }
                         }
+                        NamedKey::Space => {
+                            self.text.insert(self.cursor_pos, ' ');
+                            self.cursor_pos += 1;
+                            self.text_changed(&ctx.queue);
+                            if let Some(cb) = &self.on_change {
+                                return cb(&self.text);
+                            }
+                        }
                         _ => {}
                     }
                 }
