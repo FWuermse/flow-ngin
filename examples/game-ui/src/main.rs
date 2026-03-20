@@ -16,6 +16,7 @@ struct State {
     drawer_open: bool,
     username: Value<String>,
     volume: Value<f32>,
+    selected_id: u32,
 }
 
 impl Default for State {
@@ -24,6 +25,7 @@ impl Default for State {
             drawer_open: false,
             username: Value::new(String::new()),
             volume: Value::new(0.5),
+            selected_id: 1, // mock: set to 0 to hide card
         }
     }
 }
@@ -38,6 +40,8 @@ enum Event {
     Barrack,
     Path,
     PathBreak,
+    Build,
+    DismissCard,
 }
 
 struct DrawerExample {
@@ -199,6 +203,7 @@ impl GraphicsFlow<State, Event> for DrawerExample {
                 println!("Break a path!");
                 None
             }
+            _ => None,
         }
     }
 
@@ -273,12 +278,266 @@ impl GraphicsFlow<State, Event> for DrawerExample {
     }
 }
 
+struct DetailCard {
+    atlas: Arc<Atlas>,
+    bg: Arc<BackgroundTexture>,
+    bg_container: Option<Container<State, Event>>,
+    icons: Vec<(u32, Icon)>,
+    title: Option<TextLabel>,
+    desc: Option<TextLabel>,
+    btn_build: Option<Button<State, Event>>,
+    btn_dismiss: Option<Button<State, Event>>,
+    current_id: u32,
+    card_w: u32,
+    card_h: u32,
+}
+
+impl DetailCard {
+    async fn new(ctx: InitContext) -> Self {
+        let atlas = Arc::new(Atlas::new(&ctx.device, &ctx.queue, "atlas.png", 8, 8).await);
+        let bg =
+            Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "container-slim.png").await);
+        Self {
+            atlas,
+            bg,
+            bg_container: None,
+            icons: Vec::new(),
+            title: None,
+            desc: None,
+            btn_build: None,
+            btn_dismiss: None,
+            current_id: 0,
+            card_w: 280,
+            card_h: 400,
+        }
+    }
+
+    fn card_info(id: u32) -> Option<(u8, &'static str, &'static str)> {
+        match id {
+            1 => Some((11, "Mine", "Extracts precious ore from deep underground.")),
+            2 => Some((15, "Farm", "Grows crops and raises livestock for food.")),
+            _ => None,
+        }
+    }
+
+    fn resolve_card(&mut self, ctx: &Context) {
+        let card_x = 20u32;
+        let card_y = ctx.config.height.saturating_sub(self.card_h) / 2;
+        let pad = 16u32;
+        let icon_sz = 80u32;
+
+        if let Some(bg) = &mut self.bg_container {
+            Layout::resolve(bg, card_x, card_y, self.card_w, self.card_h, &ctx.queue);
+        }
+        for (_, icon) in &mut self.icons {
+            icon.set_position(
+                card_x + (self.card_w - icon_sz) / 2,
+                card_y + pad,
+                &ctx.queue,
+            );
+        }
+        if let Some(t) = &mut self.title {
+            Layout::resolve(
+                t,
+                card_x + pad,
+                card_y + pad + icon_sz + 12,
+                self.card_w - 2 * pad,
+                36,
+                &ctx.queue,
+            );
+        }
+        if let Some(d) = &mut self.desc {
+            Layout::resolve(
+                d,
+                card_x + pad,
+                card_y + pad + icon_sz + 56,
+                self.card_w - 2 * pad,
+                120,
+                &ctx.queue,
+            );
+        }
+        let btn_y = card_y + self.card_h - pad - 44;
+        let btn_w = (self.card_w - 2 * pad - 8) / 2;
+        if let Some(b) = &mut self.btn_build {
+            Layout::resolve(b, card_x + pad, btn_y, btn_w, 44, &ctx.queue);
+        }
+        if let Some(b) = &mut self.btn_dismiss {
+            Layout::resolve(b, card_x + pad + btn_w + 8, btn_y, btn_w, 44, &ctx.queue);
+        }
+    }
+
+    fn apply_content(&mut self, id: u32) {
+        if let Some((_, title, desc)) = Self::card_info(id) {
+            if let Some(t) = &mut self.title {
+                t.set_text(title);
+            }
+            if let Some(d) = &mut self.desc {
+                d.set_text(desc);
+            }
+            self.current_id = id;
+        }
+    }
+}
+
+impl GraphicsFlow<State, Event> for DetailCard {
+    fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
+        let mut bg = Container::<State, Event>::new()
+            .width(self.card_w)
+            .height(self.card_h)
+            .with_background_texture(&self.bg);
+        bg.on_init(ctx, state);
+        self.bg_container = Some(bg);
+
+        self.icons = [1u32, 2]
+            .iter()
+            .filter_map(|&id| {
+                let (slot, _, _) = Self::card_info(id)?;
+                let mut icon = Icon::new(ctx, &self.atlas, slot);
+                icon.width_px = 80;
+                icon.height_px = 80;
+                Some((id, icon))
+            })
+            .collect();
+
+        let mut title = TextLabel::new("")
+            .font_size(24.0)
+            .line_height(32.0)
+            .halign(HAlign::Center);
+        title.init(ctx);
+        self.title = Some(title);
+
+        let mut desc = TextLabel::new("")
+            .font_size(16.0)
+            .line_height(22.0)
+            .color([200, 200, 200]);
+        desc.init(ctx);
+        self.desc = Some(desc);
+
+        let mut btn_build = Button::new()
+            .fill(Icon::from_color(ctx, [50, 130, 50, 255]))
+            .hover_fill(Icon::from_color(ctx, [70, 160, 70, 255]))
+            .click_fill(Icon::from_color(ctx, [35, 100, 35, 255]))
+            .with_text(TextLabel::new("Build").font_size(18.0))
+            .on_click(|| Event::Build);
+        btn_build.on_init(ctx, state);
+        self.btn_build = Some(btn_build);
+
+        let mut btn_dismiss = Button::new()
+            .fill(Icon::from_color(ctx, [130, 50, 50, 255]))
+            .hover_fill(Icon::from_color(ctx, [160, 70, 70, 255]))
+            .click_fill(Icon::from_color(ctx, [100, 35, 35, 255]))
+            .with_text(TextLabel::new("Cancel").font_size(18.0))
+            .on_click(|| Event::DismissCard);
+        btn_dismiss.on_init(ctx, state);
+        self.btn_dismiss = Some(btn_dismiss);
+
+        self.resolve_card(ctx);
+        self.apply_content(state.selected_id);
+
+        Out::Empty
+    }
+
+    fn on_custom_events(&mut self, _: &Context, state: &mut State, event: Event) -> Option<Event> {
+        match event {
+            Event::Build => {
+                if let Some((_, title, _)) = Self::card_info(self.current_id) {
+                    println!("Building {title}!");
+                }
+                state.selected_id = 0;
+                None
+            }
+            Event::DismissCard => {
+                state.selected_id = 0;
+                None
+            }
+            _ => Some(event),
+        }
+    }
+
+    fn on_update(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        dt: std::time::Duration,
+    ) -> Out<State, Event> {
+        let id = state.selected_id;
+        if id != self.current_id {
+            if id != 0 {
+                self.apply_content(id);
+            } else {
+                self.current_id = 0;
+            }
+        }
+
+        let mut out = Out::Empty;
+        if self.current_id != 0 {
+            if let Some(b) = &mut self.btn_build {
+                let o = b.on_update(ctx, state, dt);
+                if matches!(out, Out::Empty) {
+                    out = o;
+                }
+            }
+            if let Some(b) = &mut self.btn_dismiss {
+                let o = b.on_update(ctx, state, dt);
+                if matches!(out, Out::Empty) {
+                    out = o;
+                }
+            }
+        }
+        out
+    }
+
+    fn on_window_events(
+        &mut self,
+        ctx: &Context,
+        _state: &mut State,
+        event: &flow_ngin::WindowEvent,
+    ) -> Out<State, Event> {
+        if let flow_ngin::WindowEvent::Resized(_) = event {
+            self.resolve_card(ctx);
+        }
+        Out::Empty
+    }
+
+    fn on_render<'pass>(&self) -> Render<'_, 'pass> {
+        if self.current_id == 0 {
+            return Render::None;
+        }
+        let mut r = Vec::new();
+        if let Some(bg) = &self.bg_container {
+            r.push(bg.on_render());
+        }
+        if let Some((_, icon)) = self.icons.iter().find(|(id, _)| *id == self.current_id) {
+            r.push(GraphicsFlow::<State, Event>::on_render(icon));
+        }
+        if let Some(t) = &self.title {
+            r.push(t.render());
+        }
+        if let Some(d) = &self.desc {
+            r.push(d.render());
+        }
+        if let Some(b) = &self.btn_build {
+            r.push(b.on_render());
+        }
+        if let Some(b) = &self.btn_dismiss {
+            r.push(b.on_render());
+        }
+        Render::Composed(r)
+    }
+}
+
 fn main() {
+    let card: FlowConsturctor<State, Event> = Box::new(|ctx| {
+        Box::pin(
+            async move { Box::new(DetailCard::new(ctx).await) as Box<dyn GraphicsFlow<_, _>> },
+        )
+    });
+
     let drawer: FlowConsturctor<State, Event> = Box::new(|ctx| {
         Box::pin(
             async move { Box::new(DrawerExample::new(ctx).await) as Box<dyn GraphicsFlow<_, _>> },
         )
     });
 
-    let _ = flow_ngin::flow::run(vec![drawer]);
+    let _ = flow_ngin::flow::run(vec![card, drawer]);
 }
