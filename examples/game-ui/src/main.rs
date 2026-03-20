@@ -414,19 +414,17 @@ impl GraphicsFlow<State, Event> for DetailCard {
         self.desc = Some(desc);
 
         let mut btn_build = Button::new()
-            .fill(Icon::from_color(ctx, [50, 130, 50, 255]))
-            .hover_fill(Icon::from_color(ctx, [70, 160, 70, 255]))
-            .click_fill(Icon::from_color(ctx, [35, 100, 35, 255]))
-            .with_text(TextLabel::new("Build").font_size(18.0))
+            .fill(Icon::new(ctx, &self.atlas, 16))
+            .hover_fill(Icon::new(ctx, &self.atlas, 24))
+            .click_fill(Icon::new(ctx, &self.atlas, 32))
             .on_click(|| Event::Build);
         btn_build.on_init(ctx, state);
         self.btn_build = Some(btn_build);
 
         let mut btn_dismiss = Button::new()
-            .fill(Icon::from_color(ctx, [130, 50, 50, 255]))
-            .hover_fill(Icon::from_color(ctx, [160, 70, 70, 255]))
-            .click_fill(Icon::from_color(ctx, [100, 35, 35, 255]))
-            .with_text(TextLabel::new("Cancel").font_size(18.0))
+            .fill(Icon::new(ctx, &self.atlas, 17))
+            .hover_fill(Icon::new(ctx, &self.atlas, 25))
+            .click_fill(Icon::new(ctx, &self.atlas, 33))
             .on_click(|| Event::DismissCard);
         btn_dismiss.on_init(ctx, state);
         self.btn_dismiss = Some(btn_dismiss);
