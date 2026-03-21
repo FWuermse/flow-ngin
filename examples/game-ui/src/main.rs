@@ -364,8 +364,9 @@ impl DetailCard {
             .with_child(1, 0, btn_dismiss);
 
         let content = VStack::<State, Event>::new()
-            .padding(16)
-            .spacing(8)
+            .width(248)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center)
             .with_child(96, icon)
             .with_child(36, title)
             .with_child(80, desc)

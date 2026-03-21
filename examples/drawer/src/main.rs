@@ -91,8 +91,8 @@ impl GraphicsFlow<State, Event> for DrawerExample {
             .with_background_color([30, 30, 30, 240])
             .with_child(
                 VStack::<State, Event>::new()
-                    .padding(12)
-                    .spacing(8)
+                    .width(dw - 24)
+                    .halign(HAlign::Center)
                     .with_child(
                         36,
                         TextLabel::new("Settings")
