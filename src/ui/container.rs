@@ -23,29 +23,11 @@ use crate::{
 };
 
 pub(crate) fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
-    let mut events = Vec::new();
-    let mut fns: Vec<Box<dyn std::future::Future<Output = Box<dyn FnOnce(&mut S)>>>> = Vec::new();
-    let mut configs: Vec<Box<dyn FnOnce(&mut Context)>> = Vec::new();
-    for out in outs {
-        match out {
-            Out::FutEvent(mut v) => events.append(&mut v),
-            Out::FutFn(mut v) => fns.append(&mut v),
-            Out::Configure(f) => configs.push(f),
-            Out::Empty => {}
-        }
-    }
-    if !events.is_empty() {
-        Out::FutEvent(events)
-    } else if !fns.is_empty() {
-        Out::FutFn(fns)
-    } else if !configs.is_empty() {
-        Out::Configure(Box::new(|ctx| {
-            for f in configs {
-                f(ctx);
-            }
-        }))
-    } else {
-        Out::Empty
+    let collected: Vec<Out<S, E>> = outs.filter(|o| !matches!(o, Out::Empty)).collect();
+    match collected.len() {
+        0 => Out::Empty,
+        1 => collected.into_iter().next().unwrap(),
+        _ => Out::Multi(collected),
     }
 }
 

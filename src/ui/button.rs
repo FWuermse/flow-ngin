@@ -182,12 +182,11 @@ impl<S: 'static, E: 'static> Button<S, E> {
                 icon.set_position(ix, iy, queue);
             }
             Some(ButtonContent::Text(label)) => {
-                const INSET: u32 = 6;
                 Layout::resolve(
                     label,
-                    self.x + INSET,
+                    self.x,
                     self.y,
-                    self.width.saturating_sub(2 * INSET),
+                    self.width,
                     self.height,
                     queue,
                 );

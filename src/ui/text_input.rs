@@ -18,7 +18,6 @@ use crate::{
 
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
 const CURSOR_WIDTH_PX: u32 = 2;
-const TEXT_INSET: u32 = 4;
 
 /// A single-line text input that binds to a `Value<String>`.
 ///
@@ -163,9 +162,9 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
     fn layout_label(&mut self, queue: &wgpu::Queue) {
         Layout::resolve(
             &mut self.label,
-            self.x + TEXT_INSET,
+            self.x,
             self.y,
-            self.width.saturating_sub(2 * TEXT_INSET),
+            self.width,
             self.height,
             queue,
         );
@@ -174,8 +173,8 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
     fn layout_cursor(&mut self, queue: &wgpu::Queue) {
         if let Some(cursor) = &mut self.cursor {
             let cursor_x =
-                self.x + TEXT_INSET + self.label.cursor_x_for_byte_pos(self.cursor_pos) as u32;
-            let cursor_h = self.label.get_line_height() as u32;
+                self.x + self.label.cursor_x_for_byte_pos(self.cursor_pos) as u32;
+            let cursor_h = (self.label.get_line_height() as u32).min(self.height);
 
             cursor.width_px = CURSOR_WIDTH_PX;
             cursor.height_px = cursor_h;
@@ -245,6 +244,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for TextInput<S, E> {
         self.width = w;
         self.height = h;
 
+        if self.label.get_line_height() > self.height as f32 {
+            self.label = std::mem::replace(&mut self.label, TextLabel::new(""))
+                .line_height(self.height as f32);
+        }
         self.label.init(ctx);
         self.layout_label(&ctx.queue);
 
@@ -355,6 +358,14 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for TextInput<S, E> {
                         }
                         NamedKey::Enter => {
                             if let Some(cb) = &self.on_submit {
+                                return cb(&self.text);
+                            }
+                        }
+                        NamedKey::Space => {
+                            self.text.insert(self.cursor_pos, ' ');
+                            self.cursor_pos += 1;
+                            self.text_changed(&ctx.queue);
+                            if let Some(cb) = &self.on_change {
                                 return cb(&self.text);
                             }
                         }

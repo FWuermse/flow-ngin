@@ -68,6 +68,7 @@ pub enum Out<S, E> {
     FutEvent(Vec<Box<dyn Future<Output = E>>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
+    Multi(Vec<Out<S, E>>),
     Empty,
 }
 
@@ -1026,6 +1027,18 @@ fn handle_flow_output<State, Event>(
             }
         }
         Out::Configure(f) => f(ctx),
+        Out::Multi(outs) => {
+            for out in outs {
+                handle_flow_output(
+                    #[cfg(not(target_arch = "wasm32"))]
+                    async_runtime,
+                    state,
+                    ctx,
+                    proxy.clone(),
+                    out,
+                );
+            }
+        }
         Out::Empty => (),
     }
 }

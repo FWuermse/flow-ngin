@@ -15,17 +15,17 @@ use crate::{
 
 /// A vertical stack layout that arranges children top-to-bottom.
 ///
-/// Each child is given an explicit row height. Use `spacing` to add gaps
-/// between rows and `padding` to inset from the edges.
+/// Each child is given an explicit row height. Use sub-containers or
+/// centering (via `HAlign`/`VAlign` on the VStack itself).
 ///
 /// # Example
 ///
 /// ```ignore
-/// use flow_ngin::ui::{vstack::VStack, text_label::TextLabel};
+/// use flow_ngin::ui::{HAlign, VAlign, container::Container, vstack::VStack, text_label::TextLabel};
 ///
 /// let stack = VStack::<State, Event>::new()
-///     .padding(12)
-///     .spacing(8)
+///     .width(200)
+///     .halign(HAlign::Center)
 ///     .with_child(36, TextLabel::new("Title").font_size(24.0))
 ///     .with_child(28, TextLabel::new("Subtitle").font_size(18.0));
 /// ```
@@ -36,8 +36,6 @@ pub struct VStack<S, E> {
     width: u32,
     height: u32,
     children: Vec<(u32, Box<dyn UIElement<S, E>>)>,
-    spacing: u32,
-    padding: u32,
 }
 
 impl<S: 'static, E: 'static> VStack<S, E> {
@@ -49,8 +47,6 @@ impl<S: 'static, E: 'static> VStack<S, E> {
             width: 0,
             height: 0,
             children: Vec::new(),
-            spacing: 0,
-            padding: 0,
         }
     }
 
@@ -74,18 +70,6 @@ impl<S: 'static, E: 'static> VStack<S, E> {
         self
     }
 
-    /// Gap in pixels between consecutive rows.
-    pub fn spacing(mut self, spacing: u32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-
-    /// Inset from all edges before laying out children.
-    pub fn padding(mut self, padding: u32) -> Self {
-        self.padding = padding;
-        self
-    }
-
     /// Append a child with the given row height.
     pub fn with_child(mut self, row_height: u32, child: impl UIElement<S, E> + 'static) -> Self {
         self.children.push((row_height, Box::new(child)));
@@ -93,13 +77,10 @@ impl<S: 'static, E: 'static> VStack<S, E> {
     }
 
     fn resolve_children(&mut self, queue: &wgpu::Queue) {
-        let content_x = self.x + self.padding;
-        let content_w = self.width.saturating_sub(2 * self.padding);
-        let mut current_y = self.y + self.padding;
-
+        let mut current_y = self.y;
         for (row_h, child) in &mut self.children {
-            child.resolve(content_x, current_y, content_w, *row_h, queue);
-            current_y += *row_h + self.spacing;
+            child.resolve(self.x, current_y, self.width, *row_h, queue);
+            current_y += *row_h;
         }
     }
 }

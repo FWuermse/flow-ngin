@@ -124,12 +124,12 @@ impl GraphicsFlow<State, Event> for DrawerExample {
         let toggle = self.make_button(ctx, 4, || Event::ToggleDrawer);
         let path = self.make_button(ctx, 5, || Event::Path);
         let path_break = self.make_button(ctx, 6, || Event::PathBreak);
-        let main_menu = Grid::new(1, 6)
+        let main_menu = Grid::new(1, 8)
             .with_child(0, 0, toggle)
             .with_child(0, 1, path)
             .with_child(0, 2, path_break);
         let mut actions = Container::new()
-            .width(self.drawer_width)
+            .width(self.drawer_width/2)
             .with_background_texture(&self.bg)
             .halign(HAlign::Right)
             .with_child(main_menu);
@@ -144,7 +144,7 @@ impl GraphicsFlow<State, Event> for DrawerExample {
         let barrack = self.make_button(ctx, 10, || Event::Barrack);
         let arrow = self.make_arrow(ctx, || Event::ToggleDrawer);
 
-        let build_menu = Grid::new(2, 6)
+        let build_menu = Grid::new(2, 8)
             .with_child(0, 0, mine)
             .with_child(0, 1, wood)
             .with_child(0, 2, farm)
@@ -281,15 +281,8 @@ impl GraphicsFlow<State, Event> for DrawerExample {
 struct DetailCard {
     atlas: Arc<Atlas>,
     bg: Arc<BackgroundTexture>,
-    bg_container: Option<Container<State, Event>>,
-    icons: Vec<(u32, Icon)>,
-    title: Option<TextLabel>,
-    desc: Option<TextLabel>,
-    btn_build: Option<Button<State, Event>>,
-    btn_dismiss: Option<Button<State, Event>>,
+    cards: Vec<(u32, Container<State, Event>)>,
     current_id: u32,
-    card_w: u32,
-    card_h: u32,
 }
 
 impl DetailCard {
@@ -300,147 +293,114 @@ impl DetailCard {
         Self {
             atlas,
             bg,
-            bg_container: None,
-            icons: Vec::new(),
-            title: None,
-            desc: None,
-            btn_build: None,
-            btn_dismiss: None,
+            cards: Vec::new(),
             current_id: 0,
-            card_w: 280,
-            card_h: 400,
         }
     }
 
-    fn card_info(id: u32) -> Option<(u8, &'static str, &'static str)> {
+    fn card_info(id: u32) -> Option<(u8, &'static str, &'static str, &'static str, f32)> {
         match id {
-            1 => Some((11, "Mine", "Extracts precious ore from deep underground.")),
-            2 => Some((15, "Farm", "Grows crops and raises livestock for food.")),
+            1 => Some((11, "Mine", "Extracts precious ore from deep underground.", "Mine #1", 0.6)),
+            2 => Some((15, "Farm", "Grows crops and raises livestock for food.", "Farm #1", 0.4)),
             _ => None,
         }
     }
 
-    fn resolve_card(&mut self, ctx: &Context) {
-        let card_x = 20u32;
-        let card_y = ctx.config.height.saturating_sub(self.card_h) / 2;
-        let pad = 16u32;
-        let icon_sz = 80u32;
+    fn build_card(&self, ctx: &Context, id: u32) -> Option<Container<State, Event>> {
+        let (icon_slot, title, desc, default_name, default_capacity) = Self::card_info(id)?;
 
-        if let Some(bg) = &mut self.bg_container {
-            Layout::resolve(bg, card_x, card_y, self.card_w, self.card_h, &ctx.queue);
-        }
-        for (_, icon) in &mut self.icons {
-            icon.set_position(
-                card_x + (self.card_w - icon_sz) / 2,
-                card_y + pad,
-                &ctx.queue,
-            );
-        }
-        if let Some(t) = &mut self.title {
-            Layout::resolve(
-                t,
-                card_x + pad,
-                card_y + pad + icon_sz + 12,
-                self.card_w - 2 * pad,
-                36,
-                &ctx.queue,
-            );
-        }
-        if let Some(d) = &mut self.desc {
-            Layout::resolve(
-                d,
-                card_x + pad,
-                card_y + pad + icon_sz + 56,
-                self.card_w - 2 * pad,
-                120,
-                &ctx.queue,
-            );
-        }
-        let btn_y = card_y + self.card_h - pad - 44;
-        let btn_w = (self.card_w - 2 * pad - 8) / 2;
-        if let Some(b) = &mut self.btn_build {
-            Layout::resolve(b, card_x + pad, btn_y, btn_w, 44, &ctx.queue);
-        }
-        if let Some(b) = &mut self.btn_dismiss {
-            Layout::resolve(b, card_x + pad + btn_w + 8, btn_y, btn_w, 44, &ctx.queue);
-        }
-    }
+        let icon = Icon::new(ctx, &self.atlas, icon_slot)
+            .width(80)
+            .height(80)
+            .halign(HAlign::Center);
 
-    fn apply_content(&mut self, id: u32) {
-        if let Some((_, title, desc)) = Self::card_info(id) {
-            if let Some(t) = &mut self.title {
-                t.set_text(title);
-            }
-            if let Some(d) = &mut self.desc {
-                d.set_text(desc);
-            }
-            self.current_id = id;
-        }
+        let title = TextLabel::new(title)
+            .font_size(24.0)
+            .line_height(32.0)
+            .halign(HAlign::Center);
+
+        let desc = TextLabel::new(desc)
+            .font_size(16.0)
+            .line_height(22.0)
+            .color([200, 200, 200]);
+
+        let name_value = Value::new(default_name.to_string());
+        let name_input = TextInput::<State, Event>::new()
+            .width(248)
+            .height(28)
+            .font_size(16.0)
+            .background(Icon::from_color(ctx, [40, 40, 40, 200]))
+            .bind(&name_value);
+
+        let capacity_value = Value::new(default_capacity);
+        let capacity_slider = Slider::<State, Event>::new()
+            .width(248)
+            .height(24)
+            .track(Icon::from_color(ctx, [60, 60, 60, 255]))
+            .handle(Icon::from_color(ctx, [200, 200, 200, 255]))
+            .active_handle(Icon::from_color(ctx, [255, 255, 255, 255]))
+            .bind(&capacity_value);
+
+        let btn_build = Button::new()
+            .square(60)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center)
+            .fill(Icon::new(ctx, &self.atlas, 16))
+            .hover_fill(Icon::new(ctx, &self.atlas, 24))
+            .click_fill(Icon::new(ctx, &self.atlas, 32))
+            .on_click(|| Event::Build);
+
+        let btn_dismiss = Button::new()
+            .square(60)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center)
+            .fill(Icon::new(ctx, &self.atlas, 17))
+            .hover_fill(Icon::new(ctx, &self.atlas, 25))
+            .click_fill(Icon::new(ctx, &self.atlas, 33))
+            .on_click(|| Event::DismissCard);
+
+        let buttons = Grid::new(2, 1)
+            .with_child(0, 0, btn_build)
+            .with_child(1, 0, btn_dismiss);
+
+        let content = VStack::<State, Event>::new()
+            .width(248)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center)
+            .with_child(96, icon)
+            .with_child(36, title)
+            .with_child(80, desc)
+            .with_child(32, name_input)
+            .with_child(28, capacity_slider)
+            .with_child(60, buttons);
+
+        Some(
+            Container::new()
+                .width(280)
+                .height(480)
+                .valign(VAlign::Center)
+                .with_background_texture(&self.bg)
+                .with_child(content),
+        )
     }
 }
 
 impl GraphicsFlow<State, Event> for DetailCard {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let mut bg = Container::<State, Event>::new()
-            .width(self.card_w)
-            .height(self.card_h)
-            .with_background_texture(&self.bg);
-        bg.on_init(ctx, state);
-        self.bg_container = Some(bg);
-
-        self.icons = [1u32, 2]
-            .iter()
-            .filter_map(|&id| {
-                let (slot, _, _) = Self::card_info(id)?;
-                let mut icon = Icon::new(ctx, &self.atlas, slot);
-                icon.width_px = 80;
-                icon.height_px = 80;
-                Some((id, icon))
-            })
-            .collect();
-
-        let mut title = TextLabel::new("")
-            .font_size(24.0)
-            .line_height(32.0)
-            .halign(HAlign::Center);
-        title.init(ctx);
-        self.title = Some(title);
-
-        let mut desc = TextLabel::new("")
-            .font_size(16.0)
-            .line_height(22.0)
-            .color([200, 200, 200]);
-        desc.init(ctx);
-        self.desc = Some(desc);
-
-        let mut btn_build = Button::new()
-            .fill(Icon::from_color(ctx, [50, 130, 50, 255]))
-            .hover_fill(Icon::from_color(ctx, [70, 160, 70, 255]))
-            .click_fill(Icon::from_color(ctx, [35, 100, 35, 255]))
-            .with_text(TextLabel::new("Build").font_size(18.0))
-            .on_click(|| Event::Build);
-        btn_build.on_init(ctx, state);
-        self.btn_build = Some(btn_build);
-
-        let mut btn_dismiss = Button::new()
-            .fill(Icon::from_color(ctx, [130, 50, 50, 255]))
-            .hover_fill(Icon::from_color(ctx, [160, 70, 70, 255]))
-            .click_fill(Icon::from_color(ctx, [100, 35, 35, 255]))
-            .with_text(TextLabel::new("Cancel").font_size(18.0))
-            .on_click(|| Event::DismissCard);
-        btn_dismiss.on_init(ctx, state);
-        self.btn_dismiss = Some(btn_dismiss);
-
-        self.resolve_card(ctx);
-        self.apply_content(state.selected_id);
-
+        for id in [1u32, 2] {
+            if let Some(mut card) = self.build_card(ctx, id) {
+                card.on_init(ctx, state);
+                self.cards.push((id, card));
+            }
+        }
+        self.current_id = state.selected_id;
         Out::Empty
     }
 
     fn on_custom_events(&mut self, _: &Context, state: &mut State, event: Event) -> Option<Event> {
         match event {
             Event::Build => {
-                if let Some((_, title, _)) = Self::card_info(self.current_id) {
+                if let Some((_, title, _, _, _)) = Self::card_info(self.current_id) {
                     println!("Building {title}!");
                 }
                 state.selected_id = 0;
@@ -460,69 +420,30 @@ impl GraphicsFlow<State, Event> for DetailCard {
         state: &mut State,
         dt: std::time::Duration,
     ) -> Out<State, Event> {
-        let id = state.selected_id;
-        if id != self.current_id {
-            if id != 0 {
-                self.apply_content(id);
-            } else {
-                self.current_id = 0;
-            }
+        self.current_id = state.selected_id;
+        if let Some((_, card)) = self.cards.iter_mut().find(|(id, _)| *id == self.current_id) {
+            return card.on_update(ctx, state, dt);
         }
-
-        let mut out = Out::Empty;
-        if self.current_id != 0 {
-            if let Some(b) = &mut self.btn_build {
-                let o = b.on_update(ctx, state, dt);
-                if matches!(out, Out::Empty) {
-                    out = o;
-                }
-            }
-            if let Some(b) = &mut self.btn_dismiss {
-                let o = b.on_update(ctx, state, dt);
-                if matches!(out, Out::Empty) {
-                    out = o;
-                }
-            }
-        }
-        out
+        Out::Empty
     }
 
     fn on_window_events(
         &mut self,
         ctx: &Context,
-        _state: &mut State,
+        state: &mut State,
         event: &flow_ngin::WindowEvent,
     ) -> Out<State, Event> {
-        if let flow_ngin::WindowEvent::Resized(_) = event {
-            self.resolve_card(ctx);
+        for (_, card) in &mut self.cards {
+            card.on_window_events(ctx, state, event);
         }
         Out::Empty
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        if self.current_id == 0 {
-            return Render::None;
+        if let Some((_, card)) = self.cards.iter().find(|(id, _)| *id == self.current_id) {
+            return card.on_render();
         }
-        let mut r = Vec::new();
-        if let Some(bg) = &self.bg_container {
-            r.push(bg.on_render());
-        }
-        if let Some((_, icon)) = self.icons.iter().find(|(id, _)| *id == self.current_id) {
-            r.push(GraphicsFlow::<State, Event>::on_render(icon));
-        }
-        if let Some(t) = &self.title {
-            r.push(t.render());
-        }
-        if let Some(d) = &self.desc {
-            r.push(d.render());
-        }
-        if let Some(b) = &self.btn_build {
-            r.push(b.on_render());
-        }
-        if let Some(b) = &self.btn_dismiss {
-            r.push(b.on_render());
-        }
-        Render::Composed(r)
+        Render::None
     }
 }
 
