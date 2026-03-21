@@ -372,7 +372,6 @@ impl Context {
         self.anti_aliasing = aa;
         let sample_count = aa.sample_count();
 
-        // Rebuild depth texture with matching sample count
         self.depth_texture = texture::Texture::create_depth_texture(
             &self.device,
             [self.config.width, self.config.height],
@@ -380,7 +379,6 @@ impl Context {
             sample_count,
         );
 
-        // Rebuild MSAA color target
         self.msaa_view = if sample_count > 1 {
             Some(texture::Texture::create_msaa_texture(
                 &self.device,
@@ -391,7 +389,6 @@ impl Context {
             None
         };
 
-        // Rebuild all pipelines with the new sample count
         self.pipelines = Pipelines {
             light: mk_light_pipeline(
                 &self.device,
