@@ -242,6 +242,7 @@ impl<'a, State: Default> AppState<State> {
                 &self.ctx.device,
                 [self.ctx.config.width, self.ctx.config.height],
                 "depth_texture",
+                1
             );
             let screen_size_data = [width as f32, height as f32];
             self.ctx.queue.write_buffer(

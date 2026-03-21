@@ -11,7 +11,7 @@ use crate::{
         gui::{mk_gui_pipeline, mk_screen_size_bind_group, mk_screen_size_bind_group_layout},
         light::{LightResources, LightUniform, mk_light_pipeline},
         pick::mk_pick_pipeline,
-        pick_gui::mk_gui_pick_pipelin,
+        pick_gui::mk_gui_pick_pipeline,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
     }, render::Render,

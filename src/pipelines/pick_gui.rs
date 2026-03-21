@@ -28,7 +28,7 @@ pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-pub fn mk_gui_pick_pipelin(device: &wgpu::Device, screen_size_layout: &wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
+pub fn mk_gui_pick_pipeline(device: &wgpu::Device, screen_size_layout: &wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
     let texture_bind_group_layout = mk_bind_group_layout(device);
     let color_format = wgpu::TextureFormat::R32Uint;
     let shader = wgpu::ShaderModuleDescriptor {
