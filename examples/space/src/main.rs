@@ -6,28 +6,33 @@ use flow_ngin::{
     data_structures::block::BuildingBlocks,
     flow::{FlowConsturctor, GraphicsFlow, Out},
     ui::{
-        BackgroundTexture, Button, Container, HAlign, VAlign,
-        image::{Atlas, Icon},
-        text_label::TextLabel,
+        Button, Checkbox, Grid, HAlign, VAlign, Value, image::{Atlas, Icon}
     },
 };
 
+/// This is an arbitraty state shared between all rendered objects
 struct State {
     pub rotating: bool,
+    pub checked: Value<bool>,
 }
 impl Default for State {
     fn default() -> Self {
-        Self { rotating: false }
+        Self { rotating: false, checked: Value::new(false) }
     }
 }
 
+/// A collection of events that can be sent between flows
 enum Event {
     Spin,
+    Checked(bool),
 }
 
+/// Note that the Astroids struct only holds information neccessary for rendering
 struct Astroids {
     astroids: BuildingBlocks,
+    background: Color,
 }
+/// The constructor is usually async because it loads assets
 impl Astroids {
     async fn new(ctx: InitContext) -> Astroids {
         let astroids = BuildingBlocks::new(
@@ -40,7 +45,11 @@ impl Astroids {
             "Rock1.obj",
         )
         .await;
-        Self { astroids }
+        let background = Color::BLACK;
+        Self {
+            astroids,
+            background,
+        }
     }
 }
 impl GraphicsFlow<State, Event> for Astroids {
@@ -69,9 +78,18 @@ impl GraphicsFlow<State, Event> for Astroids {
         Out::Empty
     }
 
-    fn on_click(&mut self, _: &Context, state: &mut State, _: u32) -> Out<State, Event> {
-        state.rotating = !state.rotating;
-        Out::Empty
+    fn on_custom_events(&mut self, _: &Context, state: &mut State, event: Event) -> Option<Event> {
+        match event {
+            Event::Spin => {
+                state.rotating = !state.rotating;
+                None
+            }
+            Event::Checked(checked) => {
+                let background = if checked { Color::WHITE } else { Color::BLACK };
+                self.background = background;
+                None
+            }
+        }
     }
 
     fn on_update(
@@ -94,6 +112,10 @@ impl GraphicsFlow<State, Event> for Astroids {
                 });
             self.astroids.write_to_buffer(&ctx.queue, &ctx.device);
         }
+        if self.background != ctx.clear_colour {
+            let bg = self.background;
+            return Out::Configure(Box::new(move |ctx: &mut Context| ctx.clear_colour = bg));
+        }
         Out::Empty
     }
 
@@ -104,50 +126,62 @@ impl GraphicsFlow<State, Event> for Astroids {
 
 struct GUI {
     atlas: Arc<Atlas>,
-    background: Arc<BackgroundTexture>,
-    container: Option<Container<State, Event>>,
+    grid: Option<Grid<State, Event>>,
 }
 impl GUI {
     async fn new(ctx: InitContext) -> GUI {
-        let atlas =
-            Arc::new(Atlas::new(&ctx.device, &ctx.queue, "minecraft_beta.png", 16, 16).await);
-        let background =
-            Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "bg_card.png").await);
-        Self {
-            atlas,
-            background,
-            container: None,
-        }
+        let atlas = Arc::new(Atlas::new(&ctx.device, &ctx.queue, "card_atlas.png", 16, 16).await);
+        Self { atlas, grid: None }
+    }
+
+    fn make_button(
+        &self,
+        ctx: &Context,
+        icon_slot: u8,
+        bg_start: u8,
+        on_click: impl Fn() -> Event + 'static,
+    ) -> Button<State, Event> {
+        Button::new()
+            .square(80)
+            .halign(HAlign::Center)
+            .valign(VAlign::Center)
+            .with_icon(Icon::new(ctx, &self.atlas, icon_slot))
+            .fill(Icon::new(ctx, &self.atlas, bg_start))
+            .hover_fill(Icon::new(ctx, &self.atlas, bg_start + 1))
+            .click_fill(Icon::new(ctx, &self.atlas, bg_start + 2))
+            .on_click(on_click)
     }
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let hover = Icon::new(ctx, Arc::clone(&self.atlas), 100, 18, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let click = Icon::new(ctx, Arc::clone(&self.atlas), 100, 19, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let bg = Arc::clone(&self.background);
-        let button = Button::new(200, 0, 0, 100, 50)
-            .with_text(TextLabel::new("spin").color([255, 0, 0]))
-            .fill(icon)
-            .hover_fill(hover)
-            .click_fill(click)
-            .on_click(|| Event::Spin);
-        let icon = Icon::new(ctx, Arc::clone(&self.atlas), 100, 17, 100, 100)
-            .halign(HAlign::Center)
-            .valign(VAlign::Center);
-        let mut container = Container::new(0, 0, 500, 500)
-            .with_background_texture(bg)
-            .with_child(icon)
-            .with_child(button);
-        container.resolve(&ctx.queue);
-        self.container = Some(container);
-        self.container.as_mut().unwrap().on_init(ctx, state)
+        let spin_btn = self.make_button(ctx, 28, 22, || Event::Spin);
+        let btn2 = self.make_button(ctx, 29, 22 + 6 * 16, || Event::Spin);
+        let btn3 = self.make_button(ctx, 13, 32, || Event::Spin);
+        let btn4 = self.make_button(ctx, 12, 32, || Event::Spin);
+
+        let grid = Grid::new(4, 2)
+            .height(200)
+            .valign(VAlign::Top)
+            .with_child(0, 0, spin_btn)
+            .with_child(1, 0, btn2)
+            .with_child(2, 0, btn3)
+            .with_child(
+                0,
+                1,
+                Checkbox::new()
+                    .on_change(|pressed| {
+                        Out::FutEvent(vec![Box::new(async move { Event::Checked(pressed) })])
+                    })
+                    .valign(VAlign::Center)
+                    .halign(HAlign::Center)
+                    .checked(Icon::new(ctx, &self.atlas, 3 + 9 * 16))
+                    .unchecked(Icon::new(ctx, &self.atlas, 3 + 8 * 16)).width(80).height(80)
+                    .bind(&state.checked),
+            )
+            .with_child(3, 0, btn4);
+
+        self.grid = Some(grid);
+        self.grid.as_mut().unwrap().on_init(ctx, state)
     }
 
     fn on_update(
@@ -156,15 +190,27 @@ impl<'a> GraphicsFlow<State, Event> for GUI {
         state: &mut State,
         dt: std::time::Duration,
     ) -> Out<State, Event> {
-        if let Some(container) = &mut self.container {
-            container.on_update(ctx, state, dt);
+        if let Some(grid) = &mut self.grid {
+            return grid.on_update(ctx, state, dt);
+        }
+        Out::Empty
+    }
+
+    fn on_window_events(
+        &mut self,
+        ctx: &Context,
+        state: &mut State,
+        event: &flow_ngin::WindowEvent,
+    ) -> Out<State, Event> {
+        if let Some(grid) = &mut self.grid {
+            return grid.on_window_events(ctx, state, event);
         }
         Out::Empty
     }
 
     fn on_render<'pass>(&self) -> flow_ngin::render::Render<'_, 'pass> {
-        match &self.container {
-            Some(c) => c.on_render(),
+        match &self.grid {
+            Some(g) => g.on_render(),
             None => flow_ngin::render::Render::None,
         }
     }

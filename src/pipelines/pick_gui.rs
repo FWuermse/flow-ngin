@@ -3,10 +3,11 @@ use crate::pipelines::gui::Vertex;
 fn render_pipeline_layout(
     device: &wgpu::Device,
     texture_bind_group_layout: wgpu::BindGroupLayout,
+    screen_size_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> wgpu::PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout (For picking)"),
-        bind_group_layouts: &[&texture_bind_group_layout],
+        bind_group_layouts: &[&texture_bind_group_layout, screen_size_bind_group_layout],
         ..Default::default()
     })
 }
@@ -27,7 +28,7 @@ pub fn mk_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     })
 }
 
-pub fn mk_gui_pick_pipelin(device: &wgpu::Device) -> wgpu::RenderPipeline {
+pub fn mk_gui_pick_pipelin(device: &wgpu::Device, screen_size_layout: &wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
     let texture_bind_group_layout = mk_bind_group_layout(device);
     let color_format = wgpu::TextureFormat::R32Uint;
     let shader = wgpu::ShaderModuleDescriptor {
@@ -35,7 +36,7 @@ pub fn mk_gui_pick_pipelin(device: &wgpu::Device) -> wgpu::RenderPipeline {
         source: wgpu::ShaderSource::Wgsl(include_str!("pick_gui.wgsl").into()),
     };
     let shader = device.create_shader_module(shader);
-    let render_pipeline_layout = render_pipeline_layout(device, texture_bind_group_layout);
+    let render_pipeline_layout = render_pipeline_layout(device, texture_bind_group_layout, screen_size_layout);
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Menu Pick Render Pipeline"),
         layout: Some(&render_pipeline_layout),

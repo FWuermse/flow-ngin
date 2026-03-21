@@ -10,13 +10,23 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
 }
 
+struct ScreenSize {
+    width: f32,
+    height: f32,
+}
+
+@group(1) @binding(0)
+var<uniform> screen: ScreenSize;
+
 @vertex
 fn vs_main(
     model: VertexInput,
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
-    out.clip_position = vec4<f32>(model.position, 1.0);
+    let ndc_x = -1.0 + 2.0 * model.position.x / screen.width;
+    let ndc_y =  1.0 - 2.0 * model.position.y / screen.height;
+    out.clip_position = vec4<f32>(ndc_x, ndc_y, model.position.z, 1.0);
     return out;
 }
 

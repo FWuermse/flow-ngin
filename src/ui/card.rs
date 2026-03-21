@@ -1,71 +1,83 @@
 use std::sync::Arc;
 
+use instant::Duration;
+use winit::event::WindowEvent;
+
 use crate::{
     context::Context,
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
+        HAlign, Placement, VAlign,
         background::{Background, BackgroundTexture},
         container::Container,
         image::Icon,
         layout::Layout,
         text_label::TextLabel,
+        vstack::VStack,
     },
 };
 
-const PADDING: u32 = 8;
-const LABEL_HEIGHT: u32 = 42;
-
-/// A card UI component with optional background and multiple text labels.
+/// A card UI component with an icon at the top and text labels below.
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```ignore
 /// use std::sync::Arc;
 /// use flow_ngin::ui::{HAlign, VAlign, background::BackgroundTexture, card::Card, image::Icon, text_label::TextLabel};
 ///
 /// // In on_init:
-/// let icon = Icon::new(ctx, atlas, 0, 0, 64, 64);
+/// let icon = Icon::new(ctx, atlas, 0).width(64).height(64);
 /// let card_bg = Arc::new(BackgroundTexture::new(&ctx.device, &ctx.queue, "card.png").await);
 ///
-/// let card = Card::<State, Event>::new(100, 100, 200, 300)
+/// let card = Card::<State, Event>::new()
+///     .width(200)
+///     .height(300)
 ///     .with_background_texture(Arc::clone(&card_bg))
 ///     .with_icon(icon)
 ///     .with_label(TextLabel::new("Title").font_size(20.0))
 ///     .with_label(TextLabel::new("Subtitle"));
 /// ```
 pub struct Card<S, E> {
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    local_x: u32,
-    local_y: u32,
-    local_w: u32,
-    local_h: u32,
+    placement: Placement,
     icon: Option<Icon>,
     labels: Vec<TextLabel>,
     background: Option<Background>,
-    bg_container: Option<Container<S, E>>,
+    container: Option<Container<S, E>>,
 }
 
 impl<S: 'static, E: 'static> Card<S, E> {
-    /// Create a card at pixel position `(x, y)` relative to its parent.
-    pub fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+    /// Create a card that fills its parent by default.
+    ///
+    /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
+    pub fn new() -> Self {
         Self {
-            x,
-            y,
-            width,
-            height,
-            local_x: x,
-            local_y: y,
-            local_w: width,
-            local_h: height,
+            placement: Placement::default(),
             icon: None,
             labels: Vec::new(),
             background: None,
-            bg_container: None,
+            container: None,
         }
+    }
+
+    pub fn halign(mut self, align: HAlign) -> Self {
+        self.placement.halign = align;
+        self
+    }
+
+    pub fn valign(mut self, align: VAlign) -> Self {
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
+        self
     }
 
     /// Set the icon shown centred in the top section of the card.
@@ -91,87 +103,80 @@ impl<S: 'static, E: 'static> Card<S, E> {
         self.background = Some(Background::Texture(texture));
         self
     }
-
-    /// Compute and apply positions for the icon and labels.
-    ///
-    /// Called automatically from `on_init`; call manually after moving the card.
-    fn layout_children(&mut self, queue: &wgpu::Queue) {
-        if let Some(icon) = &mut self.icon {
-            let ix = self.x + self.width.saturating_sub(icon.width_px) / 2;
-            let iy = self.y + PADDING;
-            icon.set_position(ix, iy, queue);
-        }
-
-        let icon_area_h = self
-            .icon
-            .as_ref()
-            .map(|i| i.height_px + 2 * PADDING)
-            .unwrap_or(0);
-        let label_start_y = self.y + icon_area_h + PADDING;
-        let label_x = (self.x + PADDING) as f32;
-        let label_w = self.width.saturating_sub(2 * PADDING) as f32;
-
-        for (i, label) in self.labels.iter_mut().enumerate() {
-            let ly = (label_start_y + i as u32 * LABEL_HEIGHT) as f32;
-            label.resolve(label_x, ly, label_w, LABEL_HEIGHT as f32);
-        }
-    }
 }
 
 impl<S: 'static, E: 'static> Layout for Card<S, E> {
-    /// Offset the card by the parent's origin and re-layout children.
-    fn resolve(&mut self, parent_x: u32, parent_y: u32, _parent_w: u32, _parent_h: u32, queue: &wgpu::Queue) {
-        self.x = parent_x + self.local_x;
-        self.y = parent_y + self.local_y;
-        self.width = self.local_w;
-        self.height = self.local_h;
-
-        // Update bg_container to match our new absolute position.
-        if let Some(bg) = &mut self.bg_container {
-            Layout::resolve(bg, self.x, self.y, self.width, self.height, queue);
+    fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
+        if let Some(container) = &mut self.container {
+            Layout::resolve(container, parent_x, parent_y, parent_w, parent_h, queue);
         }
-
-        self.layout_children(queue);
     }
 }
 
 impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
-        // Build a background-only container at (0,0) local — resolve places it at the card's position.
-        let mut bg = Container::<S, E>::new(0, 0, self.width, self.height);
-        if let Some(background) = self.background.take() {
-            bg = match background {
-                Background::Color(rgba) => bg.with_background_color(rgba),
-                Background::Texture(tex) => bg.with_background_texture(tex),
+        let mut vstack = VStack::<S, E>::new();
+
+        if let Some(icon) = self.icon.take() {
+            let icon_h = icon.placement.height.unwrap_or(0);
+            vstack = vstack.with_child(
+                icon_h,
+                Container::<S, E>::new().with_child(
+                    icon.halign(HAlign::Center).valign(VAlign::Center),
+                ),
+            );
+        }
+
+        for label in self.labels.drain(..) {
+            let row_h = label.get_line_height() as u32;
+            vstack = vstack.with_child(row_h, label);
+        }
+
+        let mut container = Container::<S, E>::new();
+
+        if let Some(w) = self.placement.width {
+            container = container.width(w);
+        }
+        if let Some(h) = self.placement.height {
+            container = container.height(h);
+        }
+        container = container
+            .halign(self.placement.halign)
+            .valign(self.placement.valign);
+
+        if let Some(bg) = self.background.take() {
+            container = match bg {
+                Background::Color(rgba) => container.with_background_color(rgba),
+                Background::Texture(tex) => container.with_background_texture(&tex),
             };
         }
-        bg.on_init(ctx, state);
-        // Position the bg at the card's current absolute position.
-        Layout::resolve(&mut bg, self.x, self.y, self.width, self.height, &ctx.queue);
-        self.bg_container = Some(bg);
 
-        // Labels must be initialised before resolve so set_size is available.
-        for label in &mut self.labels {
-            label.init(ctx);
-        }
-
-        self.layout_children(&ctx.queue);
+        container = container.with_child(vstack);
+        container.on_init(ctx, state);
+        self.container = Some(container);
         Out::Empty
     }
 
+    fn on_update(&mut self, ctx: &Context, state: &mut S, dt: Duration) -> Out<S, E> {
+        if let Some(container) = &mut self.container {
+            container.on_update(ctx, state, dt)
+        } else {
+            Out::Empty
+        }
+    }
+
+    fn on_window_events(&mut self, ctx: &Context, state: &mut S, event: &WindowEvent) -> Out<S, E> {
+        if let Some(container) = &mut self.container {
+            container.on_window_events(ctx, state, event)
+        } else {
+            Out::Empty
+        }
+    }
+
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        let mut renders: Vec<Render<'_, 'pass>> = Vec::new();
-
-        if let Some(bg) = &self.bg_container {
-            renders.push(bg.on_render());
+        match &self.container {
+            Some(container) => container.on_render(),
+            None => Render::None,
         }
-        if let Some(icon) = &self.icon {
-            renders.push(GraphicsFlow::<S, E>::on_render(icon));
-        }
-        for label in &self.labels {
-            renders.push(GraphicsFlow::<S, E>::on_render(label));
-        }
-
-        Render::Composed(renders)
     }
 }

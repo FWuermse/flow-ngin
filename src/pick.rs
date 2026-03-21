@@ -191,6 +191,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event>(
         }
 
         render_pass.set_pipeline(&ctx.pipelines.flat_pick);
+        render_pass.set_bind_group(1, &ctx.screen_size.bind_group, &[]);
         for flat in flats {
             let pick_group = load_pick_texture(flat.id, &ctx.device);
             render_pass.set_bind_group(0, &pick_group, &[]);

@@ -68,6 +68,7 @@ pub enum Out<S, E> {
     FutEvent(Vec<Box<dyn Future<Output = E>>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
+    Multi(Vec<Out<S, E>>),
     Empty,
 }
 
@@ -242,7 +243,12 @@ impl<'a, State: Default> AppState<State> {
                 [self.ctx.config.width, self.ctx.config.height],
                 "depth_texture",
             );
-            // TODO: re-render GUI
+            let screen_size_data = [width as f32, height as f32];
+            self.ctx.queue.write_buffer(
+                &self.ctx.screen_size.buffer,
+                0,
+                bytemuck::cast_slice(&screen_size_data),
+            );
         }
     }
 
@@ -455,6 +461,7 @@ impl<'a, State: Default> AppState<State> {
             }
 
             render_pass.set_pipeline(&self.ctx.pipelines.gui);
+            render_pass.set_bind_group(1, &self.ctx.screen_size.bind_group, &[]);
             for button in guis {
                 render_pass.set_bind_group(0, button.group, &[]);
                 render_pass.set_vertex_buffer(0, button.vertex.slice(..));
@@ -808,6 +815,11 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
             state.ctx.mouse.coords = position;
         };
 
+        // Update config before dispatching so components see current dimensions.
+        if let WindowEvent::Resized(size) = event {
+            state.resize(size.width, size.height);
+        }
+
         self.graphics_flows.iter_mut().for_each(|f| {
             let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
@@ -823,7 +835,6 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
 
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => state.resize(size.width, size.height),
             WindowEvent::RedrawRequested => {
                 let dt = self.last_time.elapsed();
                 self.last_time = Instant::now();
@@ -1016,6 +1027,18 @@ fn handle_flow_output<State, Event>(
             }
         }
         Out::Configure(f) => f(ctx),
+        Out::Multi(outs) => {
+            for out in outs {
+                handle_flow_output(
+                    #[cfg(not(target_arch = "wasm32"))]
+                    async_runtime,
+                    state,
+                    ctx,
+                    proxy.clone(),
+                    out,
+                );
+            }
+        }
         Out::Empty => (),
     }
 }

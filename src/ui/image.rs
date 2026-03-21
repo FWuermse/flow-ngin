@@ -2,7 +2,7 @@ use std::{sync::Arc, u16};
 
 use cgmath::num_traits::ToPrimitive;
 use wgpu::{
-    BufferUsages, Color,
+    BufferUsages,
     util::{BufferInitDescriptor, DeviceExt},
 };
 
@@ -13,7 +13,7 @@ use crate::{
     pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     resources::texture::load_texture,
-    ui::layout::Layout,
+    ui::{Placement, layout::Layout},
 };
 
 pub struct ImageResources {
@@ -36,7 +36,7 @@ enum Resources {
     Color(ColorResources),
 }
 
-/// NDC-space rectangle [start_x, end_x] x [end_y, start_y] (x left→right, y bottom→top).
+/// Rectangle in either pixel-space (for screen positions) or UV-space (for texture coordinates).
 #[derive(Clone, Copy)]
 pub struct Frame {
     pub start_x: f32,
@@ -49,6 +49,8 @@ pub struct Atlas {
     bind_group: wgpu::BindGroup,
     h_grids: u8,
     v_grids: u8,
+    atlas_width_px: u32,
+    atlas_height_px: u32,
 }
 impl Atlas {
     pub async fn new(
@@ -58,27 +60,48 @@ impl Atlas {
         h_grids: u8,
         v_grids: u8,
     ) -> Self {
-        let atlas = load_texture(file_name, false, device, queue, None)
+        let mut atlas = load_texture(file_name, false, device, queue, None)
             .await
-            .unwrap();
+            .expect(&format!("File does not exist: {}", file_name));
+        let size = atlas.texture.size();
+
+        // Use ClampToEdge to prevent UV wrapping at atlas cell boundaries.
+        atlas.sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        }));
+
         let texture_bind_group_layout = mk_bind_group_layout(device);
         let bind_group = mk_bind_group(device, &atlas, &texture_bind_group_layout);
         Atlas {
             bind_group,
             h_grids,
             v_grids,
+            atlas_width_px: size.width,
+            atlas_height_px: size.height,
         }
     }
     fn to_tex_coords(&self, slot: u8) -> Option<Frame> {
         let row = slot % self.h_grids;
         let col = slot / self.h_grids;
-        let row_len = 1.0 / self.h_grids.to_f32()?;
-        let col_len = 1.0 / self.v_grids.to_f32()?;
+        let cell_w = 1.0 / self.h_grids.to_f32()?;
+        let cell_h = 1.0 / self.v_grids.to_f32()?;
+
+        // Inset by half a texel to prevent linear filtering from sampling
+        // neighbouring cells at atlas cell boundaries.
+        let half_texel_u = 0.5 / self.atlas_width_px as f32;
+        let half_texel_v = 0.5 / self.atlas_height_px as f32;
+
         let frame = Frame {
-            start_x: row.to_f32()? * row_len,
-            start_y: col.to_f32()? * col_len,
-            end_x: (row + 1).to_f32()? * row_len,
-            end_y: (col + 1).to_f32()? * col_len,
+            start_x: row.to_f32()? * cell_w + half_texel_u,
+            start_y: col.to_f32()? * cell_h + half_texel_v,
+            end_x: (row + 1).to_f32()? * cell_w - half_texel_u,
+            end_y: (col + 1).to_f32()? * cell_h - half_texel_v,
         };
         Some(frame)
     }
@@ -101,55 +124,37 @@ pub enum VAlign {
 }
 
 pub struct Icon {
-    id: u32,
     pub width_px: u32,
     pub height_px: u32,
-    pub halign: HAlign,
-    pub valign: VAlign,
-    screen_width: u32,
-    screen_height: u32,
+    pub placement: Placement,
     screen_pos: Frame,
     tex_coords: Frame,
     resources: Resources,
 }
 
-/// Convert a pixel-space rectangle to an NDC Frame.
-///
-/// Pixel origin is top-left; NDC origin is center with y pointing up.
-pub(crate) fn pixels_to_ndc(
+/// Build a pixel-space Frame. The shader converts to NDC using the screen_size uniform.
+pub(crate) fn pixels_to_frame(
     x_px: u32,
     y_px: u32,
     width_px: u32,
     height_px: u32,
-    screen_width: u32,
-    screen_height: u32,
 ) -> Frame {
-    let sw = screen_width as f32;
-    let sh = screen_height as f32;
-    let left = -1.0 + 2.0 * x_px as f32 / sw;
-    let top = 1.0 - 2.0 * y_px as f32 / sh;
     Frame {
-        start_x: left,
-        start_y: top,
-        end_x: left + 2.0 * width_px as f32 / sw,
-        end_y: top - 2.0 * height_px as f32 / sh,
+        start_x: x_px as f32,
+        start_y: y_px as f32,
+        end_x: (x_px + width_px) as f32,
+        end_y: (y_px + height_px) as f32,
     }
 }
 
 impl Icon {
     /// Create a new icon from a solid color.
     ///
-    /// `(width_px, height_px)` is the desired size in pixels.
-    /// The icon won't appear until a container calls `set_position`.
+    /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn from_color(
         ctx: &Context,
         rgba: [u8; 4],
-        id: u32,
-        width_px: u32,
-        height_px: u32,
     ) -> Self {
-        let screen_width = ctx.config.width;
-        let screen_height = ctx.config.height;
         let screen_pos = Frame {
             start_x: 0.0,
             start_y: 0.0,
@@ -163,26 +168,22 @@ impl Icon {
 
         let vertices = vertices_from_coords(&screen_pos, &screen_pos);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Vertex Buffer"),
+            label: Some("Icon Color Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Button Index Buffer"),
+            label: Some("Icon Color Index Buffer"),
             contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
         let num_indices = indices.len();
 
         Self {
-            id,
-            width_px,
-            height_px,
-            halign: HAlign::default(),
-            valign: VAlign::default(),
-            screen_width,
-            screen_height,
+            width_px: 0,
+            height_px: 0,
+            placement: Placement::default(),
             screen_pos,
             tex_coords: screen_pos,
             resources: Resources::Color(ColorResources {
@@ -196,18 +197,12 @@ impl Icon {
 
     /// Create a new icon from an atlas slot.
     ///
-    /// `(width_px, height_px)` is the desired size in pixels.
-    /// The icon won't appear until a container calls `set_position`.
+    /// By default fills its parent; use `.width()`/`.height()` for explicit sizes.
     pub fn new(
         ctx: &Context,
-        atlas: Arc<Atlas>,
-        id: u32,
+        atlas: &Arc<Atlas>,
         slot: u8,
-        width_px: u32,
-        height_px: u32,
     ) -> Self {
-        let screen_width = ctx.config.width;
-        let screen_height = ctx.config.height;
         let screen_pos = Frame {
             start_x: 0.0,
             start_y: 0.0,
@@ -221,31 +216,27 @@ impl Icon {
 
         let vertices = vertices_from_coords(&screen_pos, &tex_coords);
         let vertex_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon Vertex Buffer {}", id)),
+            label: Some(&format!("Icon Vertex Buffer slot {}", slot)),
             contents: bytemuck::cast_slice(&vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
         });
         let indices: &[u16] = &[0, 1, 3, 1, 2, 3];
         let index_buffer = ctx.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some(&format!("Icon Index Buffer {}", id)),
+            label: Some(&format!("Icon Index Buffer slot {}", slot)),
             contents: bytemuck::cast_slice(indices),
             usage: BufferUsages::INDEX,
         });
         let num_indices = indices.len();
 
         Self {
-            id,
-            width_px,
-            height_px,
-            halign: HAlign::default(),
-            valign: VAlign::default(),
-            screen_width,
-            screen_height,
+            width_px: 0,
+            height_px: 0,
+            placement: Placement::default(),
             screen_pos,
             tex_coords,
             resources: Resources::Image(ImageResources {
                 num_indices,
-                atlas,
+                atlas: Arc::clone(atlas),
                 vertex_buffer,
                 index_buffer,
             }),
@@ -253,12 +244,22 @@ impl Icon {
     }
 
     pub fn halign(mut self, align: HAlign) -> Self {
-        self.halign = align;
+        self.placement.halign = align;
         self
     }
 
     pub fn valign(mut self, align: VAlign) -> Self {
-        self.valign = align;
+        self.placement.valign = align;
+        self
+    }
+
+    pub fn width(mut self, w: u32) -> Self {
+        self.placement.width = Some(w);
+        self
+    }
+
+    pub fn height(mut self, h: u32) -> Self {
+        self.placement.height = Some(h);
         self
     }
 
@@ -266,14 +267,7 @@ impl Icon {
     ///
     /// Intended to be called by containers that manage this icon's layout.
     pub fn set_position(&mut self, x_px: u32, y_px: u32, queue: &wgpu::Queue) {
-        self.screen_pos = pixels_to_ndc(
-            x_px,
-            y_px,
-            self.width_px,
-            self.height_px,
-            self.screen_width,
-            self.screen_height,
-        );
+        self.screen_pos = pixels_to_frame(x_px, y_px, self.width_px, self.height_px);
         let vertices = vertices_from_coords(&self.screen_pos, &self.tex_coords);
         match &self.resources {
             Resources::Image(image_resources) => queue.write_buffer(
@@ -288,6 +282,7 @@ impl Icon {
             ),
         }
     }
+
 }
 
 pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Vec<Vertex> {
@@ -312,7 +307,6 @@ pub(crate) fn vertices_from_coords(screen_pos: &Frame, tex_coords: &Frame) -> Ve
 }
 
 impl Layout for Icon {
-    // TODO: mitigate overflows (instead of just set position also scale containered UI elems)
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -321,16 +315,9 @@ impl Layout for Icon {
         parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        let x = match self.halign {
-            HAlign::Left => parent_x,
-            HAlign::Center => parent_x + (parent_w - self.width_px) / 2,
-            HAlign::Right => parent_x + parent_w - self.width_px,
-        };
-        let y = match self.valign {
-            VAlign::Top => parent_y,
-            VAlign::Center => parent_y + (parent_h - self.height_px) / 2,
-            VAlign::Bottom => parent_y + parent_h - self.height_px,
-        };
+        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        self.width_px = w;
+        self.height_px = h;
         self.set_position(x, y, queue);
     }
 }
@@ -343,17 +330,15 @@ impl<S, E> GraphicsFlow<S, E> for Icon {
                 index: &image_resources.index_buffer,
                 group: &image_resources.atlas.bind_group,
                 amount: image_resources.num_indices,
-                id: self.id,
+                id: 0,
             }),
             Resources::Color(color_resources) => Render::GUI(Flat {
                 vertex: &color_resources.vertex_buffer,
                 index: &color_resources.index_buffer,
                 group: &color_resources.bind_group,
                 amount: color_resources.num_indices,
-                id: self.id,
+                id: 0,
             }),
         }
     }
-
-    // TODO: custom resize mechanism or custom event for resizing or re-use of resize window event.
 }

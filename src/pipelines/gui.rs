@@ -86,13 +86,45 @@ pub fn mk_bind_group(
     })
 }
 
+pub fn mk_screen_size_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some("screen_size_bind_group_layout"),
+    })
+}
+
+pub fn mk_screen_size_bind_group(
+    device: &wgpu::Device,
+    buffer: &wgpu::Buffer,
+    layout: &wgpu::BindGroupLayout,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: buffer.as_entire_binding(),
+        }],
+        label: Some("screen_size_bind_group"),
+    })
+}
+
 fn mk_pipeline_layout(
     device: &wgpu::Device,
     texture_bind_group_layout: wgpu::BindGroupLayout,
+    screen_size_bind_group_layout: &wgpu::BindGroupLayout,
 ) -> wgpu::PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Menu Render Pipeline Layout"),
-        bind_group_layouts: &[&texture_bind_group_layout],
+        bind_group_layouts: &[&texture_bind_group_layout, screen_size_bind_group_layout],
         ..Default::default()
     })
 }
@@ -177,12 +209,12 @@ fn mk_render_pipeline(
     })
 }
 
-pub fn mk_gui_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, sample_count: u32) -> wgpu::RenderPipeline {
+pub fn mk_gui_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, screen_size_layout: &wgpu::BindGroupLayout, sample_count: u32) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("icon.wgsl").into()),
     });
     let texture_bind_group_layout = mk_texture_bind_group_layout(device);
-    let render_pipeline_layout = &mk_pipeline_layout(device, texture_bind_group_layout);
+    let render_pipeline_layout = &mk_pipeline_layout(device, texture_bind_group_layout, screen_size_layout);
     mk_render_pipeline(device, config, render_pipeline_layout, &shader, sample_count)
 }
