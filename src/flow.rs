@@ -238,12 +238,22 @@ impl<'a, State: Default> AppState<State> {
             self.ctx
                 .surface
                 .configure(&self.ctx.device, &self.ctx.config);
+            let sample_count = self.ctx.anti_aliasing.sample_count();
             self.ctx.depth_texture = Texture::create_depth_texture(
                 &self.ctx.device,
                 [self.ctx.config.width, self.ctx.config.height],
                 "depth_texture",
-                1
+                sample_count,
             );
+            self.ctx.msaa_view = if sample_count > 1 {
+                Some(Texture::create_msaa_texture(
+                    &self.ctx.device,
+                    &self.ctx.config,
+                    sample_count,
+                ))
+            } else {
+                None
+            };
             let screen_size_data = [width as f32, height as f32];
             self.ctx.queue.write_buffer(
                 &self.ctx.screen_size.buffer,
