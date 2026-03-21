@@ -275,12 +275,12 @@ impl<'a, State: Default> AppState<State> {
     }
 
     #[cfg(feature = "integration-tests")]
-    fn get_test_depth_texture(&self, extent3d: wgpu::Extent3d) -> wgpu::Texture {
+    fn get_test_depth_texture(&self, extent3d: wgpu::Extent3d, sample_count: u32) -> wgpu::Texture {
         self.ctx.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Pick depth texture"),
             size: extent3d,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -334,12 +334,37 @@ impl<'a, State: Default> AppState<State> {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         #[cfg(feature = "integration-tests")]
-        let (tex, depth) = {
+        let (tex, msaa_tex, depth) = {
             let extent3d = self.get_test_3d_extent();
+            let sample_count = self.ctx.anti_aliasing.sample_count();
             let tex = self.get_test_texture(extent3d.clone());
-            let depth = self.get_test_depth_texture(extent3d);
-            (tex, depth)
+            let msaa_tex = if sample_count > 1 {
+                Some(self.ctx.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Test MSAA Color Texture"),
+                    size: extent3d.clone(),
+                    mip_level_count: 1,
+                    sample_count,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.ctx.config.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                }))
+            } else {
+                None
+            };
+            let depth = self.get_test_depth_texture(extent3d, sample_count);
+            (tex, msaa_tex, depth)
         };
+
+        // Pre-create views so they live long enough for the render pass
+        #[cfg(feature = "integration-tests")]
+        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        #[cfg(feature = "integration-tests")]
+        let msaa_tex_view = msaa_tex
+            .as_ref()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+        #[cfg(feature = "integration-tests")]
+        let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder: wgpu::CommandEncoder =
             self.ctx
@@ -353,10 +378,21 @@ impl<'a, State: Default> AppState<State> {
                     label: Some("Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         #[cfg(feature = "integration-tests")]
-                        view: &tex.create_view(&wgpu::TextureViewDescriptor::default()),
+                        view: msaa_tex_view.as_ref().unwrap_or(&tex_view),
                         #[cfg(not(feature = "integration-tests"))]
-                        view: &view,
-                        resolve_target: None,
+                        view: self.ctx.msaa_view.as_ref().unwrap_or(&view),
+                        #[cfg(feature = "integration-tests")]
+                        resolve_target: if msaa_tex_view.is_some() {
+                            Some(&tex_view)
+                        } else {
+                            None
+                        },
+                        #[cfg(not(feature = "integration-tests"))]
+                        resolve_target: if self.ctx.msaa_view.is_some() {
+                            Some(&view)
+                        } else {
+                            None
+                        },
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(self.ctx.clear_colour),
                             store: wgpu::StoreOp::Store,
@@ -365,7 +401,7 @@ impl<'a, State: Default> AppState<State> {
                     })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         #[cfg(feature = "integration-tests")]
-                        view: &depth.create_view(&wgpu::TextureViewDescriptor::default()),
+                        view: &depth_view,
                         #[cfg(not(feature = "integration-tests"))]
                         view: &self.ctx.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {

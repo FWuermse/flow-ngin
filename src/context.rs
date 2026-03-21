@@ -366,6 +366,80 @@ impl Context {
             window,
         })
     }
+
+    /// Switch anti-aliasing mode at runtime, rebuilding all affected GPU state.
+    pub fn configure_anti_aliasing(&mut self, aa: AntiAliasing) {
+        self.anti_aliasing = aa;
+        let sample_count = aa.sample_count();
+
+        // Rebuild depth texture with matching sample count
+        self.depth_texture = texture::Texture::create_depth_texture(
+            &self.device,
+            [self.config.width, self.config.height],
+            "depth_texture",
+            sample_count,
+        );
+
+        // Rebuild MSAA color target
+        self.msaa_view = if sample_count > 1 {
+            Some(texture::Texture::create_msaa_texture(
+                &self.device,
+                &self.config,
+                sample_count,
+            ))
+        } else {
+            None
+        };
+
+        // Rebuild all pipelines with the new sample count
+        self.pipelines = Pipelines {
+            light: mk_light_pipeline(
+                &self.device,
+                &self.config,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            basic: mk_basic_pipeline(
+                &self.device,
+                &self.config,
+                wgpu::FrontFace::Ccw,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            basic_cw: mk_basic_pipeline(
+                &self.device,
+                &self.config,
+                wgpu::FrontFace::Cw,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            pick: mk_pick_pipeline(&self.device, &self.camera.bind_group_layout),
+            gui: mk_gui_pipeline(
+                &self.device,
+                &self.config,
+                &self.screen_size.bind_group_layout,
+                sample_count,
+            ),
+            transparent: mk_transparent_pipeline(
+                &self.device,
+                &self.config,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            terrain: mk_terrain_pipeline(
+                &self.device,
+                &self.config,
+                &self.camera.bind_group_layout,
+                &self.light.bind_group_layout,
+                sample_count,
+            ),
+            flat_pick: mk_gui_pick_pipeline(&self.device, &self.screen_size.bind_group_layout),
+        };
+    }
 }
 
 #[derive(Clone)]
