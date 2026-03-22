@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-pub(crate) fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
+pub fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
     let collected: Vec<Out<S, E>> = outs.filter(|o| !matches!(o, Out::Empty)).collect();
     match collected.len() {
         0 => Out::Empty,

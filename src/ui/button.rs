@@ -57,7 +57,7 @@ pub struct Button<S, E> {
     fill: Option<Icon>,
     hover: Option<Icon>,
     pressed: Option<Icon>,
-    on_click_fn: Option<Box<dyn Fn() -> E + 'static>>,
+    on_click_fn: Option<Box<dyn Fn(&Context, &S) -> E + 'static>>,
     content_scale: f32,
     visual_state: VisualState,
     was_pressed: bool,
@@ -152,7 +152,7 @@ impl<S: 'static, E: 'static> Button<S, E> {
 
     /// Register a callback that produces an event `E` when the button is clicked.
     #[inline]
-    pub fn on_click(mut self, f: impl Fn() -> E + 'static) -> Self {
+    pub fn on_click(mut self, f: impl Fn(&Context, &S) -> E + 'static) -> Self {
         self.on_click_fn = Some(Box::new(f));
         self
     }
@@ -249,7 +249,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
         Out::Empty
     }
 
-    fn on_update(&mut self, ctx: &Context, _state: &mut S, _dt: Duration) -> Out<S, E> {
+    fn on_update(&mut self, ctx: &Context, state: &mut S, _dt: Duration) -> Out<S, E> {
         let pos = ctx.mouse.coords;
         let hovered = self.contains(pos.x, pos.y);
         let is_pressed = matches!(ctx.mouse.pressed, MouseButtonState::Left);
@@ -266,7 +266,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
 
         if clicked {
             if let Some(f) = &self.on_click_fn {
-                let event = f();
+                let event = f(ctx, state);
                 return Out::FutEvent(vec![Box::new(async move { event })]);
             }
         }

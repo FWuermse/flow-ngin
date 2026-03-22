@@ -12,7 +12,7 @@
 //! - [`Flat<'a>`] contains data for flat (2D / GUI) rendering (vertex + index buffers)
 //!
 
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, default};
 
 use wgpu::RenderPass;
 
@@ -66,10 +66,12 @@ pub struct Flat<'a> {
 /// - `Composed(Vec<Render>)` recursively renders composition of multiple renders
 /// - `Custom(...)` invokes a user-defined closure for custom rendering
 ///
+#[derive(Default)]
 pub enum Render<'a, 'pass>
 where
     'pass: 'a,
 {
+    #[default]
     None,
     Default(Instanced<'a>),
     Defaults(Vec<Instanced<'a>>),
