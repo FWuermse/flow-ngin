@@ -93,6 +93,7 @@ pub fn mk_light_pipeline(
     config: &wgpu::SurfaceConfiguration,
     light_bind_group_layout: &wgpu::BindGroupLayout,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
+    sample_count: u32,
 ) -> wgpu::RenderPipeline {
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Light Pipeline Layout"),
@@ -115,5 +116,6 @@ pub fn mk_light_pipeline(
         Some(texture::Texture::DEPTH_FORMAT),
         &[ModelVertex::desc()],
         shader,
+        sample_count,
     )
 }

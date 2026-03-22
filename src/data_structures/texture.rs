@@ -35,7 +35,29 @@ impl Texture {
     ///
     /// * `size` is [width, height] of the texture in pixels
     /// * `label` is used as a debug label for the GPU resource
-    pub fn create_depth_texture(device: &wgpu::Device, size: [u32; 2], label: &str) -> Self {
+    pub fn create_msaa_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        sample_count: u32,
+    ) -> wgpu::TextureView {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("MSAA Color Texture"),
+            size: wgpu::Extent3d {
+                width: config.width.max(1),
+                height: config.height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format: config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    pub fn create_depth_texture(device: &wgpu::Device, size: [u32; 2], label: &str, sample_count: u32) -> Self {
         let size = wgpu::Extent3d {
             width: size[0].max(1),
             height: size[1].max(1),
@@ -45,7 +67,7 @@ impl Texture {
             label: Some(label),
             size,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -212,6 +234,8 @@ impl Texture {
         let dimensions = img.dimensions();
         let rgba = img.to_rgba8();
 
+        let mip_level_count = dimensions.0.min(dimensions.1).max(1).ilog2() + 1;
+
         let size = wgpu::Extent3d {
             width: dimensions.0,
             height: dimensions.1,
@@ -225,11 +249,13 @@ impl Texture {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label,
             size,
-            mip_level_count: 1,
+            mip_level_count,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -248,6 +274,9 @@ impl Texture {
             },
             size,
         );
+
+        let mipmapper = super::mipmapper::Mipmapper::new(device);
+        mipmapper.generate_mipmaps(device, queue, &texture)?;
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = Some(device.create_sampler(&wgpu::SamplerDescriptor {

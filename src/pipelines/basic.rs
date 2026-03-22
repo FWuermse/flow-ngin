@@ -15,6 +15,7 @@ pub fn mk_basic_pipeline(
     direction: wgpu::FrontFace,
     light_bind_group_layout: &wgpu::BindGroupLayout,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
+    sample_count: u32,
 ) -> wgpu::RenderPipeline {
     let render_pipeline_layout =
         device
@@ -45,6 +46,7 @@ pub fn mk_basic_pipeline(
         Some(Texture::DEPTH_FORMAT),
         &[model::ModelVertex::desc(), InstanceRaw::desc()],
         shader,
+        sample_count,
     )
 }
 
@@ -60,6 +62,7 @@ pub fn mk_render_pipeline(
     depth_format: Option<wgpu::TextureFormat>,
     vertex_layouts: &[wgpu::VertexBufferLayout],
     shader: wgpu::ShaderModuleDescriptor,
+    sample_count: u32,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(shader);
 
@@ -100,7 +103,7 @@ pub fn mk_render_pipeline(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 1,
+            count: sample_count,
             mask: !0,
             alpha_to_coverage_enabled: false,
         },

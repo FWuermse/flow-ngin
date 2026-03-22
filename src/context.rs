@@ -11,7 +11,7 @@ use crate::{
         gui::{mk_gui_pipeline, mk_screen_size_bind_group, mk_screen_size_bind_group_layout},
         light::{LightResources, LightUniform, mk_light_pipeline},
         pick::mk_pick_pipeline,
-        pick_gui::mk_gui_pick_pipelin,
+        pick_gui::mk_gui_pick_pipeline,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
     }, render::Render,
@@ -45,6 +45,22 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn GPUResource<'a, 'pass>> {
 
     fn get_render(&'a self) -> Render<'a, 'pass> {
         (**self).get_render()
+    }
+}
+
+/// Anti-aliasing mode for the rendering pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AntiAliasing {
+    None,
+    MSAA4x,
+}
+
+impl AntiAliasing {
+    pub fn sample_count(self) -> u32 {
+        match self {
+            AntiAliasing::None => 1,
+            AntiAliasing::MSAA4x => 4,
+        }
     }
 }
 
@@ -93,6 +109,8 @@ pub struct ScreenSizeResources {
 pub struct Context {
     pub window: Arc<Window>,
     pub(crate) depth_texture: texture::Texture,
+    pub(crate) msaa_view: Option<wgpu::TextureView>,
+    pub anti_aliasing: AntiAliasing,
     pub tick_duration_millis: u64,
     pub clear_colour: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
@@ -223,11 +241,21 @@ impl Context {
             bind_group_layout,
         };
 
+        let anti_aliasing = AntiAliasing::None;
+        let sample_count = anti_aliasing.sample_count();
+
         let depth_texture = texture::Texture::create_depth_texture(
             &device,
             [config.width, config.height],
             "depth_texture",
+            sample_count,
         );
+
+        let msaa_view = if sample_count > 1 {
+            Some(texture::Texture::create_msaa_texture(&device, &config, sample_count))
+        } else {
+            None
+        };
 
         let light_uniform = LightUniform {
             position: [8.0, 80.0, 50.0],
@@ -267,6 +295,7 @@ impl Context {
             &config,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let basic_pipeline = mk_basic_pipeline(
             &device,
@@ -274,6 +303,7 @@ impl Context {
             wgpu::FrontFace::Ccw,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let basic_cw_pipeline = mk_basic_pipeline(
             &device,
@@ -281,21 +311,24 @@ impl Context {
             wgpu::FrontFace::Cw,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let pick_pipeline = mk_pick_pipeline(&device, &camera.bind_group_layout);
-        let gui_pipeline = mk_gui_pipeline(&device, &config, &screen_size.bind_group_layout);
-        let gui_pick_pipeline = mk_gui_pick_pipelin(&device, &screen_size.bind_group_layout);
+        let gui_pipeline = mk_gui_pipeline(&device, &config, &screen_size.bind_group_layout, sample_count);
+        let gui_pick_pipeline = mk_gui_pick_pipeline(&device, &screen_size.bind_group_layout);
         let transparent_pipeline = mk_transparent_pipeline(
             &device,
             &config,
             &light.bind_group_layout,
             &camera.bind_group_layout,
+            sample_count,
         );
         let terrain_pipeline = mk_terrain_pipeline(
             &device,
             &config,
             &camera.bind_group_layout,
             &light.bind_group_layout,
+            sample_count,
         );
         let pipelines = Pipelines {
             basic: basic_pipeline,
@@ -315,6 +348,7 @@ impl Context {
         let tick_duration_millis = 500;
 
         Ok(Self {
+            anti_aliasing,
             camera,
             clear_colour,
             config,
@@ -322,6 +356,7 @@ impl Context {
             device,
             light,
             mouse,
+            msaa_view,
             pipelines,
             projection,
             queue,
@@ -330,6 +365,77 @@ impl Context {
             tick_duration_millis,
             window,
         })
+    }
+
+    /// Switch anti-aliasing mode at runtime, rebuilding all affected GPU state.
+    pub fn configure_anti_aliasing(&mut self, aa: AntiAliasing) {
+        self.anti_aliasing = aa;
+        let sample_count = aa.sample_count();
+
+        self.depth_texture = texture::Texture::create_depth_texture(
+            &self.device,
+            [self.config.width, self.config.height],
+            "depth_texture",
+            sample_count,
+        );
+
+        self.msaa_view = if sample_count > 1 {
+            Some(texture::Texture::create_msaa_texture(
+                &self.device,
+                &self.config,
+                sample_count,
+            ))
+        } else {
+            None
+        };
+
+        self.pipelines = Pipelines {
+            light: mk_light_pipeline(
+                &self.device,
+                &self.config,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            basic: mk_basic_pipeline(
+                &self.device,
+                &self.config,
+                wgpu::FrontFace::Ccw,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            basic_cw: mk_basic_pipeline(
+                &self.device,
+                &self.config,
+                wgpu::FrontFace::Cw,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            pick: mk_pick_pipeline(&self.device, &self.camera.bind_group_layout),
+            gui: mk_gui_pipeline(
+                &self.device,
+                &self.config,
+                &self.screen_size.bind_group_layout,
+                sample_count,
+            ),
+            transparent: mk_transparent_pipeline(
+                &self.device,
+                &self.config,
+                &self.light.bind_group_layout,
+                &self.camera.bind_group_layout,
+                sample_count,
+            ),
+            terrain: mk_terrain_pipeline(
+                &self.device,
+                &self.config,
+                &self.camera.bind_group_layout,
+                &self.light.bind_group_layout,
+                sample_count,
+            ),
+            flat_pick: mk_gui_pick_pipeline(&self.device, &self.screen_size.bind_group_layout),
+        };
     }
 }
 

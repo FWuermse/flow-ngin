@@ -158,6 +158,7 @@ fn mk_render_pipeline(
     config: &wgpu::SurfaceConfiguration,
     render_pipeline_layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
+    sample_count: u32,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Menu Render Pipeline"),
@@ -198,7 +199,7 @@ fn mk_render_pipeline(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState {
-            count: 1,
+            count: sample_count,
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
@@ -208,12 +209,12 @@ fn mk_render_pipeline(
     })
 }
 
-pub fn mk_gui_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, screen_size_layout: &wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
+pub fn mk_gui_pipeline(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, screen_size_layout: &wgpu::BindGroupLayout, sample_count: u32) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("icon.wgsl").into()),
     });
     let texture_bind_group_layout = mk_texture_bind_group_layout(device);
     let render_pipeline_layout = &mk_pipeline_layout(device, texture_bind_group_layout, screen_size_layout);
-    mk_render_pipeline(device, config, render_pipeline_layout, &shader)
+    mk_render_pipeline(device, config, render_pipeline_layout, &shader, sample_count)
 }
