@@ -12,7 +12,7 @@
 //! - [`Flat<'a>`] contains data for flat (2D / GUI) rendering (vertex + index buffers)
 //!
 
-use std::{collections::{HashMap, HashSet}, default};
+use std::collections::{HashMap, HashSet};
 
 use wgpu::RenderPass;
 
@@ -40,6 +40,20 @@ pub struct Instanced<'a> {
 /// contains textures and samplers for the rendered objects.
 #[derive(Clone)]
 pub struct Flat<'a> {
+    pub vertex: &'a wgpu::Buffer,
+    pub index: &'a wgpu::Buffer,
+    pub group: &'a wgpu::BindGroup,
+    pub amount: usize,
+    pub id: u32,
+}
+
+/// Data for custom instanced vertex rendering.
+///
+/// Used for 2D GUI elements, terrain, or other flat geometry. The bind group
+/// contains textures and samplers for the rendered objects.
+#[derive(Clone)]
+pub struct Geometry<'a> {
+    pub instance: &'a wgpu::Buffer,
     pub vertex: &'a wgpu::Buffer,
     pub index: &'a wgpu::Buffer,
     pub group: &'a wgpu::BindGroup,
@@ -78,7 +92,7 @@ where
     Transparent(Instanced<'a>),
     Transparents(Vec<Instanced<'a>>),
     GUI(Flat<'a>),
-    Terrain(Flat<'a>),
+    Terrain(Geometry<'a>),
     Composed(Vec<Render<'a, 'pass>>),
     Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
 }
@@ -143,7 +157,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
         basics: &mut Vec<Instanced<'a>>,
         trans: &mut Vec<Instanced<'a>>,
         guis: &mut Vec<Flat<'a>>,
-        terrain: &mut Vec<Flat<'a>>,
+        terrain: &mut Vec<Geometry<'a>>,
         customs: &mut Vec<Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>>,
     ) {
         match self {
@@ -170,6 +184,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
         render_pass: &mut RenderPass<'pass>,
         basics: &mut Vec<Instanced<'a>>,
         flats: &mut Vec<Flat<'a>>,
+        geoms: &mut Vec<Geometry<'a>>,
     ) {
         match self {
             Render::Default(instanced) => {
@@ -179,10 +194,10 @@ impl<'a, 'pass> Render<'a, 'pass> {
             Render::Transparent(instanced) => basics.push(instanced),
             Render::Transparents(mut vec) => basics.append(&mut vec),
             Render::GUI(flat) => flats.push(flat),
-            Render::Terrain(flat) => flats.push(flat),
+            Render::Terrain(flat) => geoms.push(flat),
             Render::Composed(renders) => renders
                 .into_iter()
-                .map(|render| render.set_pick_pipelines(ctx, render_pass, basics, flats))
+                .map(|render| render.set_pick_pipelines(ctx, render_pass, basics, flats, geoms))
                 .collect(),
             // Picking is not supported for custom renders
             Render::Custom(_) => (),

@@ -28,6 +28,7 @@ use instant::{Duration, Instant};
 use cgmath::Rotation3;
 #[cfg(feature = "integration-tests")]
 use tokio::runtime::Runtime;
+use wgpu::util::{self, DeviceExt};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
@@ -42,7 +43,7 @@ use crate::{
         texture::Texture,
     },
     pick::draw_to_pick_buffer,
-    render::{Flat, Instanced, Render},
+    render::{Flat, Geometry, Instanced, Render},
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -437,7 +438,7 @@ impl<'a, State: Default> AppState<State> {
             let mut basics: Vec<Instanced> = Vec::new();
             let mut trans: Vec<Instanced> = Vec::new();
             let mut guis: Vec<Flat> = Vec::new();
-            let mut terrain: Vec<Flat> = Vec::new();
+            let mut terrain: Vec<Geometry> = Vec::new();
             let mut customs = Vec::new();
             graphics_flows.iter_mut().for_each(|flow| {
                 let render = flow.on_render();
@@ -508,8 +509,8 @@ impl<'a, State: Default> AppState<State> {
             }
 
             render_pass.set_pipeline(&self.ctx.pipelines.terrain);
-            render_pass.set_bind_group(1, &self.ctx.screen_size.bind_group, &[]);
             for button in terrain {
+                render_pass.set_vertex_buffer(1, button.instance.slice(..));
                 render_pass.set_bind_group(0, button.group, &[]);
                 render_pass.set_bind_group(1, &self.ctx.camera.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.ctx.light.bind_group, &[]);

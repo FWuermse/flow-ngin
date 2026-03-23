@@ -22,7 +22,7 @@ use crate::{
     context::{Context, MouseState},
     data_structures::model::DrawModel,
     flow::GraphicsFlow,
-    render::{Flat, Instanced},
+    render::{Flat, Geometry, Instanced},
     resources::pick::{load_pick_model, load_pick_texture},
 };
 
@@ -144,6 +144,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event>(
 
         let mut basics: Vec<Instanced> = Vec::new();
         let mut flats: Vec<Flat> = Vec::new();
+        let mut geoms: Vec<Geometry> = Vec::new();
         /*
            We support graphics flow that handle pick IDs internally. Thus, we store the
            correspondance of the flow index and the model picked so that each flow only
@@ -161,7 +162,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event>(
         flows.iter_mut().enumerate().for_each(|(idx, flow)| {
             let render = flow.on_render();
             render.map_ids(idx, &mut translation);
-            render.set_pick_pipelines(&ctx, &mut render_pass, &mut basics, &mut flats);
+            render.set_pick_pipelines(&ctx, &mut render_pass, &mut basics, &mut flats, &mut geoms);
         });
 
         render_pass.set_pipeline(&ctx.pipelines.pick);
