@@ -272,6 +272,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
 
         Render::Composed(renders)
     }
+
+    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Out<S, E> {
+        merge_outs(self.children.iter_mut().map(|c| c.on_tick(ctx, state)))
+    }
 }
 
 impl<S: 'static, E: 'static> Layout for Container<S, E> {

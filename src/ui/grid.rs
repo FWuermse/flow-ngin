@@ -1,3 +1,4 @@
+use cgmath::num_traits::ToPrimitive;
 use instant::Duration;
 
 use winit::event::WindowEvent;
@@ -35,18 +36,18 @@ pub struct Grid<S, E> {
     y: u32,
     width: u32,
     height: u32,
-    cols: u32,
-    rows: u32,
+    cols: usize,
+    rows: usize,
     /// Flat vec of `cols * rows` cells, row-major order.
     cells: Vec<Container<S, E>>,
 }
 
 impl<S: 'static, E: 'static> Grid<S, E> {
     /// Create a grid with the given number of columns and rows (each clamped to 1..=12).
-    pub fn new(cols: u32, rows: u32) -> Self {
+    pub fn new(cols: usize, rows: usize) -> Self {
         let cols = cols.clamp(1, 12);
         let rows = rows.clamp(1, 12);
-        let mut cells = Vec::with_capacity((cols * rows) as usize);
+        let mut cells = Vec::with_capacity(cols * rows );
         for _ in 0..(cols * rows) {
             cells.push(Container::new());
         }
@@ -65,7 +66,7 @@ impl<S: 'static, E: 'static> Grid<S, E> {
     /// Place a child element into the cell at `(col, row)`.
     ///
     /// Panics if `col >= cols` or `row >= rows`.
-    pub fn with_child(mut self, col: u32, row: u32, child: impl UIElement<S, E> + 'static) -> Self {
+    pub fn with_child(mut self, col: usize, row: usize, child: impl UIElement<S, E> + 'static) -> Self {
         assert!(col < self.cols, "col {col} out of range (max {})", self.cols - 1);
         assert!(row < self.rows, "row {row} out of range (max {})", self.rows - 1);
         let idx = (row * self.cols + col) as usize;
@@ -79,12 +80,12 @@ impl<S: 'static, E: 'static> Grid<S, E> {
     /// Returns `self` unchanged if coordinates are out of range.
     pub fn try_with_child(
         mut self,
-        col: u32,
-        row: u32,
+        col: usize,
+        row: usize,
         child: impl UIElement<S, E> + 'static,
     ) -> Self {
         if col < self.cols && row < self.rows {
-            let idx = (row * self.cols + col) as usize;
+            let idx = row * self.cols + col;
             let cell = self.cells.remove(idx).with_child(child);
             self.cells.insert(idx, cell);
         }
@@ -92,9 +93,9 @@ impl<S: 'static, E: 'static> Grid<S, E> {
     }
 
     /// Set a background colour on a specific cell.
-    pub fn with_cell_background_color(mut self, col: u32, row: u32, rgba: [u8; 4]) -> Self {
+    pub fn with_cell_background_color(mut self, col: usize, row: usize, rgba: [u8; 4]) -> Self {
         if col < self.cols && row < self.rows {
-            let idx = (row * self.cols + col) as usize;
+            let idx = row * self.cols + col;
             let cell = self.cells.remove(idx).with_background_color(rgba);
             self.cells.insert(idx, cell);
         }
@@ -123,13 +124,13 @@ impl<S: 'static, E: 'static> Grid<S, E> {
 
     /// Resolve cell positions from the grid's own bounds.
     fn resolve_cells(&mut self, queue: &wgpu::Queue) {
-        let cell_w = self.width / self.cols;
-        let cell_h = self.height / self.rows;
+        let cell_w = self.width / self.cols.to_u32().unwrap_or(1);
+        let cell_h = self.height / self.rows.to_u32().unwrap_or(1);
         for row in 0..self.rows {
             for col in 0..self.cols {
                 let idx = (row * self.cols + col) as usize;
-                let cx = self.x + col * cell_w;
-                let cy = self.y + row * cell_h;
+                let cx = self.x + col.to_u32().unwrap_or(1) * cell_w;
+                let cy = self.y + row.to_u32().unwrap_or(1) * cell_h;
                 Layout::resolve(&mut self.cells[idx], cx, cy, cell_w, cell_h, queue);
             }
         }
@@ -166,6 +167,10 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Grid<S, E> {
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         Render::Composed(self.cells.iter().map(|c| c.on_render()).collect())
+    }
+
+    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Out<S, E> {
+        merge_outs(self.cells.iter_mut().map(|c| c.on_tick(ctx, state)))
     }
 }
 

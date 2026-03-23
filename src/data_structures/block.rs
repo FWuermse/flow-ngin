@@ -38,7 +38,7 @@ impl AsRef<BuildingBlocks> for BuildingBlocks {
 
 impl BuildingBlocks {
     pub async fn new(
-        #[allow(unused)] id: u32,
+        id: u32,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         start_position: cgmath::Vector3<f32>,
@@ -79,7 +79,7 @@ impl BuildingBlocks {
             obj_file: obj_file.to_string(),
             instance_buffer,
             // Ids may be used later for picking, hitboxes, etc.
-            id: 0,
+            id: id,
             buffer_size_needs_change: false,
         }
     }

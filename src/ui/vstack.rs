@@ -134,4 +134,8 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for VStack<S, E> {
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         Render::Composed(self.children.iter().map(|(_, c)| c.on_render()).collect())
     }
+
+    fn on_tick(&mut self, ctx: &Context, state: &mut S) -> Out<S, E> {
+        merge_outs(self.children.iter_mut().map(|(_, c)| c.on_tick(ctx, state)))
+    }
 }
