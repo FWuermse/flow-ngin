@@ -487,6 +487,17 @@ impl<'a, State: Default> AppState<State> {
                 );
             }
 
+            render_pass.set_pipeline(&self.ctx.pipelines.terrain);
+            for button in terrain {
+                render_pass.set_vertex_buffer(1, button.instance.slice(..));
+                render_pass.set_bind_group(0, button.group, &[]);
+                render_pass.set_bind_group(1, &self.ctx.camera.bind_group, &[]);
+                render_pass.set_bind_group(2, &self.ctx.light.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, button.vertex.slice(..));
+                render_pass.set_index_buffer(button.index.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..button.amount as u32, 0, 0..1);
+            }
+
             render_pass.set_pipeline(&self.ctx.pipelines.transparent);
             for instanced in trans {
                 if instanced.amount == 0 {
@@ -506,17 +517,6 @@ impl<'a, State: Default> AppState<State> {
                     &self.ctx.camera.bind_group,
                     &self.ctx.light.bind_group,
                 );
-            }
-
-            render_pass.set_pipeline(&self.ctx.pipelines.terrain);
-            for button in terrain {
-                render_pass.set_vertex_buffer(1, button.instance.slice(..));
-                render_pass.set_bind_group(0, button.group, &[]);
-                render_pass.set_bind_group(1, &self.ctx.camera.bind_group, &[]);
-                render_pass.set_bind_group(2, &self.ctx.light.bind_group, &[]);
-                render_pass.set_vertex_buffer(0, button.vertex.slice(..));
-                render_pass.set_index_buffer(button.index.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..button.amount as u32, 0, 0..1);
             }
 
             render_pass.set_pipeline(&self.ctx.pipelines.gui);
