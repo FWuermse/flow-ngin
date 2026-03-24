@@ -58,7 +58,7 @@ use wasm_bindgen::prelude::*;
 /// side effects unless handled.
 ///
 /// `Out::FutFn` can be used to directly modify the state and the mutation is handled internally with
-/// no further action required by the callee.
+/// no further action required by the callee but is blocking on non-wasn environments.
 ///
 /// `Out::Configure` can be used to modify the Context during runtime for instance to change the tick
 /// speed or the clear colour.
@@ -66,7 +66,7 @@ use wasm_bindgen::prelude::*;
 /// `Empty` is the default output used when no eventing/futures need to be handled.
 ///
 pub enum Out<S, E> where E: Send {
-    FutEvent(Vec<Box<dyn Future<Output = E>>>),
+    FutEvent(Vec<Box<dyn Future<Output = E> + Send>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
     Composed(Vec<Out<S, E>>),
@@ -657,7 +657,7 @@ where
 }
 
 pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
-    #[allow(dead_code)]
+    #[cfg(target_arch = "wasm32")]
     Initialized {
         state: AppState<State>,
         flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
@@ -665,7 +665,7 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     #[allow(dead_code)]
     Id((u32, HashSet<usize>)),
     #[allow(dead_code)]
-    Mut(Box<dyn FnOnce(&mut State)>),
+    Mut(Box<dyn FnOnce(&mut State) + Send>),
     #[allow(dead_code)]
     Custom(Event),
     #[allow(dead_code)]
@@ -674,6 +674,7 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
 impl<State, Event> Debug for FlowEvent<State, Event> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(target_arch = "wasm32")]
             Self::Initialized { state: _, flows } => {
                 f.debug_struct("Initialized").field("flows", flows).finish()
             }
@@ -760,6 +761,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
     #[allow(unused_mut)]
     fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: FlowEvent<State, Event>) {
         match event {
+            #[cfg(target_arch = "wasm32")]
             FlowEvent::Initialized { state, flows } => {
                 // This is the message from our wasm `spawn_local`
                 self.state = Some(state);
@@ -1042,13 +1044,15 @@ fn handle_flow_output<State, Event: Send>(
                 async move { futures::future::join_all(futures.into_iter().map(Pin::from)).await };
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let resolved = async_runtime.block_on(fut);
-                resolved.into_iter().for_each(|event| {
-                    let err = proxy.send_event(FlowEvent::Custom(event));
-                    if let Err(err) = err {
-                        log::error!("{}", err);
-                        panic!("Event loop was cloesed before all events could be processed.")
-                    }
+                async_runtime.spawn(async move {
+                    let resolved = fut.await;
+                    resolved.into_iter().for_each(|event| {
+                        let err = proxy.send_event(FlowEvent::Custom(event));
+                        if let Err(err) = err {
+                            log::error!("{}", err);
+                            panic!("Event loop was cloesed before all events could be processed.")
+                        }
+                    });
                 });
             }
 
