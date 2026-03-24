@@ -322,7 +322,7 @@ impl Layout for Icon {
     }
 }
 
-impl<S, E> GraphicsFlow<S, E> for Icon {
+impl<S, E: Send> GraphicsFlow<S, E> for Icon {
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         match &self.resources {
             Resources::Image(image_resources) => Render::GUI(Flat {

@@ -65,15 +65,15 @@ use wasm_bindgen::prelude::*;
 ///
 /// `Empty` is the default output used when no eventing/futures need to be handled.
 ///
-pub enum Out<S, E> {
+pub enum Out<S, E> where E: Send {
     FutEvent(Vec<Box<dyn Future<Output = E>>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
-    Multi(Vec<Out<S, E>>),
+    Composed(Vec<Out<S, E>>),
     Empty,
 }
 
-impl<S, E> Default for Out<S, E> {
+impl<S, E: Send> Default for Out<S, E> {
     fn default() -> Self {
         Self::Empty
     }
@@ -102,7 +102,7 @@ pub enum ImageTestResult {
 /// 6. `on_custom_events()` is called for custom application events
 /// 7. `on_render()` is called each frame and specifies how to render `self`
 ///
-pub trait GraphicsFlow<S, E> {
+pub trait GraphicsFlow<S, E: Send> {
     /// Initialize the flow and configure the context.
     ///
     /// This is the only place to modify the Context and configure things such as the default
@@ -201,7 +201,7 @@ impl<State, Event> Debug for dyn GraphicsFlow<State, Event> + 'static {
 ///
 /// A flow constructor takes an `InitContext` and asynchronously returns a
 /// boxed `GraphicsFlow`. This allows lazy initialization and resource loading.
-pub type FlowConsturctor<S, E> =
+pub type FlowConstructor<S, E> =
     Box<dyn FnOnce(InitContext) -> Pin<Box<dyn Future<Output = Box<dyn GraphicsFlow<S, E>>>>>>;
 
 /// Application state bundle: GPU context, app state, and surface status.
@@ -321,7 +321,7 @@ impl<'a, State: Default> AppState<State> {
         }
     }
 
-    fn render<Event>(
+    fn render<Event: Send>(
         &'a mut self,
         graphics_flows: &mut Vec<Box<dyn GraphicsFlow<State, Event>>>,
         #[cfg(feature = "integration-tests")] async_runtime: &Runtime,
@@ -427,10 +427,10 @@ impl<'a, State: Default> AppState<State> {
                 });
 
             // Actual rendering:
-            if let Some(_) = self.ctx.light.model {
+            if self.ctx.light.model.is_some() {
                 render_pass.set_pipeline(&self.ctx.pipelines.light);
                 render_pass.draw_light_model(
-                    &self.ctx.light.model.as_ref().unwrap(),
+                    self.ctx.light.model.as_ref().unwrap(),
                     &self.ctx.camera.bind_group,
                     &self.ctx.light.bind_group,
                 );
@@ -626,7 +626,7 @@ pub struct App<State: 'static, Event: 'static> {
     graphics_flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
     // This holds the constructors at the star.
     // We use Option to `take()` it after use.
-    constructors: Option<Vec<FlowConsturctor<State, Event>>>,
+    constructors: Option<Vec<FlowConstructor<State, Event>>>,
     last_time: Instant,
     time_since_tick: Duration,
 }
@@ -638,7 +638,7 @@ where
 {
     fn new(
         event_loop: &EventLoop<FlowEvent<State, Event>>,
-        constructors: Vec<FlowConsturctor<State, Event>>,
+        constructors: Vec<FlowConstructor<State, Event>>,
     ) -> Self {
         let proxy = event_loop.create_proxy();
         #[cfg(not(target_arch = "wasm32"))]
@@ -685,7 +685,7 @@ impl<State, Event> Debug for FlowEvent<State, Event> {
     }
 }
 
-impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<State, Event>>
+impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEvent<State, Event>>
     for App<State, Event>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -1028,7 +1028,7 @@ impl<State: 'static + Default, Event: 'static> ApplicationHandler<FlowEvent<Stat
     }
 }
 
-fn handle_flow_output<State, Event>(
+fn handle_flow_output<State, Event: Send>(
     #[cfg(not(target_arch = "wasm32"))] async_runtime: &tokio::runtime::Runtime,
     state: &mut State,
     ctx: &mut Context,
@@ -1086,7 +1086,7 @@ fn handle_flow_output<State, Event>(
             }
         }
         Out::Configure(f) => f(ctx),
-        Out::Multi(outs) => {
+        Out::Composed(outs) => {
             for out in outs {
                 handle_flow_output(
                     #[cfg(not(target_arch = "wasm32"))]
@@ -1102,8 +1102,8 @@ fn handle_flow_output<State, Event>(
     }
 }
 
-pub fn run<State: 'static + Default, Event: 'static>(
-    constructors: Vec<FlowConsturctor<State, Event>>,
+pub fn run<State: 'static + Default, Event: Send + 'static>(
+    constructors: Vec<FlowConstructor<State, Event>>,
 ) -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {

@@ -37,7 +37,7 @@ const CURSOR_WIDTH_PX: u32 = 2;
 ///     .background(bg_icon)
 ///     .bind(&username);
 /// ```
-pub struct TextInput<S, E> {
+pub struct TextInput<S, E: Send> {
     placement: Placement,
     x: u32,
     y: u32,
@@ -60,7 +60,7 @@ pub struct TextInput<S, E> {
     on_submit: Option<Box<dyn Fn(&str) -> Out<S, E>>>,
 }
 
-impl<S: 'static, E: 'static> TextInput<S, E> {
+impl<S: 'static, E: Send + 'static> TextInput<S, E> {
     pub fn new() -> Self {
         Self {
             placement: Placement::default(),
@@ -215,7 +215,7 @@ impl<S: 'static, E: 'static> TextInput<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for TextInput<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for TextInput<S, E> {
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -236,7 +236,7 @@ impl<S: 'static, E: 'static> Layout for TextInput<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for TextInput<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for TextInput<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
         self.x = x;

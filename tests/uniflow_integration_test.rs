@@ -2,7 +2,7 @@
 use flow_ngin::flow::ImageTestResult;
 use flow_ngin::{
     context::Context,
-    flow::{FlowConsturctor, GraphicsFlow, Out}, render::Render,
+    flow::{FlowConstructor, GraphicsFlow, Out}, render::Render,
 };
 use wgpu::Color;
 
@@ -120,7 +120,7 @@ impl GraphicsFlow<State, Event> for GraphicsElement {
 #[test]
 #[cfg(feature = "integration-tests")]
 fn should_not_be_emty_after_render() {
-    let model_constructor: FlowConsturctor<State, Event> = Box::new(|_| {
+    let model_constructor: FlowConstructor<State, Event> = Box::new(|_| {
         Box::pin(async move {
             Box::new(GraphicsElement()) as Box<dyn GraphicsFlow<_, _>>
         })

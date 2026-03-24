@@ -8,7 +8,7 @@ use glyphon::{
 
 use crate::{
     context::Context,
-    flow::{FlowConsturctor, GraphicsFlow, Out},
+    flow::{FlowConstructor, GraphicsFlow, Out},
     render::Render,
     ui::{HAlign, Placement, VAlign, layout::Layout},
 };
@@ -305,7 +305,7 @@ impl TextLabel {
     }
 
     /// Wrap this label in a [`FlowConsturctor`] for use with [`flow_ngin::flow::run`].
-    pub fn into_constructor<S: 'static, E: 'static>(self) -> FlowConsturctor<S, E> {
+    pub fn into_constructor<S: 'static, E: Send + 'static>(self) -> FlowConstructor<S, E> {
         Box::new(|_ctx| {
             Box::pin(async move { Box::new(self) as Box<dyn GraphicsFlow<S, E>> })
         })
@@ -318,7 +318,7 @@ impl Layout for TextLabel {
     }
 }
 
-impl<S, E> GraphicsFlow<S, E> for TextLabel {
+impl<S, E: Send> GraphicsFlow<S, E> for TextLabel {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
         self.init(ctx);
         Out::Empty

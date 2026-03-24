@@ -13,6 +13,6 @@ pub trait Layout {
 ///
 /// Any type that implements both traits automatically implements `UIElement`
 /// via the blanket impl below, making it eligible to be added to a [`Container`].
-pub trait UIElement<S, E>: GraphicsFlow<S, E> + Layout {}
+pub trait UIElement<S, E: Send>: GraphicsFlow<S, E> + Layout {}
 
-impl<T, S, E> UIElement<S, E> for T where T: GraphicsFlow<S, E> + Layout {}
+impl<T, S, E: Send> UIElement<S, E> for T where T: GraphicsFlow<S, E> + Layout {}

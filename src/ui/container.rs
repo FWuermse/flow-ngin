@@ -11,7 +11,7 @@ use winit::event::WindowEvent;
 use crate::{
     context::Context,
     data_structures::texture::Texture,
-    flow::{FlowConsturctor, GraphicsFlow, Out},
+    flow::{FlowConstructor, GraphicsFlow, Out},
     pipelines::gui::{mk_bind_group, mk_bind_group_layout},
     render::{Flat, Render},
     ui::{
@@ -22,12 +22,12 @@ use crate::{
     },
 };
 
-pub fn merge_outs<S, E>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
+pub fn merge_outs<S, E: Send>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
     let collected: Vec<Out<S, E>> = outs.filter(|o| !matches!(o, Out::Empty)).collect();
     match collected.len() {
         0 => Out::Empty,
         1 => collected.into_iter().next().unwrap(),
-        _ => Out::Multi(collected),
+        _ => Out::Composed(collected),
     }
 }
 
@@ -85,7 +85,7 @@ pub struct Container<S, E> {
     pick_id: u32,
 }
 
-impl<S: 'static, E: 'static> Container<S, E> {
+impl<S: 'static, E: Send + 'static> Container<S, E> {
     /// Create a container that fills its parent by default.
     ///
     /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
@@ -178,7 +178,7 @@ impl<S: 'static, E: 'static> Container<S, E> {
     }
 
     /// Wrap this container in a [`FlowConsturctor`] for use with [`flow_ngin::flow::run`].
-    pub fn into_constructor(self) -> FlowConsturctor<S, E> {
+    pub fn into_constructor(self) -> FlowConstructor<S, E> {
         Box::new(|_ctx| {
             // TODO: find a way to limit the heavy boxing in general
             Box::pin(async move { Box::new(self) as Box<dyn GraphicsFlow<S, E>> })
@@ -186,7 +186,7 @@ impl<S: 'static, E: 'static> Container<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Container<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
         // Resolve own placement against screen dimensions.
         // For nested containers, the parent's Layout::resolve will override afterward.
@@ -278,7 +278,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Container<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for Container<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for Container<S, E> {
     /// Resolve the container's position from parent bounds and re-resolve all children.
     fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
         let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);

@@ -7,10 +7,7 @@ use crate::{
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
-        HAlign, Placement, VAlign,
-        image::Icon,
-        layout::Layout,
-        text_label::TextLabel,
+        HAlign, Placement, VAlign, container::merge_outs, image::Icon, layout::Layout, text_label::TextLabel
     },
 };
 
@@ -47,7 +44,7 @@ pub enum ButtonContent {
 ///     .with_text(TextLabel::new("Click me"))
 ///     .on_click(|| Event::ButtonPressed);
 /// ```
-pub struct Button<S, E> {
+pub struct Button<S, E: Send> {
     placement: Placement,
     x: u32,
     y: u32,
@@ -65,7 +62,7 @@ pub struct Button<S, E> {
     _marker: PhantomData<S>,
 }
 
-impl<S: 'static, E: 'static> Button<S, E> {
+impl<S: 'static, E: Send + 'static> Button<S, E> {
     /// Create a button that fills its parent by default.
     ///
     /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
@@ -213,7 +210,7 @@ impl<S: 'static, E: 'static> Button<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for Button<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for Button<S, E> {
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -238,7 +235,7 @@ impl<S: 'static, E: 'static> Layout for Button<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
         // Resolve own placement against screen dimensions.
         // For nested buttons, the parent's Layout::resolve will override afterward.
@@ -272,17 +269,18 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Button<S, E> {
         // Detect click: was pressed last frame, now released, still hovering.
         let clicked = self.was_pressed && !is_pressed && hovered;
         self.was_pressed = is_pressed && hovered;
+        let mut out = Vec::new();
 
         if clicked {
             if let Some(f) = &self.on_click_fn {
                 let event = f(ctx, state);
-                return Out::FutEvent(vec![Box::new(async move { event })]);
+                out.push(Out::FutEvent(vec![Box::new(async move { event })]));
             }
             if let Some(f) = &self.on_click_fn_out {
-                return f(ctx, state)
+                out.push(f(ctx, state))
             }
         }
-        Out::Empty
+        merge_outs(out.into_iter())
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {

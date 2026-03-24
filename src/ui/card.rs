@@ -105,7 +105,7 @@ impl<S: 'static, E: 'static> Card<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for Card<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for Card<S, E> {
     fn resolve(&mut self, parent_x: u32, parent_y: u32, parent_w: u32, parent_h: u32, queue: &wgpu::Queue) {
         if let Some(container) = &mut self.container {
             Layout::resolve(container, parent_x, parent_y, parent_w, parent_h, queue);
@@ -113,7 +113,7 @@ impl<S: 'static, E: 'static> Layout for Card<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Card<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Card<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
         let mut vstack = VStack::<S, E>::new();
 

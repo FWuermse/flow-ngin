@@ -38,7 +38,7 @@ pub struct VStack<S, E> {
     children: Vec<(u32, Box<dyn UIElement<S, E>>)>,
 }
 
-impl<S: 'static, E: 'static> VStack<S, E> {
+impl<S: 'static, E: Send + 'static> VStack<S, E> {
     pub fn new() -> Self {
         Self {
             placement: Placement::default(),
@@ -85,7 +85,7 @@ impl<S: 'static, E: 'static> VStack<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for VStack<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for VStack<S, E> {
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -103,7 +103,7 @@ impl<S: 'static, E: 'static> Layout for VStack<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for VStack<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for VStack<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
         self.x = x;

@@ -28,7 +28,7 @@ use crate::{
 ///     .checked(checked_icon)
 ///     .bind(&checked);
 /// ```
-pub struct Checkbox<S, E> {
+pub struct Checkbox<S, E: Send> {
     placement: Placement,
     x: u32,
     y: u32,
@@ -41,7 +41,7 @@ pub struct Checkbox<S, E> {
     was_pressed: bool,
 }
 
-impl<S: 'static, E: 'static> Checkbox<S, E> {
+impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
     pub fn new() -> Self {
         Self {
             placement: Placement::default(),
@@ -121,7 +121,7 @@ impl<S: 'static, E: 'static> Checkbox<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for Checkbox<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for Checkbox<S, E> {
     fn resolve(
         &mut self,
         parent_x: u32,
@@ -141,7 +141,7 @@ impl<S: 'static, E: 'static> Layout for Checkbox<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
         self.x = x;

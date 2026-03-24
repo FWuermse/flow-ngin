@@ -42,7 +42,7 @@ pub struct Grid<S, E> {
     cells: Vec<Container<S, E>>,
 }
 
-impl<S: 'static, E: 'static> Grid<S, E> {
+impl<S: 'static, E: Send + 'static> Grid<S, E> {
     /// Create a grid with the given number of columns and rows (each clamped to 1..=12).
     pub fn new(cols: usize, rows: usize) -> Self {
         let cols = cols.clamp(1, 12);
@@ -137,7 +137,7 @@ impl<S: 'static, E: 'static> Grid<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Grid<S, E> {
+impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Grid<S, E> {
     fn on_init(&mut self, ctx: &mut Context, state: &mut S) -> Out<S, E> {
         let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
         self.x = x;
@@ -174,7 +174,7 @@ impl<S: 'static, E: 'static> GraphicsFlow<S, E> for Grid<S, E> {
     }
 }
 
-impl<S: 'static, E: 'static> Layout for Grid<S, E> {
+impl<S: 'static, E: Send + 'static> Layout for Grid<S, E> {
     fn resolve(
         &mut self,
         parent_x: u32,

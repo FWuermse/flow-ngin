@@ -399,7 +399,7 @@ fn merge(clips: Vec<AnimationClip>) -> Vec<ModelAnimation> {
     state.animations
 }
 
-pub trait SceneNode {
+pub trait SceneNode: Send {
     fn get_world_transforms(&self) -> Vec<Instance>;
 
     fn get_world_transform(&self, idx: usize) -> Option<&Instance>;
