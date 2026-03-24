@@ -307,8 +307,8 @@ impl CameraController {
         camera.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
 
         // Rotate
-        camera.yaw += Rad(self.rotate_horizontal) * self.sensitivity * dt;
-        camera.pitch += Rad(-self.rotate_vertical) * self.sensitivity * dt;
+        camera.yaw += (Rad(self.rotate_horizontal) * self.speed * self.sensitivity * dt) / 10.0;
+        camera.pitch += (Rad(-self.rotate_vertical) * self.speed * self.sensitivity * dt) / 10.0;
 
         // If process_mouse isn't called every frame, these values
         // will not get set to zero, and the camera will rotate
