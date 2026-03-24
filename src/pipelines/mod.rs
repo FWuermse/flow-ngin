@@ -5,3 +5,4 @@ pub mod pick;
 pub mod transparent;
 pub mod terrain;
 pub mod pick_gui;
+pub mod mipmapper;

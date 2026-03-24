@@ -7,6 +7,8 @@
 use anyhow::*;
 use image::{GenericImageView, ImageFormat, load_from_memory_with_format};
 
+use crate::pipelines::mipmapper::Mipmapper;
+
 /// A GPU texture with a view and optional sampler.
 ///
 /// Wraps WGPU texture objects along with associated views and samplers.
@@ -275,7 +277,7 @@ impl Texture {
             size,
         );
 
-        let mipmapper = super::mipmapper::Mipmapper::new(device);
+        let mipmapper = Mipmapper::new(device);
         mipmapper.generate_mipmaps(device, queue, &texture)?;
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
