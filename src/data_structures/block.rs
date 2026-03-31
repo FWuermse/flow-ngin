@@ -8,7 +8,7 @@ use crate::{
     context::{Context, GPUResource}, data_structures::{
         instance::Instance,
         model::{self},
-    }, render::{Instanced, Render}, resources::{self, pick::load_pick_model}
+    }, pick::PickId, render::{Instanced, Render}, resources::{self, pick::load_pick_model}
 };
 use cgmath::{One, Rotation3, Zero};
 use wgpu::{Device, util::DeviceExt};
@@ -20,7 +20,7 @@ use wgpu::{Device, util::DeviceExt};
 /// or occlusion culling, so performance may degrade with very large numbers of blocks.
 pub struct BuildingBlocks {
     // TODO: create apis and make fields private
-    pub id: u32,
+    pub id: PickId,
     pub obj_model: model::Model,
     // TODO: retire this param
     #[allow(dead_code)]
@@ -38,7 +38,7 @@ impl AsRef<BuildingBlocks> for BuildingBlocks {
 
 impl BuildingBlocks {
     pub async fn new(
-        id: u32,
+        id: impl Into<PickId>,
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         start_position: cgmath::Vector3<f32>,
@@ -79,7 +79,7 @@ impl BuildingBlocks {
             obj_file: obj_file.to_string(),
             instance_buffer,
             // Ids may be used later for picking, hitboxes, etc.
-            id: id,
+            id: id.into(),
             buffer_size_needs_change: false,
         }
     }
@@ -119,7 +119,7 @@ impl BuildingBlocks {
         queue: &wgpu::Queue,
         device: &wgpu::Device,
         amount: usize,
-        descr: &[(u32, &'static str)],
+        descr: &[(PickId, &'static str)],
     ) -> Vec<BuildingBlocks> {
         let futures = descr.into_iter().map(|(id, file_name)| {
             BuildingBlocks::new(
@@ -145,8 +145,8 @@ impl BuildingBlocks {
      *
      * TODO: make this a trait if possible
      */
-    pub fn to_clickable(&self, device: &Device, color: u32) -> Self {
-        let obj_model = load_pick_model(device, color, self.obj_model.meshes.clone()).unwrap();
+    pub fn to_clickable(&self, device: &Device, id: PickId) -> Self {
+        let obj_model = load_pick_model(device, id, self.obj_model.meshes.clone()).unwrap();
 
         let instance_data = self
             .instances
@@ -164,7 +164,7 @@ impl BuildingBlocks {
             obj_file: self.obj_file.clone(),
             instances: self.instances.clone(),
             instance_buffer,
-            id: color,
+            id,
             buffer_size_needs_change: false,
         }
     }

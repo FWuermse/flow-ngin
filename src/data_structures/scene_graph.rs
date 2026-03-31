@@ -11,13 +11,10 @@ use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
 use crate::{
-    context::GPUResource,
-    data_structures::{
+    context::GPUResource, data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
-    },
-    render::{Instanced, Render},
-    resources::{animation::Keyframes, load_model_obj, pick::load_pick_model},
+    }, pick::PickId, render::{Instanced, Render}, resources::{animation::Keyframes, load_model_obj, pick::load_pick_model}
 };
 
 /// An animation clip: a named animation with keyframes and timing.
@@ -58,7 +55,7 @@ impl ModelState {
 }
 
 pub fn to_scene_node(
-    id: u32,
+    id: impl Into<PickId>,
     node: gltf::scene::Node,
     buf: &Vec<Vec<u8>>,
     device: &wgpu::Device,
@@ -69,6 +66,7 @@ pub fn to_scene_node(
         Some(clips) => merge(clips.clone()),
         None => Default::default(),
     };
+    let id = id.into();
     // TODO: only select materials for current mesh
     let mut scene_node: Box<dyn SceneNode> = match node.mesh() {
         Some(mesh) => {
@@ -414,7 +412,7 @@ pub trait SceneNode: Send {
     ) where
         'a: 'pass;
 
-    fn to_clickable(&self, device: &wgpu::Device, id: u32) -> Box<dyn SceneNode>;
+    fn to_clickable(&self, device: &wgpu::Device, id: PickId) -> Box<dyn SceneNode>;
 
     fn get_children(&self) -> &Vec<Box<dyn SceneNode>>;
 
@@ -663,7 +661,7 @@ impl SceneNode for ContainerNode {
         &self.children
     }
 
-    fn to_clickable(&self, device: &Device, id: u32) -> Box<dyn SceneNode> {
+    fn to_clickable(&self, device: &Device, id: PickId) -> Box<dyn SceneNode> {
         let children = self
             .children
             .iter()
@@ -758,13 +756,13 @@ pub struct ModelNode {
     animations: Vec<ModelAnimation>,
     buffer_size_needs_change: bool,
     model: model::Model,
-    id: u32,
+    id: PickId,
 }
 
 impl ModelNode {
     pub async fn new(
         amount: usize,
-        id: u32,
+        id: impl Into<PickId>,
         device: &Device,
         queue: &Queue,
         obj_file: &str,
@@ -780,7 +778,7 @@ impl ModelNode {
 
     pub fn from_model(
         amount: usize,
-        id: u32,
+        id: impl Into<PickId>,
         device: &Device,
         obj_model: model::Model,
         animations: Vec<ModelAnimation>,
@@ -812,7 +810,7 @@ impl ModelNode {
             model: obj_model,
             buffer_size_needs_change: size_changed,
             animations,
-            id,
+            id: id.into(),
         }
     }
 }
@@ -952,7 +950,7 @@ impl SceneNode for ModelNode {
         &self.children
     }
 
-    fn to_clickable(&self, device: &wgpu::Device, id: u32) -> Box<dyn SceneNode> {
+    fn to_clickable(&self, device: &wgpu::Device, id: PickId) -> Box<dyn SceneNode> {
         let obj_model = load_pick_model(&device, id, self.model.meshes.clone()).unwrap();
 
         let children = self
@@ -969,7 +967,7 @@ impl SceneNode for ModelNode {
             buffer_size_needs_change: false,
             model: obj_model,
             animations: Vec::new(),
-            id,
+            id: id.into(),
         })
     }
 
@@ -1061,12 +1059,13 @@ impl SceneNode for ModelNode {
 
 pub async fn mk_flat_scene_graph(
     amount: usize,
-    id: u32,
+    id: impl Into<PickId>,
     models: Vec<&'static str>,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-) -> anyhow::Result<Box<dyn SceneNode>> {
+) -> anyhow::Result<Box<dyn SceneNode + Send>> {
     let mut parent: Box<dyn SceneNode> = Box::new(ContainerNode::new(amount, Vec::new()));
+    let id = id.into();
     futures::future::join_all(
         models
             .into_iter()

@@ -7,13 +7,7 @@ use wgpu::{
 };
 
 use crate::{
-    context::Context,
-    data_structures::texture::Texture,
-    flow::GraphicsFlow,
-    pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout},
-    render::{Flat, Render},
-    resources::texture::load_texture,
-    ui::{Placement, layout::Layout},
+    context::Context, data_structures::texture::Texture, flow::GraphicsFlow, pick::PickId, pipelines::gui::{Vertex, mk_bind_group, mk_bind_group_layout}, render::{Flat, Render}, resources::texture::load_texture, ui::{Placement, layout::Layout}
 };
 
 pub struct ImageResources {
@@ -330,14 +324,14 @@ impl<S, E: Send> GraphicsFlow<S, E> for Icon {
                 index: &image_resources.index_buffer,
                 group: &image_resources.atlas.bind_group,
                 amount: image_resources.num_indices,
-                id: 0,
+                id: PickId(0),
             }),
             Resources::Color(color_resources) => Render::GUI(Flat {
                 vertex: &color_resources.vertex_buffer,
                 index: &color_resources.index_buffer,
                 group: &color_resources.bind_group,
                 amount: color_resources.num_indices,
-                id: 0,
+                id: PickId(0),
             }),
         }
     }

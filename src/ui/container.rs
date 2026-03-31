@@ -9,17 +9,12 @@ use instant::Duration;
 use winit::event::WindowEvent;
 
 use crate::{
-    context::Context,
-    data_structures::texture::Texture,
-    flow::{FlowConstructor, GraphicsFlow, Out},
-    pipelines::gui::{mk_bind_group, mk_bind_group_layout},
-    render::{Flat, Render},
-    ui::{
+    context::Context, data_structures::texture::Texture, flow::{FlowConstructor, GraphicsFlow, Out}, pick::PickId, pipelines::gui::{mk_bind_group, mk_bind_group_layout}, render::{Flat, Render}, ui::{
         HAlign, Placement, VAlign,
         background::{Background, BackgroundTexture},
         image::{Frame, pixels_to_frame, vertices_from_coords},
         layout::{Layout, UIElement},
-    },
+    }
 };
 
 pub fn merge_outs<S, E: Send>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E> {
@@ -82,7 +77,7 @@ pub struct Container<S, E> {
     children: Vec<Box<dyn UIElement<S, E>>>,
     background: Option<Background>,
     bg_resources: Option<BgResources>,
-    pick_id: u32,
+    pick_id: PickId,
 }
 
 impl<S: 'static, E: Send + 'static> Container<S, E> {
@@ -99,7 +94,7 @@ impl<S: 'static, E: Send + 'static> Container<S, E> {
             children: Vec::new(),
             background: None,
             bg_resources: None,
-            pick_id: 0,
+            pick_id: PickId(0),
         }
     }
 
@@ -145,8 +140,8 @@ impl<S: 'static, E: Send + 'static> Container<S, E> {
     ///
     /// A non-zero pick ID causes the background quad to absorb GPU picks,
     /// preventing 3D objects behind this container from receiving `on_click`.
-    pub fn clickable(mut self, pick_id: u32) -> Self {
-        self.pick_id = pick_id;
+    pub fn clickable(mut self, pick_id: impl Into<PickId>) -> Self {
+        self.pick_id = pick_id.into();
         self
     }
 

@@ -42,7 +42,7 @@ use crate::{
         model::{DrawLight, DrawModel},
         texture::Texture,
     },
-    pick::draw_to_pick_buffer,
+    pick::{PickId, draw_to_pick_buffer},
     render::{Flat, Geometry, Instanced, Render},
 };
 
@@ -65,7 +65,10 @@ use wasm_bindgen::prelude::*;
 ///
 /// `Empty` is the default output used when no eventing/futures need to be handled.
 ///
-pub enum Out<S, E> where E: Send {
+pub enum Out<S, E>
+where
+    E: Send,
+{
     FutEvent(Vec<Box<dyn Future<Output = E> + Send>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
@@ -123,7 +126,7 @@ pub trait GraphicsFlow<S, E: Send> {
     /// See `flow_ngin::pick::draw_to_pick_buffer` for more information about custom picking.
     ////
     /// picking; see [`crate::pick::draw_to_pick_buffer`] for details.
-    fn on_click(&mut self, _ctx: &Context, _state: &mut S, _id: u32) -> Out<S, E> {
+    fn on_click(&mut self, _ctx: &Context, _state: &mut S, _id: PickId) -> Out<S, E> {
         Out::Empty
     }
 
@@ -787,11 +790,11 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             }
             FlowEvent::Id((pick_id, flow_ids)) => {
                 if let Some(state) = &mut self.state {
-                    state.ctx.mouse.toggle(pick_id);
+                    state.ctx.mouse.toggle(PickId(pick_id));
                     flow_ids.into_iter().for_each(|flow_id| {
                         self.graphics_flows
                             .get_mut(flow_id)
-                            .map(|flow| flow.on_click(&state.ctx, &mut state.state, pick_id));
+                            .map(|flow| flow.on_click(&state.ctx, &mut state.state, PickId(pick_id)));
                     });
                 }
             }
@@ -992,18 +995,10 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                                 #[cfg(target_arch = "wasm32")]
                                 self.proxy.clone(),
                             ) {
-                                state.ctx.mouse.toggle(pick_id);
-                                if flow_ids.len() > 1 {
-                                    log::warn!(
-                                        "Multiple flows (incides {:?}) want to react to the render ID {}.",
-                                        flow_ids,
-                                        pick_id
-                                    );
-                                }
-                                flow_ids.into_iter().for_each(|flow_id| {
+                                flow_ids.clone().into_iter().for_each(|flow_id| {
                                     self.graphics_flows.get_mut(flow_id).map(|flow| {
                                         let events =
-                                            flow.on_click(&state.ctx, &mut state.state, pick_id);
+                                            flow.on_click(&state.ctx, &mut state.state, PickId(pick_id));
                                         let proxy = self.proxy.clone();
                                         handle_flow_output(
                                             #[cfg(not(target_arch = "wasm32"))]
@@ -1015,6 +1010,14 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                                         );
                                     });
                                 });
+                                state.ctx.mouse.toggle(PickId(pick_id));
+                                if flow_ids.len() > 1 {
+                                    log::warn!(
+                                        "Multiple flows (incides {:?}) want to react to the render ID {}.",
+                                        flow_ids,
+                                        pick_id
+                                    );
+                                }
                             }
                         }
                         (MouseButton::Right, true) => {

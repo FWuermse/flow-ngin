@@ -18,7 +18,7 @@ use wgpu::RenderPass;
 
 use crate::{
     context::{Context, GPUResource},
-    data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode},
+    data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode}, pick::PickId,
 };
 
 /// Data for instanced object rendering: a model, instance buffer, and pick ID.
@@ -31,7 +31,7 @@ pub struct Instanced<'a> {
     pub model: &'a Model,
     pub front_face: wgpu::FrontFace,
     pub amount: usize,
-    pub id: u32,
+    pub id: PickId,
 }
 
 /// Data for flat (2D / GUI) object rendering: vertex and index buffers with a bind group.
@@ -44,7 +44,7 @@ pub struct Flat<'a> {
     pub index: &'a wgpu::Buffer,
     pub group: &'a wgpu::BindGroup,
     pub amount: usize,
-    pub id: u32,
+    pub id: PickId,
 }
 
 /// Data for custom instanced vertex rendering.
@@ -58,7 +58,7 @@ pub struct Geometry<'a> {
     pub index: &'a wgpu::Buffer,
     pub group: &'a wgpu::BindGroup,
     pub amount: usize,
-    pub id: u32,
+    pub id: PickId,
 }
 
 /// Specifies how a scene object should be rendered.
@@ -106,7 +106,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
         &self,
         // TODO: introduce id caching in ctx
         flow_id: usize,
-        map: &mut HashMap<u32, HashSet<usize>>,
+        map: &mut HashMap<PickId, HashSet<usize>>,
     ) {
         match self {
             Render::Default(instanced) => {

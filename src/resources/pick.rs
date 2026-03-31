@@ -1,4 +1,4 @@
-use crate::{data_structures::model, pipelines::pick_gui::mk_bind_group_layout};
+use crate::{data_structures::model, pick::PickId, pipelines::pick_gui::mk_bind_group_layout};
 
 use wgpu::util::DeviceExt;
 
@@ -25,14 +25,15 @@ pub(crate) fn pick_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
  */
 pub fn load_pick_model(
     device: &wgpu::Device,
-    color: u32,
+    id: impl Into<PickId>,
     meshes: Vec<model::Mesh>,
 ) -> anyhow::Result<model::Model> {
     // cutting the significant bits is intended in this conversion
-    let r = color as u8;
-    let g = (color >> 8) as u8;
-    let b = (color >> 16) as u8;
-    let a = (color >> 24) as u8;
+    let id = id.into().0;
+    let r = id as u8;
+    let g = (id >> 8) as u8;
+    let b = (id >> 16) as u8;
+    let a = (id >> 24) as u8;
     // Current browsers don't support downscaling Uniform Buffers so I have to provide the full 16B
     let mut buf = [0; 16];
     buf[..4].copy_from_slice(&[r, g, b, a]);
@@ -52,9 +53,9 @@ pub fn load_pick_model(
     Ok(model)
 }
 
-pub fn load_pick_texture(id: u32, device: &wgpu::Device) -> wgpu::BindGroup {
+pub fn load_pick_texture(id: PickId, device: &wgpu::Device) -> wgpu::BindGroup {
     let texture_bind_group_layout = mk_bind_group_layout(device);
-    let color = id;
+    let color = id.0;
     // cutting the significant bits is intended in this conversion
     let r = color as u8;
     let g = (color >> 8) as u8;

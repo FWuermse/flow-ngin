@@ -71,9 +71,13 @@ impl<S: 'static, E: Send + 'static> VStack<S, E> {
     }
 
     /// Append a child with the given row height.
-    pub fn with_child(mut self, row_height: u32, child: impl UIElement<S, E> + 'static) -> Self {
+    pub fn with_child<T:UIElement<S, E> + 'static>(mut self, row_height: u32, child: T) -> Self {
         self.children.push((row_height, Box::new(child)));
         self
+    }
+
+    pub fn add_child(&mut self, row_height: u32, child: Box<dyn UIElement<S, E>>) {
+        self.children.push((row_height, child));
     }
 
     fn resolve_children(&mut self, queue: &wgpu::Queue) {
@@ -82,6 +86,14 @@ impl<S: 'static, E: Send + 'static> VStack<S, E> {
             child.resolve(self.x, current_y, self.width, *row_h, queue);
             current_y += *row_h;
         }
+    }
+    
+    pub fn len_children(&self) -> usize {
+        self.children.len()
+    }
+    
+    pub fn pop(&mut self) -> Option<(u32, Box<dyn UIElement<S, E>>)> {
+        self.children.pop()
     }
 }
 

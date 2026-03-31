@@ -26,6 +26,9 @@ use crate::{
     resources::pick::{load_pick_model, load_pick_texture},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PickId(pub u32);
+
 #[cfg(target_arch = "wasm32")]
 use crate::flow::FlowEvent;
 
@@ -97,7 +100,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Pick Encoder"),
         });
-    let mut translation: HashMap<u32, HashSet<usize>> = HashMap::new();
+    let mut translation: HashMap<PickId, HashSet<usize>> = HashMap::new();
 
     {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -177,7 +180,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
             let amount: Result<u32, _> = instanced.amount.try_into();
             match amount {
                 Err(e) => log::error!(
-                    "Failed to render flat object with id {}. Maximum amount of supported instances is {}. Error: {}",
+                    "Failed to render flat object with id {:?}. Maximum amount of supported instances is {}. Error: {}",
                     instanced.id,
                     u32::MAX,
                     e
@@ -201,7 +204,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
             let amount: Result<u32, _> = flat.amount.try_into();
             match amount {
                 Err(e) => log::error!(
-                    "Failed to render flat object with id {}. Maximum amount of supported instances is {}. Error: {}",
+                    "Failed to render flat object with id {:?}. Maximum amount of supported instances is {}. Error: {}",
                     flat.id,
                     u32::MAX,
                     e
@@ -281,7 +284,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
         );
         // Depending on the average timing this hould not block but rather always send an event
         let id = async_runtime.block_on(future_id);
-        return translation.get(&id).map(|flow_ids| (id, flow_ids.clone()));
+        return translation.get(&PickId(id)).map(|flow_ids| (id, flow_ids.clone()));
     }
 }
 

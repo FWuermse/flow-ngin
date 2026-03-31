@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
+use cgmath::num_traits::ToPrimitive;
 use wgpu::{ExperimentalFeatures, util::DeviceExt};
 use winit::{dpi::PhysicalPosition, window::Window};
 
 use crate::{
-    camera::{self, CameraResources, CameraUniform, Projection},
-    data_structures::texture,
-    pipelines::{
+    camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pick::PickId, pipelines::{
         basic::mk_basic_pipeline,
         gui::{mk_gui_pipeline, mk_screen_size_bind_group, mk_screen_size_bind_group_layout},
         light::{LightResources, LightUniform, mk_light_pipeline},
@@ -14,7 +13,7 @@ use crate::{
         pick_gui::mk_gui_pick_pipeline,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
-    }, render::Render,
+    }, render::Render
 };
 
 pub trait GPUResource<'a, 'pass> {
@@ -75,10 +74,10 @@ pub enum MouseButtonState {
 pub struct MouseState {
     pub coords: PhysicalPosition<f64>,
     pub pressed: MouseButtonState,
-    pub selection: Option<u32>,
+    pub selection: Option<PickId>,
 }
 impl MouseState {
-    pub(crate) fn toggle(&mut self, pick_id: u32) {
+    pub(crate) fn toggle(&mut self, pick_id: PickId) {
         self.selection = self
             .selection
             .is_none_or(|id| id != pick_id)
@@ -436,6 +435,15 @@ impl Context {
             ),
             flat_pick: mk_gui_pick_pipeline(&self.device, &self.screen_size.bind_group_layout),
         };
+    }
+
+    pub fn ray_to_floor(&self) -> Option<cgmath::Point2<f32>> {
+        self.camera.camera.cast_ray_from_mouse(
+            self.mouse.coords,
+            self.config.width.to_f32()?,
+            self.config.height.to_f32()?,
+            &self.projection,
+        ).intersect_with_floor()
     }
 }
 
