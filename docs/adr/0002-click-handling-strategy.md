@@ -4,15 +4,11 @@
 **Date:** 2026-03-17
 **Priority:** Decide first as all interactive widget work depends on this decision.
 
----
-
 ## Cross-references
 
 - **Input Widgets Plan** depends on this: Checkbox, Slider, and TextInput all use coordinate-based detection in `on_update`. If Option A (GPU picking) were chosen instead, every widget design changes.
 - **Dynamic UI Plan** depends on this: Drawer toggle and popup "click outside to close" assume coordinate-based detection. The `Animated` visibility trait interacts with click-shielding i.e. a hidden container should not block picks.
 - **ADR-0002 open question #3** (UI-to-UI overlap / click consumption) also affects the **focus model** introduced by TextInput in the Input Widgets Plan. "Click outside to unfocus" and "popup captures clicks" are two faces of the same problem.
-
----
 
 ## Context
 
@@ -26,8 +22,6 @@ Currently, `Button` uses approach 2 exclusively: it tracks a `VisualState` (Norm
 Meanwhile, `Container` propagates `on_update` to children (enabling Button hover/click) but does **not** propagate `on_click`. `on_click` has a default no-op implementation in `GraphicsFlow`, so forgetting to propagate or override it fails silently.
 
 This creates an inconsistency: 3D objects use GPU picking, UI elements use coordinate math, and the two systems are unaware of each other. Clicking a UI element that overlaps a 3D object can trigger the 3D object's `on_click` because the UI element has `id: 0` (transparent to picking).
-
----
 
 ## Options Considered
 
@@ -80,11 +74,9 @@ UI elements keep coordinate-based detection. A `Container` rendered with a non-z
 | Text clicks | Works naturally |
 | Propagation burden | No `on_click` propagation needed for UI children |
 | Render correctness | Not an issue for UI widgets (no pick IDs); only shield containers need a correct ID |
-| Idiomatic | Hybrid — UI interaction is custom, 3D interaction uses engine picking. Two mental models to learn |
-| Widget author cost | Same as Option B — click logic in `on_update`, not `on_click`. Could be mitigated with a shared `Clickable` helper or trait providing the state machine |
+| Idiomatic | Hybrid: UI interaction is custom, 3D interaction uses engine picking. Two mental models to learn |
+| Widget author cost | Same as Option B: click logic in `on_update`, not `on_click`. Could be mitigated with a shared `Clickable` helper or trait providing the state machine |
 | Perf cost | Same as Option B for UI; one GPU pick pass for 3D (already exists) |
-
----
 
 ## Recommendation
 
@@ -104,15 +96,11 @@ Acknowledged trade-offs:
 - Click logic lives in `on_update` rather than `on_click`, which is less idiomatic and can surprise widget authors. Mitigated by providing a shared `Clickable` helper (trait or function) that encapsulates the press/release/hover state machine, so widget authors don't reimplement it.
 - Two mental models (coordinate-based for UI, GPU picking for 3D) must be documented clearly.
 
----
-
 ## Open Questions
 
 - Should `on_click` lose its default implementation to make missing propagation a compile error? This would force all `GraphicsFlow` implementors to handle it, which is noisy for non-UI flows. An alternative is a clippy-style lint or a separate `Clickable` trait.
 - Should `Container` expose a `.clickable(bool)` builder that assigns a pick ID, making the shield opt-in?
 - For UI-to-UI overlap (e.g., a popup over a button), should `on_update` propagation stop at the first child that claims the click, or should all children see it?
-
----
 
 ## Consequences
 

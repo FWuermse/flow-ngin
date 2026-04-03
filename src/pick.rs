@@ -26,7 +26,7 @@ use crate::{
     resources::pick::{load_pick_model, load_pick_texture},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PickId(pub u32);
 
 #[cfg(target_arch = "wasm32")]

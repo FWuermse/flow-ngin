@@ -3,8 +3,6 @@
 **Status:** Accepted
 **Date:** 2026-03-18
 
----
-
 ## Context
 
 When the window is resized, the wgpu surface, depth texture, and 3D camera projection are correctly reconfigured (`flow.rs:231–247`). However, the UI layer does not respond: all components (`Container`, `Button`, `Card`, `Icon`, `TextLabel`, etc.) cache `screen_width` / `screen_height` at `on_init` time and never update them. Vertex buffers with stale NDC coordinates continue to be rendered against the new surface dimensions, causing the UI to appear stretched, misaligned, or clipped.
@@ -29,8 +27,6 @@ When the window is resized, the wgpu surface, depth texture, and 3D camera proje
 - Vertex buffers are not regenerated
 - Layout tree is not re-resolved
 - Button/Icon hover detection uses stale screen-space rects
-
----
 
 ## Options Considered
 
@@ -92,23 +88,17 @@ Each component that caches screen dimensions listens for `WindowEvent::Resized` 
 | Handles nested layouts | Partially — each component re-resolves independently, but parent→child dimension propagation requires the parent to re-resolve children too |
 | Event ordering issue | Currently `on_window_events` is dispatched **before** `state.resize()` updates `ctx.config` (flow.rs:811–826), so `ctx.config.width/height` would still be stale when the component handles the event. This requires reordering the event dispatch or extracting size from the event directly. |
 
----
-
 ## Recommendation
 
 **Option C** is not recommended: it scatters resize logic across every component, has an event-ordering problem, and doesn't naturally handle parent→child dimension propagation.
 
 Both **A** and **B** are correct. The performance difference is irrelevant since window resizes are rare. Option B wins on simplicity: it eliminates `screen_width/screen_height` fields from every component and removes `pixels_to_ndc()` entirely. Components only deal in pixel coordinates; the GPU handles the conversion.
 
----
-
 ## Decision
 
 **Option B (GPU uniform) is adopted.**
 
 A `ScreenSize` uniform buffer containing `(width, height)` is added at bind group 1 for both the GUI and GUI-pick pipelines. The vertex shader performs the pixel→NDC conversion. On resize, a single `queue.write_buffer` call updates the uniform — all quads are immediately correct with no per-element work.
-
----
 
 ## Consequences
 
@@ -120,4 +110,4 @@ A `ScreenSize` uniform buffer containing `(width, height)` is added at bind grou
 - `Context` gains a `ScreenSizeResources` struct (buffer + bind group + layout).
 - `AppState::resize()` writes the new dimensions to the uniform buffer — no TODO remains.
 - The render pass sets `bind_group(1, screen_size, &[])` once before iterating GUI elements.
-- New UI components no longer need to cache or propagate screen dimensions — they work purely in pixel space.
+- New UI components no longer need to cache or propagate screen dimensions as they work purely in pixel space.

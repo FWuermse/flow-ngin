@@ -4,15 +4,11 @@
 **Date:** 2026-03-17
 **Priority:** Decide together with ADR-0003.
 
----
-
 ## Cross-references
 
 - **ADR-0003** is a hard dependency: its adopted Option E (hybrid `Value<T>` + callbacks) influences but does not settle this ADR. If ADR-0003 had chosen Option C (shared value refs) instead, this ADR would need revisiting.
-- **Input Widgets Plan** implements this: `TextInput` callbacks take `&str`, `Checkbox` takes `bool`, `Slider` takes `f32` — exactly the typed-widget pattern.
+- **Input Widgets Plan** implements this: `TextInput` callbacks take `&str`, `Checkbox` takes `bool`, `Slider` takes `f32` (exactly the typed-widget pattern).
 - If a **Form** component is added later (mentioned in ADR-0003 consequences and Option C here), it could be built on top of typed widgets without requiring a value enum — see Dynamic UI Plan Phase 1 for the runtime child management that a Form would also need.
-
----
 
 ## Context
 
@@ -23,8 +19,6 @@ The ideas document proposes types "similar to what JSON supports" i.e. text, num
 2. Type generics on UI elements so values are statically typed.
 
 This decision interacts with ADR-0003 (input data flow). If callbacks (Option D) are adopted, the value type appears as the callback parameter type, not as a shared data structure. This reduces the need for a universal value enum but still requires a decision about how widgets expose their typed values.
-
----
 
 ## Options Considered
 
@@ -96,13 +90,9 @@ let form = Form::new()
 | Trait requirements | None beyond existing traits |
 | Rust idiom | Idiomatic; user-defined types over engine-imposed enums |
 
----
-
 ## Recommendation
 
 **Option B (typed widgets, no value enum)** is recommended.
-
----
 
 ## Consequences
 

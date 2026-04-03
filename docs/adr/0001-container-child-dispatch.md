@@ -9,8 +9,8 @@
 
 `Container` holds a collection of heterogeneous UI children (`Icon`, `TextLabel`, and future types) and must dispatch two operations to each child:
 
-1. **Layout** — `resolve(parent_x, parent_y, parent_w, parent_h, queue)` computes and uploads the child's pixel position.
-2. **Render** — `on_render()` returns a `Render` variant to be composed into the frame.
+1. **Layout**: `resolve(parent_x, parent_y, parent_w, parent_h, queue)` computes and uploads the child's pixel position.
+2. **Render**: `on_render()` returns a `Render` variant to be composed into the frame.
 
 Two dispatch strategies were evaluated.
 
@@ -18,7 +18,7 @@ Two dispatch strategies were evaluated.
 
 ## Options Considered
 
-### Option A — Closed enum (`UIChild`)
+### Option A: Closed enum (`UIChild`)
 
 ```rust
 pub enum UIChild { Icon(Icon), Label(TextLabel) }
@@ -53,8 +53,6 @@ The container holds `Vec<Box<dyn UIElement<S, E>>>` and dispatches via vtable.
 | Boilerplate per new lib type | ~1 line (blanket impl covers it automatically) |
 | Boilerplate per new user type | ~15–20 lines (two trait impls) |
 
----
-
 ## Decision
 
 **Option B (supertrait) is adopted.**
@@ -62,8 +60,6 @@ The container holds `Vec<Box<dyn UIElement<S, E>>>` and dispatches via vtable.
 The performance difference is negligible: UI containers hold O(10–100) elements and render once per frame. A vtable call per child is not measurable. In exchange, the library becomes open for extension without modification — any type that implements `GraphicsFlow<S, E>` and `Layout` is automatically a valid container child via the blanket impl. This scales correctly as the widget set grows and enables user-defined widgets.
 
 The `UIChild` enum is removed. `Container<S, E>` holds `Vec<Box<dyn UIElement<S, E>>>` and exposes a single `with_child` builder method.
-
----
 
 ## Consequences
 

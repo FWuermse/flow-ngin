@@ -4,16 +4,12 @@
 **Date:** 2026-03-17
 **Priority:** Decide together with ADR-0004 (value representation). Both must be settled before implementing input widgets.
 
----
-
 ## Cross-references
 
 - **ADR-0004** depends on this: its recommendation (typed widgets, no value enum) only makes sense if this ADR's callback approach (Option D) is chosen. If Option C (shared value refs) were chosen here, ADR-0004 would need an `InputValue` enum instead.
-- **Input Widgets Plan** implements this decision — every widget's `on_change` callback follows the pattern chosen here.
+- **Input Widgets Plan** implements this decision (every widget's `on_change` callback follows the pattern chosen here).
 - **`merge_outs` dropping `Configure`** is noted here and also hits the **Dynamic UI Plan** (Phase 1 runtime child addition wants `Out::Configure` to propagate). Consider fixing `merge_outs` as a shared prerequisite for both efforts.
 - **`Out::mutate` convenience helper** suggested in Consequences would reduce boilerplate across all input widgets and the Dynamic UI Plan's Drawer toggle logic.
-
----
 
 ## Context
 
@@ -33,8 +29,6 @@ pub enum Out<S, E> {
 `Button` uses `Out::FutEvent` to emit a user-defined event `E` on click. `Container` merges children's outputs via `merge_outs`, which flattens `FutEvent` and `FutFn` vecs but **drops `Configure`**.
 
 For input widgets, the question is: how does the value (a string, a bool, a number) get from the widget to the application code?
-
----
 
 ## Options Considered
 
@@ -128,8 +122,6 @@ The application can also read `checked.get()` on demand (e.g., on form submit) w
 | Widget coupling | Widgets are generic over `S`/`E` only if `on_change` is used; `Value<T>` is standalone |
 | Trait bloat | None — no changes to `UIElement` or `GraphicsFlow` |
 
----
-
 ## Decision
 
 **Option E (hybrid: `Value<T>` + optional callback)** is adopted.
@@ -144,8 +136,6 @@ Rationale:
 - The callback is optional: simple use cases only need `.bind()`, while reactive use cases add `.on_change()`.
 
 Reference implementation: `Checkbox<S, E>` in `src/ui/checkbox.rs`.
-
----
 
 ## Consequences
 
