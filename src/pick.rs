@@ -284,6 +284,9 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
         );
         // Depending on the average timing this hould not block but rather always send an event
         let id = async_runtime.block_on(future_id);
+        if id == PickId::default().0 {
+            return Some((0, HashSet::new()));
+        }
         return translation.get(&PickId(id)).map(|flow_ids| (id, flow_ids.clone()));
     }
 }
