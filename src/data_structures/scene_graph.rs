@@ -6,7 +6,7 @@
 
 use std::{collections::HashMap, ops::Range};
 
-use cgmath::{InnerSpace, SquareMatrix, Zero};
+use cgmath::SquareMatrix;
 use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
@@ -14,7 +14,7 @@ use crate::{
     context::GPUResource, data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
-    }, pick::PickId, render::{Instanced, Render}, resources::{animation::Keyframes, load_model_obj, pick::load_pick_model}
+    }, pick::PickId, render::{Instanced, Render}, resources::{animation::Keyframes, load_model_obj, mesh::compute_tangents, pick::load_pick_model}
 };
 
 /// An animation clip: a named animation with keyframes and timing.
@@ -183,100 +183,6 @@ pub fn to_scene_node(
     }
 
     scene_node
-}
-
-fn compute_tangents(vertices: &mut Vec<model::ModelVertex>, indices: &[u32]) {
-    // 1. Allocate temporary storage for tangent and bitangent accumulators.
-    // We need these to accumulate contributions from all triangles sharing a vertex.
-    let mut tan1 = vec![cgmath::Vector3::zero(); vertices.len()];
-    let mut tan2 = vec![cgmath::Vector3::zero(); vertices.len()];
-
-    // 2. Iterate over all triangles (chunks of 3 indices)
-    for c in indices.chunks(3) {
-        if c.len() < 3 {
-            break;
-        } // Safety check
-
-        let i1 = c[0] as usize;
-        let i2 = c[1] as usize;
-        let i3 = c[2] as usize;
-
-        let v1 = &vertices[i1];
-        let v2 = &vertices[i2];
-        let v3 = &vertices[i3];
-
-        let p1: cgmath::Vector3<f32> = v1.position.into();
-        let p2: cgmath::Vector3<f32> = v2.position.into();
-        let p3: cgmath::Vector3<f32> = v3.position.into();
-
-        let w1: cgmath::Vector2<f32> = v1.tex_coords.into();
-        let w2: cgmath::Vector2<f32> = v2.tex_coords.into();
-        let w3: cgmath::Vector2<f32> = v3.tex_coords.into();
-
-        let x1 = p2.x - p1.x;
-        let x2 = p3.x - p1.x;
-        let y1 = p2.y - p1.y;
-        let y2 = p3.y - p1.y;
-        let z1 = p2.z - p1.z;
-        let z2 = p3.z - p1.z;
-
-        let s1 = w2.x - w1.x;
-        let s2 = w3.x - w1.x;
-        let t1 = w2.y - w1.y;
-        let t2 = w3.y - w1.y;
-
-        // Prevent division by zero if UVs are degenerate
-        let r_denom = s1 * t2 - s2 * t1;
-        let r = if r_denom.abs() < 1e-6 {
-            0.0
-        } else {
-            1.0 / r_denom
-        };
-
-        let sdir = cgmath::Vector3::new(
-            (t2 * x1 - t1 * x2) * r,
-            (t2 * y1 - t1 * y2) * r,
-            (t2 * z1 - t1 * z2) * r,
-        );
-
-        let tdir = cgmath::Vector3::new(
-            (s1 * x2 - s2 * x1) * r,
-            (s1 * y2 - s2 * y1) * r,
-            (s1 * z2 - s2 * z1) * r,
-        );
-
-        // Accumulate for each vertex of the triangle
-        tan1[i1] += sdir;
-        tan1[i2] += sdir;
-        tan1[i3] += sdir;
-
-        tan2[i1] += tdir;
-        tan2[i2] += tdir;
-        tan2[i3] += tdir;
-    }
-
-    for (i, vert) in vertices.iter_mut().enumerate() {
-        let n: cgmath::Vector3<f32> = vert.normal.into();
-        let t = tan1[i];
-
-        // Gram-Schmidt orthogonalize:
-        let tangent_xyz = (t - n * n.dot(t)).normalize();
-
-        let w = if n.cross(t).dot(tan2[i]) < 0.0 {
-            -1.0
-        } else {
-            1.0
-        };
-
-        if tangent_xyz.x.is_nan() {
-            vert.tangent = [1.0, 0.0, 0.0];
-            vert.bitangent = [0.0, 1.0, 0.0];
-        } else {
-            vert.tangent = tangent_xyz.into();
-            let bitangent = n.cross(tangent_xyz) * w;
-            vert.bitangent = bitangent.into();
-        }
-    }
 }
 
 fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnimation {
@@ -495,7 +401,16 @@ pub fn transform_local(parent: &Instance, child: Instance) -> Instance {
 #[cfg(feature = "integration-tests")]
 impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
-        // Delegate to the inner dyn SceneNode
+        (*self).write_to_buffers(queue, device);
+    }
+    fn get_render(&'a self) -> Render<'a, 'pass> {
+        Render::Defaults((**self).get_render())
+    }
+}
+
+#[cfg(feature = "integration-tests")]
+impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode + Send> {
+    fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         (*self).write_to_buffers(queue, device);
     }
     fn get_render(&'a self) -> Render<'a, 'pass> {

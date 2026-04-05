@@ -172,7 +172,7 @@ impl<S: 'static, E: Send + 'static> Container<S, E> {
         }
     }
 
-    /// Wrap this container in a [`FlowConsturctor`] for use with [`flow_ngin::flow::run`].
+    /// Wrap this container in a [`FlowConstructor`] for use with [`flow_ngin::flow::run`].
     pub fn into_constructor(self) -> FlowConstructor<S, E> {
         Box::new(|_ctx| {
             // TODO: find a way to limit the heavy boxing in general

@@ -29,6 +29,12 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct PickId(pub u32);
 
+impl From<u32> for PickId {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 use crate::flow::FlowEvent;
 

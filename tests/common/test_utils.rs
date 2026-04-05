@@ -100,7 +100,7 @@ impl Default for FrameCounter {
 
 /// Convert a raw texture buffer to an RGBA image, handling BGRA formats.
 #[cfg(feature = "integration-tests")]
-fn to_rgba(
+pub(crate) fn to_rgba(
     ctx: &Context,
     texture: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
 ) -> image::RgbaImage {
@@ -322,9 +322,9 @@ where
 macro_rules! golden_image_test {
     ($graphics_elem:expr) => {{
         use crate::common::test_utils::FrameCounter;
-        use flow_ngin::flow::FlowConsturctor;
+        use flow_ngin::flow::FlowConstructor;
         use flow_ngin::flow::GraphicsFlow;
-        let model_constructor: FlowConsturctor<FrameCounter, ()> = Box::new(|ctx| {
+        let model_constructor: FlowConstructor<FrameCounter, ()> = Box::new(|ctx| {
             Box::pin(
                 async move { Box::new($graphics_elem(ctx).await) as Box<dyn GraphicsFlow<_, _>> },
             )

@@ -304,7 +304,7 @@ impl TextLabel {
         self.line_height
     }
 
-    /// Wrap this label in a [`FlowConsturctor`] for use with [`flow_ngin::flow::run`].
+    /// Wrap this label in a [`FlowConstructor`] for use with [`flow_ngin::flow::run`].
     pub fn into_constructor<S: 'static, E: Send + 'static>(self) -> FlowConstructor<S, E> {
         Box::new(|_ctx| {
             Box::pin(async move { Box::new(self) as Box<dyn GraphicsFlow<S, E>> })

@@ -29,7 +29,7 @@ impl GraphicsFlow<State, Event> for GraphicsElement {
         Out::Empty
     }
 
-    fn on_click(&mut self, _: &Context, state: &mut State, _: u32) -> Out<State, Event> {
+    fn on_click(&mut self, _: &Context, state: &mut State, _: flow_ngin::pick::PickId) -> Out<State, Event> {
         state.click();
         Out::Empty
     }
