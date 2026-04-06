@@ -1011,7 +1011,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                                     });
                                 });
                                 state.ctx.mouse.toggle(PickId(pick_id));
-                                if flow_ids.len() > 1 {
+                                if flow_ids.len() > 1 && pick_id != PickId::default().0 {
                                     log::warn!(
                                         "Multiple flows (incides {:?}) want to react to the render ID {}.",
                                         flow_ids,

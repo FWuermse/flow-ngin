@@ -101,7 +101,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Create the lighting vectors
     var tangent_normal = object_normal.xyz * 2.0 - 1.0;
-    // Ensure Z always points outward — some normal maps store inverted Z
+    // Ensure Z always points outward
     tangent_normal.z = abs(tangent_normal.z);
     let light_dir = normalize(in.tangent_light_position - in.tangent_position);
     let view_dir = normalize(in.tangent_view_position - in.tangent_position);
