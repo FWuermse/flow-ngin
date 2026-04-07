@@ -47,7 +47,7 @@ tokio = { version = "1.47", features = ["full"] }
 console_error_panic_hook = "0.1.6"
 console_log = "1.0"
 instant = { version = "0.1.13", features = ["wasm-bindgen"] }
-wgpu = { version = "27.0.1", features = ["webgl"] }
+wgpu = { version = "28.0.0", features = ["webgl", "fragile-send-sync-non-atomic-wasm"] }
 wasm-bindgen = "0.2.105"
 reqwest = { version = "0.12.24" }
 wasm-bindgen-futures = "0.4.55"

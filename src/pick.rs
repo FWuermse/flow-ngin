@@ -265,7 +265,7 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
             mouse_coords,
         );
         let id = future_id.await;
-        if let Some(flow_ids) = translation.get(&id) {
+        if let Some(flow_ids) = translation.get(&PickId(id)) {
             assert!(
                 proxy
                     .send_event(FlowEvent::Id((id, flow_ids.clone())))
