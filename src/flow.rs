@@ -70,7 +70,7 @@ where
     E: Send,
 {
     FutEvent(Vec<Box<dyn Future<Output = E> + Send>>),
-    FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S) + Send>> + Send>>),
+    FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
     Composed(Vec<Out<S, E>>),
     Empty,
@@ -668,7 +668,10 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     #[allow(dead_code)]
     Id((u32, HashSet<usize>)),
     #[allow(dead_code)]
+    #[cfg(not(target_arch = "wasm32"))]
     Mut(Box<dyn FnOnce(&mut State) + Send>),
+    #[cfg(target_arch = "wasm32")]
+    Mut(Box<dyn FnOnce(&mut State)>),
     #[allow(dead_code)]
     Custom(Event),
     #[allow(dead_code)]
@@ -1071,12 +1074,12 @@ fn handle_flow_output<State, Event: Send>(
         }
         // Mutate the state if the arch supports async, create an event otherwise
         Out::FutFn(futures) => {
-            let events: Vec<Pin<Box<dyn Future<Output = Box<dyn FnOnce(&mut State) + Send>> + Send>>> =
+            let events: Vec<Pin<Box<dyn Future<Output = Box<dyn FnOnce(&mut State)>>>>> =
                 futures.into_iter().map(Pin::from).collect();
             let fut = async move { futures::future::join_all(events.into_iter()).await };
             #[cfg(not(target_arch = "wasm32"))]
             {
-                let resolved: Vec<Box<dyn FnOnce(&mut State) + Send>> = async_runtime.block_on(fut);
+                let resolved: Vec<Box<dyn FnOnce(&mut State)>> = async_runtime.block_on(fut);
                 resolved.into_iter().for_each(|mutation| {
                     mutation(state);
                 });
