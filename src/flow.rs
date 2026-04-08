@@ -49,6 +49,14 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+/// Boxed, pinned future. `Send` on native targets, non-`Send` on `wasm32` (where the
+/// browser is single-threaded and `JsFuture`-based futures are inherently `!Send`).
+#[cfg(not(target_arch = "wasm32"))]
+pub type BoxFut<T> = std::pin::Pin<Box<dyn Future<Output = T> + Send>>;
+#[cfg(target_arch = "wasm32")]
+pub type BoxFut<T> = std::pin::Pin<Box<dyn Future<Output = T>>>;
+
+
 ///
 /// This is the Output Type for every lifecycle hook where the user can pass async events that are
 /// handled according to the platform you're running on.
@@ -69,7 +77,10 @@ pub enum Out<S, E>
 where
     E: Send,
 {
+    #[cfg(not(target_arch = "wasm32"))]
     FutEvent(Vec<Box<dyn Future<Output = E> + Send>>),
+    #[cfg(target_arch = "wasm32")]
+    FutEvent(Vec<Box<dyn Future<Output = E>>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
     Configure(Box<dyn FnOnce(&mut Context)>),
     Composed(Vec<Out<S, E>>),
