@@ -21,9 +21,9 @@ pub fn mk_transparent_pipeline(
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &diffuse_normal_layout(&device),
-                    &camera_bind_group_layout,
-                    &light_bind_group_layout,
+                    Some(&diffuse_normal_layout(&device)),
+                    Some(&camera_bind_group_layout),
+                    Some(&light_bind_group_layout),
                 ],
                 ..Default::default()
             });

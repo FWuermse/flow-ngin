@@ -46,7 +46,7 @@ impl Mipmapper {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("blit pipeline layout"),
-            bind_group_layouts: &[&blit_layout],
+            bind_group_layouts: &[Some(&blit_layout)],
             ..Default::default()
         });
 

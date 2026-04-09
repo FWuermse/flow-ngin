@@ -270,11 +270,23 @@ impl<'a, State: Default> AppState<State> {
         }
     }
 
-    fn get_surface_texture(&self) -> wgpu::SurfaceTexture {
-        self.ctx
-            .surface
-            .get_current_texture()
-            .expect("Failed to create surface.")
+    fn get_surface_texture(&self) -> Option<wgpu::SurfaceTexture> {
+        match self.ctx.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(tex)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
+            wgpu::CurrentSurfaceTexture::Timeout
+            | wgpu::CurrentSurfaceTexture::Occluded => None,
+            wgpu::CurrentSurfaceTexture::Outdated
+            | wgpu::CurrentSurfaceTexture::Lost => {
+                let size = self.ctx.window.inner_size();
+                log::warn!("Surface lost/outdated, needs reconfigure ({}x{})", size.width, size.height);
+                None
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                log::error!("Surface validation error");
+                None
+            }
+        }
     }
 
     #[cfg(feature = "integration-tests")]
@@ -334,7 +346,7 @@ impl<'a, State: Default> AppState<State> {
         #[cfg(feature = "integration-tests")] event_loop: &winit::event_loop::EventLoopProxy<
             FlowEvent<State, Event>,
         >,
-    ) -> Result<(), wgpu::SurfaceError> {
+    ) -> Result<(), anyhow::Error> {
         // invoke main render loop
         self.ctx.window.request_redraw();
 
@@ -343,7 +355,10 @@ impl<'a, State: Default> AppState<State> {
             return Ok(());
         }
 
-        let output = self.get_surface_texture();
+        let output = match self.get_surface_texture() {
+            Some(tex) => tex,
+            None => return Ok(()),
+        };
         // TODO: different view for golden img testing
         #[cfg(not(feature = "integration-tests"))]
         let view = output
@@ -973,13 +988,8 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                             );
                         });
                     }
-                    // Reconfigure the surface if it's lost or outdated
-                    Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                        let size = state.ctx.window.inner_size();
-                        state.resize(size.width, size.height);
-                    }
                     Err(e) => {
-                        log::error!("Unable to render {}", e);
+                        log::error!("Unable to render: {}", e);
                     }
                 }
             }

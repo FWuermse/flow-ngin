@@ -22,9 +22,9 @@ pub fn mk_basic_pipeline(
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &diffuse_normal_layout(&device),
-                    &camera_bind_group_layout,
-                    &light_bind_group_layout,
+                    Some(&diffuse_normal_layout(&device)),
+                    Some(&camera_bind_group_layout),
+                    Some(&light_bind_group_layout),
                 ],
                 ..Default::default()
             });
@@ -97,8 +97,8 @@ pub fn mk_render_pipeline(
         },
         depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
             format,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),

@@ -124,7 +124,7 @@ fn mk_pipeline_layout(
 ) -> wgpu::PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Menu Render Pipeline Layout"),
-        bind_group_layouts: &[&texture_bind_group_layout, screen_size_bind_group_layout],
+        bind_group_layouts: &[Some(&texture_bind_group_layout), Some(screen_size_bind_group_layout)],
         ..Default::default()
     })
 }
@@ -193,8 +193,8 @@ fn mk_render_pipeline(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: texture::Texture::DEPTH_FORMAT,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),

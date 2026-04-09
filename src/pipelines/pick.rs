@@ -11,7 +11,7 @@ fn pick_render_pipeline_layout(
 ) -> PipelineLayout {
     device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout (For picking)"),
-        bind_group_layouts: &[&pick_layout(device), &camera_bind_group_layout],
+        bind_group_layouts: &[Some(&pick_layout(device)), Some(&camera_bind_group_layout)],
         ..Default::default()
     })
 }
@@ -67,8 +67,8 @@ pub fn mk_pick_pipeline(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24Plus,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::Less,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
