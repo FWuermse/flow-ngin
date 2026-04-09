@@ -62,16 +62,23 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
 ) -> Option<(u32, HashSet<usize>)> {
     // Prepare data for picking:
     let u32_size = std::mem::size_of::<u32>() as u32;
-    // The img lib requires divisibility of 256...
-    let width = ctx.config.width;
-    let height = ctx.config.height;
-    let width_offset = 256 - (width % 256);
-    let height_offset = 256 - (height % 256);
-    // TODO: if on wasm max at 2048 and keep ratio
-    let width_factor = (f64::from(width) + f64::from(width_offset)) / f64::from(width);
-    let height_factor = (f64::from(height) + f64::from(height_offset)) / f64::from(height);
-    let width = width + width_offset;
-    let height = height + height_offset;
+    let mut width = ctx.config.width;
+    let mut height = ctx.config.height;
+    // The buffer layout requires width to be divisible by 256
+    let width_offset = (256 - (width % 256)) % 256;
+    let height_offset = (256 - (height % 256)) % 256;
+    width += width_offset;
+    height += height_offset;
+    // On WASM, clamp to device texture limit (e.g. 2048 on WebGL)
+    #[cfg(target_arch = "wasm32")]
+    {
+        let max_dim = ctx.device.limits().max_texture_dimension_2d;
+        width = width.min(max_dim);
+        height = height.min(max_dim);
+    }
+    // Compute mouse-to-texture scale factors after all size adjustments
+    let width_factor = f64::from(width) / f64::from(ctx.config.width);
+    let height_factor = f64::from(height) / f64::from(ctx.config.height);
 
     let extent3d = wgpu::Extent3d {
         width: width,
