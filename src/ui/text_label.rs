@@ -166,7 +166,18 @@ impl TextLabel {
     pub fn init(&mut self, ctx: &mut Context) {
         self.resolve_placement(0, 0, ctx.config.width, ctx.config.height);
 
+        #[cfg(not(target_arch = "wasm32"))]
         let mut font_system = FontSystem::new();
+        #[cfg(target_arch = "wasm32")]
+        let mut font_system = {
+            let mut fs = FontSystem::new_with_locale_and_db(
+                "en-US".into(),
+                glyphon::cosmic_text::fontdb::Database::new(),
+            );
+            fs.db_mut()
+                .load_font_data(include_bytes!("../../assets/fonts/Roboto-Regular.ttf").to_vec());
+            fs
+        };
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&ctx.device);
         let viewport = Viewport::new(&ctx.device, &cache);

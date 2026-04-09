@@ -2,4 +2,6 @@ pkg
 target
 
 **/assets/*
+!**/assets/fonts/
+!**/assets/fonts/**
 **/fixtures/*
