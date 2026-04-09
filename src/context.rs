@@ -274,7 +274,7 @@ impl Context {
         };
 
         // Screen size uniform is shared by GUI and GUI pick pipelines
-        let screen_size_data = [config.width as f32, config.height as f32];
+        let screen_size_data = [config.width as f32, config.height as f32, 0.0f32, 0.0f32];
         let screen_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Screen Size Uniform Buffer"),
             contents: bytemuck::cast_slice(&screen_size_data),

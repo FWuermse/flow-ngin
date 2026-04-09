@@ -49,13 +49,6 @@ use crate::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-/// Boxed, pinned future. `Send` on native targets, non-`Send` on `wasm32` (where the
-/// browser is single-threaded and `JsFuture`-based futures are inherently `!Send`).
-#[cfg(not(target_arch = "wasm32"))]
-pub type BoxFut<T> = std::pin::Pin<Box<dyn Future<Output = T> + Send>>;
-#[cfg(target_arch = "wasm32")]
-pub type BoxFut<T> = std::pin::Pin<Box<dyn Future<Output = T>>>;
-
 
 ///
 /// This is the Output Type for every lifecycle hook where the user can pass async events that are
@@ -269,7 +262,7 @@ impl<'a, State: Default> AppState<State> {
             } else {
                 None
             };
-            let screen_size_data = [width as f32, height as f32];
+            let screen_size_data = [width as f32, height as f32, 0.0f32, 0.0f32];
             self.ctx.queue.write_buffer(
                 &self.ctx.screen_size.buffer,
                 0,
