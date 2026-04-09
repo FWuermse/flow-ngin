@@ -1,18 +1,15 @@
-use std::io::Empty;
 #[cfg(feature = "integration-tests")]
 use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
-use flow_ngin::{
-    context::Context,
-    flow::{GraphicsFlow, Out},
-    render::Render,
-};
 #[cfg(feature = "integration-tests")]
 use flow_ngin::{
-    context::GPUResource, data_structures::block::BuildingBlocks, flow::ImageTestResult,
+    context::{Context, GPUResource},
+    data_structures::block::BuildingBlocks,
+    flow::{GraphicsFlow, ImageTestResult, Out},
+    render::Render,
 };
 #[cfg(feature = "integration-tests")]
 use wgpu::RenderPass;

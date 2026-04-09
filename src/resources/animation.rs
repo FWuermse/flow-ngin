@@ -1,6 +1,5 @@
 use std::ops::BitAnd;
 
-use gltf::animation;
 use instant::{Duration, Instant};
 
 use cgmath::{AbsDiffEq, num_traits::Float};

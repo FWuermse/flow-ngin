@@ -1,19 +1,24 @@
 #[cfg(feature = "integration-tests")]
-use flow_ngin::flow::ImageTestResult;
 use flow_ngin::{
     context::Context,
-    flow::{FlowConstructor, GraphicsFlow, Out}, render::Render,
+    flow::{FlowConstructor, GraphicsFlow, ImageTestResult, Out},
+    render::Render,
 };
+#[cfg(feature = "integration-tests")]
 use wgpu::Color;
 
+#[cfg(feature = "integration-tests")]
 use crate::common::test_utils::State;
 
+#[cfg(feature = "integration-tests")]
 mod common;
 
+#[cfg(feature = "integration-tests")]
 enum Event {
     Test,
 }
 
+#[cfg(feature = "integration-tests")]
 struct GraphicsElement();
 
 #[cfg(feature = "integration-tests")]

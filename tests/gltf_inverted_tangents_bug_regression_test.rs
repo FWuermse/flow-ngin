@@ -1,6 +1,5 @@
 #[cfg(feature = "integration-tests")]
 use crate::common::test_utils::TestRender;
-use wgpu::Color;
 
 #[cfg(feature = "integration-tests")]
 mod common;
@@ -12,6 +11,7 @@ fn should_have_correct_tangents_on_arms() {
         context::{Context, InitContext},
         resources::load_model_gltf,
     };
+    use wgpu::Color;
     golden_image_test!(async move |ctx: InitContext| {
         let model = load_model_gltf(1, "woodcutter_updated.gltf", &ctx.device, &ctx.queue).await.unwrap();
         TestRender::new(

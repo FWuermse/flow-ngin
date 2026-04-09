@@ -28,7 +28,6 @@ use instant::{Duration, Instant};
 use cgmath::Rotation3;
 #[cfg(feature = "integration-tests")]
 use tokio::runtime::Runtime;
-use wgpu::util::{self, DeviceExt};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceEvent, DeviceId, MouseButton, WindowEvent},
