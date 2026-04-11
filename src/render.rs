@@ -96,6 +96,17 @@ where
     Composed(Vec<Render<'a, 'pass>>),
     Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
 }
+
+pub(crate) fn map_id_list(ids: &[PickId], flow_id: usize, map: &mut HashMap<PickId, HashSet<usize>>) {
+    for &id in ids {
+        map.entry(id)
+            .and_modify(|flows| {
+                flows.insert(flow_id);
+            })
+            .or_insert([flow_id].into());
+    }
+}
+
 impl<'a, 'pass> Render<'a, 'pass> {
     /// Map object IDs to flow IDs for picking and selection.
     ///
@@ -109,40 +120,18 @@ impl<'a, 'pass> Render<'a, 'pass> {
         map: &mut HashMap<PickId, HashSet<usize>>,
     ) {
         match self {
-            Render::Default(instanced) => {
-                map.entry(instanced.id)
-                    .and_modify(|flows| _ = flows.insert(flow_id))
-                    .or_insert([flow_id].into());
+            Render::Default(instanced) => map_id_list(&[instanced.id], flow_id, map),
+            Render::Defaults(vec) => {
+                let ids: Vec<PickId> = vec.iter().map(|i| i.id).collect();
+                map_id_list(&ids, flow_id, map);
             }
-            Render::Defaults(vec) => vec.into_iter().for_each(|instanced| {
-                map.entry(instanced.id)
-                    .and_modify(|flows| {
-                        flows.insert(flow_id);
-                    })
-                    .or_insert([flow_id].into());
-            }),
-            Render::Transparents(vec) => vec.into_iter().for_each(|instanced| {
-                map.entry(instanced.id)
-                    .and_modify(|flows| {
-                        flows.insert(flow_id);
-                    })
-                    .or_insert([flow_id].into());
-            }),
-            Render::Transparent(instanced) => {
-                map.entry(instanced.id)
-                    .and_modify(|flows| _ = flows.insert(flow_id))
-                    .or_insert([flow_id].into());
+            Render::Transparents(vec) => {
+                let ids: Vec<PickId> = vec.iter().map(|i| i.id).collect();
+                map_id_list(&ids, flow_id, map);
             }
-            Render::GUI(flat) => {
-                map.entry(flat.id)
-                    .and_modify(|flows| _ = flows.insert(flow_id))
-                    .or_insert([flow_id].into());
-            }
-            Render::Terrain(flat) => {
-                map.entry(flat.id)
-                    .and_modify(|flows| _ = flows.insert(flow_id))
-                    .or_insert([flow_id].into());
-            }
+            Render::Transparent(instanced) => map_id_list(&[instanced.id], flow_id, map),
+            Render::GUI(flat) => map_id_list(&[flat.id], flow_id, map),
+            Render::Terrain(flat) => map_id_list(&[flat.id], flow_id, map),
             Render::Composed(renders) => renders
                 .into_iter()
                 .for_each(|render| render.map_ids(flow_id, map)),
@@ -232,4 +221,70 @@ impl<'a, 'pass> From<&'a Box<dyn GPUResource<'a, 'pass> + Send>> for Render<'a, 
     fn from(val: &'a Box<dyn GPUResource<'a, 'pass> + Send>) -> Self {
         val.get_render()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pick::PickId;
+
+    // --- map_id_list ---
+
+    #[test]
+    fn single_id_single_flow() {
+        let mut map = HashMap::new();
+        map_id_list(&[PickId(5)], 0, &mut map);
+        assert_eq!(map.len(), 1);
+        assert!(map[&PickId(5)].contains(&0));
+    }
+
+    #[test]
+    fn single_id_two_flows() {
+        let mut map = HashMap::new();
+        map_id_list(&[PickId(5)], 0, &mut map);
+        map_id_list(&[PickId(5)], 1, &mut map);
+        assert_eq!(map[&PickId(5)].len(), 2);
+        assert!(map[&PickId(5)].contains(&0));
+        assert!(map[&PickId(5)].contains(&1));
+    }
+
+    #[test]
+    fn two_ids_one_flow() {
+        let mut map = HashMap::new();
+        map_id_list(&[PickId(1), PickId(2)], 0, &mut map);
+        assert!(map[&PickId(1)].contains(&0));
+        assert!(map[&PickId(2)].contains(&0));
+    }
+
+    #[test]
+    fn empty_ids_no_change() {
+        let mut map = HashMap::new();
+        map_id_list(&[], 0, &mut map);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn duplicate_flow_id_is_idempotent() {
+        let mut map = HashMap::new();
+        map_id_list(&[PickId(7)], 0, &mut map);
+        map_id_list(&[PickId(7)], 0, &mut map);
+        assert_eq!(map[&PickId(7)].len(), 1);
+    }
+
+    // --- Render::map_ids (GPU-free variants) ---
+
+    #[test]
+    fn none_maps_nothing() {
+        let mut map = HashMap::new();
+        Render::<'_, '_>::None.map_ids(0, &mut map);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn composed_empty_maps_nothing() {
+        let mut map = HashMap::new();
+        Render::<'_, '_>::Composed(vec![]).map_ids(0, &mut map);
+        assert!(map.is_empty());
+    }
+
 }

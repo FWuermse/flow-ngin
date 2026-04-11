@@ -29,7 +29,7 @@ bytemuck = "1.25.0"
 glyphon = { git = "https://github.com/grovesNL/glyphon.git", optional = true }
 cgmath = "0.18.0"
 gltf = "1.4.1"
-image = "0.25.10"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "tiff", "bmp", "ico", "hdr", "exr", "qoi"] }
 log = "0.4.29"
 instant = "0.1.13"
 # TODO: retire this one soon

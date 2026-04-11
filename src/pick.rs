@@ -303,6 +303,29 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
     }
 }
 
+pub(crate) fn pick_id_from_buffer(
+    data: &[u8],
+    width: u32,
+    width_factor: f64,
+    height_factor: f64,
+    mouse_x: f64,
+    mouse_y: f64,
+) -> u32 {
+    if mouse_x < 0.0 || mouse_y < 0.0 {
+        return 0;
+    }
+    let x = (mouse_x * width_factor) as usize;
+    let y = (mouse_y * height_factor) as usize;
+    let pick_index = (y * width as usize + x) * 4;
+    if pick_index + 3 >= data.len() {
+        return 0;
+    }
+    u32::from(data[pick_index])
+        | u32::from(data[pick_index + 1]) << 8
+        | u32::from(data[pick_index + 2]) << 16
+        | u32::from(data[pick_index + 3]) << 24
+}
+
 async fn read_texture_buffer(
     buffer_slice: wgpu::BufferSlice<'_>,
     device: &wgpu::Device,
@@ -332,17 +355,14 @@ async fn read_texture_buffer(
     let data = buffer_slice.get_mapped_range();
     // [(0, 0, 0, 0), (0`, 255, 0, 255), (0, 0, 0, 0),
     // (0, 0, 0, 0), (0, 255, 0, 255), (0, 0, 0, 0)]
-    let x = mouse_coords.x * width_factor;
-    let y = mouse_coords.y * height_factor;
-    let bytes_per_pixel = 4;
-    let pick_index = (y as usize * width as usize + x as usize) * bytes_per_pixel;
-    // TODO: bounds check.
-    let r = data[pick_index];
-    let g = data[pick_index + 1];
-    let b = data[pick_index + 2];
-    let a = data[pick_index + 3];
-
-    let rgba_u32 = u32::from(r) | u32::from(g) << 8 | u32::from(b) << 16 | u32::from(a) << 24;
+    let rgba_u32 = pick_id_from_buffer(
+        &data,
+        width,
+        width_factor,
+        height_factor,
+        mouse_coords.x,
+        mouse_coords.y,
+    );
 
     // This is great for debugging. I'll keep it as I need it often.
     /*use image::{ImageBuffer, Rgba};
@@ -351,4 +371,58 @@ async fn read_texture_buffer(
 
     log::info!("Selected obj with id {}", rgba_u32);
     rgba_u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pick_id_from_buffer_reconstructs_le_u32() {
+        // 4-byte little-endian encoding of 0x04030201 = 67305985
+        let data: Vec<u8> = vec![0x01, 0x02, 0x03, 0x04];
+        let id = pick_id_from_buffer(&data, 1, 1.0, 1.0, 0.0, 0.0);
+        assert_eq!(id, 0x04030201);
+    }
+
+    #[test]
+    fn pick_id_from_buffer_oob_returns_zero() {
+        // Buffer too small for the requested coordinates
+        let data: Vec<u8> = vec![0xFF; 4];
+        // mouse at (1,0) in a width=1 buffer → pick_index=4 which is past end
+        let id = pick_id_from_buffer(&data, 1, 1.0, 1.0, 1.0, 0.0);
+        assert_eq!(id, 0, "out-of-bounds pick should return 0");
+    }
+
+    #[test]
+    fn pick_id_from_buffer_second_pixel() {
+        // Two pixels worth of data (8 bytes), width=2
+        let data: Vec<u8> = vec![0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00];
+        // mouse at x=1, y=0, width=2 → pick_index = (0*2+1)*4 = 4
+        let id = pick_id_from_buffer(&data, 2, 1.0, 1.0, 1.0, 0.0);
+        assert_eq!(id, 5);
+    }
+
+    // BUG: The bounds check `pick_index + 3 >= data.len()` is off-by-one.
+    // When pick_index+3 == data.len()-1 (the very last byte), it should succeed
+    // but is rejected. A buffer of exactly 8 bytes with width=2 cannot read
+    // the second pixel at index 4 because 4+3=7 >= 8 would be false...
+    // Actually 4+3=7, 7 >= 8 is false, so this works. Let's test the exact boundary.
+    #[test]
+    fn pick_id_from_buffer_exact_boundary() {
+        // Exactly enough data: 2 pixels = 8 bytes, width=2
+        // Reading pixel at (1,0): pick_index=4, need bytes 4,5,6,7
+        let data: Vec<u8> = vec![0; 4].into_iter().chain(vec![0xAB, 0xCD, 0xEF, 0x12]).collect();
+        let id = pick_id_from_buffer(&data, 2, 1.0, 1.0, 1.0, 0.0);
+        assert_eq!(id, 0x12EFCDAB);
+    }
+
+    // Negative mouse coordinates must return 0, not silently read the wrong pixel.
+    #[test]
+    fn pick_id_from_buffer_negative_mouse_returns_zero() {
+        let mut data: Vec<u8> = vec![0; 16];
+        data[0] = 42;
+        let id = pick_id_from_buffer(&data, 2, 1.0, 1.0, -1.0, 0.0);
+        assert_eq!(id, 0, "negative mouse coords must return 0, not read pixel (0,0)");
+    }
 }

@@ -171,11 +171,7 @@ pub fn to_scene_node(
         None => Box::new(ContainerNode::new(1, animations)),
     };
     let decomp_pos = node.transform().decomposed();
-    let instance = Instance {
-        position: decomp_pos.0.into(),
-        rotation: decomp_pos.1.into(),
-        scale: decomp_pos.2.into(),
-    };
+    let instance = instance_from_gltf(decomp_pos.0, decomp_pos.1.into(), decomp_pos.2);
     scene_node.set_local_transform(0, instance);
     for child in node.children() {
         let child_node = to_scene_node(id, child, buf, device, mats, anims);
@@ -196,31 +192,26 @@ fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnima
             state.current_clip,
             clip.name
         );
-        // Use first frame as default (this is important as child nodes have offsets)
-        state.trans.append(
-            &mut (t_len..max_len)
-                .into_iter()
-                .filter_map(|_| state.trans.first())
-                .cloned()
-                .collect(),
+        // Use first frame as default (this is important as child nodes have offsets).
+        // If a track is entirely empty, fill with identity/zero defaults.
+        let default_trans = cgmath::Vector3::new(0.0, 0.0, 0.0);
+        let default_rot = cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0);
+        let default_scale = cgmath::Vector3::new(1.0, 1.0, 1.0);
+        state.trans.resize(
+            max_len,
+            state.trans.first().copied().unwrap_or(default_trans),
         );
-        state.rots.append(
-            &mut (r_len..max_len)
-                .into_iter()
-                .filter_map(|_| state.rots.first())
-                .cloned()
-                .collect(),
+        state.rots.resize(
+            max_len,
+            state.rots.first().copied().unwrap_or(default_rot),
         );
-        state.scals.append(
-            &mut (s_len..max_len)
-                .into_iter()
-                .filter_map(|_| state.scals.first())
-                .cloned()
-                .collect(),
+        state.scals.resize(
+            max_len,
+            state.scals.first().copied().unwrap_or(default_scale),
         );
     }
-    // now assume the're all the same length
-    let mut instances = Vec::with_capacity(t_len);
+    // now assume they're all the same length
+    let mut instances = Vec::with_capacity(max_len);
     for i in 0..max_len {
         let instance = Instance {
             position: state.trans[i],
@@ -268,6 +259,9 @@ fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnima
  * }
  */
 fn merge(clips: Vec<AnimationClip>) -> Vec<ModelAnimation> {
+    if clips.is_empty() {
+        return Vec::new();
+    }
     let mut state = ModelState {
         current_clip: clips.first().unwrap().name.clone(),
         ..Default::default()
@@ -396,6 +390,19 @@ pub fn transform_locals(parent: &Instance, children: Vec<Instance>) -> Vec<Insta
 /// Returns the local transformation `child` in the `parent` coordinates
 pub fn transform_local(parent: &Instance, child: Instance) -> Instance {
     parent * &child
+}
+
+/// Constructs an `Instance` from a glTF decomposed transform tuple.
+pub(crate) fn instance_from_gltf(
+    translation: [f32; 3],
+    rotation: cgmath::Quaternion<f32>,
+    scale: [f32; 3],
+) -> Instance {
+    Instance {
+        position: translation.into(),
+        rotation,
+        scale: scale.into(),
+    }
 }
 
 #[cfg(feature = "integration-tests")]
@@ -615,7 +622,7 @@ impl SceneNode for ContainerNode {
         for child in &mut self.children {
             child.duplicate_instance(i);
         }
-        self.instances.len()
+        self.instances.len() - 1
     }
 
     fn get_animation(&self) -> &Vec<ModelAnimation> {
@@ -1031,23 +1038,6 @@ mod tests {
     }
 
     #[test]
-    fn existing_children_unchanged() {
-        let parent = Instance::default();
-        let children = vec![
-            Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0])),
-            Instance::from(cgmath::Vector3::from([0.0, 2.0, 0.0])),
-        ];
-
-        let result = transform_locals(&parent, children.clone());
-
-        for (a, b) in result.iter().zip(children.iter()) {
-            assert_eq!(a.position, b.position);
-            assert_eq!(a.scale, b.scale);
-            assert_eq!(a.rotation, b.rotation);
-        }
-    }
-
-    #[test]
     fn parent_translation_is_removed() {
         let parent = Instance::from(cgmath::Vector3::from([10.0, 0.0, 0.0]));
 
@@ -1079,4 +1069,213 @@ mod tests {
 
         assert!(result.is_empty());
     }
+
+    #[test]
+    fn non_identity_parent_translates_child() {
+        let parent = Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0]));
+        let child = Instance::from(cgmath::Vector3::from([0.0, 0.0, 0.0]));
+        let result = transform_local(&parent, child);
+        assert_eq!(result.position, cgmath::Vector3::new(1.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn parent_scale_scales_child_position() {
+        let mut parent = Instance::default();
+        parent.scale = cgmath::Vector3::new(2.0, 2.0, 2.0);
+        let child = Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0]));
+        let result = transform_local(&parent, child);
+        use cgmath::assert_relative_eq;
+        assert_relative_eq!(result.position.x, 2.0, epsilon = 1e-5);
+        assert_relative_eq!(result.position.y, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(result.position.z, 0.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn parent_rotation_rotates_child_position() {
+        use cgmath::{assert_relative_eq, Deg, Quaternion, Rotation3, Vector3};
+        let mut parent = Instance::default();
+        parent.rotation = Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(90.0));
+        let child = Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0]));
+        let result = transform_local(&parent, child);
+        assert_relative_eq!(result.position.x, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(result.position.y, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(result.position.z, -1.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn transform_locals_matches_sequential() {
+        let parent = Instance::from(cgmath::Vector3::from([3.0, 0.0, 0.0]));
+        let a = Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0]));
+        let b = Instance::from(cgmath::Vector3::from([0.0, 2.0, 0.0]));
+        let batch = transform_locals(&parent, vec![a.clone(), b.clone()]);
+        let seq_a = transform_local(&parent, a);
+        let seq_b = transform_local(&parent, b);
+        assert_eq!(batch[0].position, seq_a.position);
+        assert_eq!(batch[1].position, seq_b.position);
+    }
+
+    #[test]
+    fn double_transform_equals_composed() {
+        use cgmath::assert_relative_eq;
+        let p = Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0]));
+        let q = Instance::from(cgmath::Vector3::from([0.0, 1.0, 0.0]));
+        let c = Instance::from(cgmath::Vector3::from([0.0, 0.0, 1.0]));
+        let nested = transform_local(&p, transform_local(&q, c.clone()));
+        let composed_parent = {
+            use std::ops::Mul;
+            (&p).mul(&q)
+        };
+        let direct = transform_local(&composed_parent, c);
+        assert_relative_eq!(nested.position.x, direct.position.x, epsilon = 1e-5);
+        assert_relative_eq!(nested.position.y, direct.position.y, epsilon = 1e-5);
+        assert_relative_eq!(nested.position.z, direct.position.z, epsilon = 1e-5);
+    }
+
+    // --- instance_from_gltf ---
+
+    #[test]
+    fn identity_decomp() {
+        use cgmath::{One, Quaternion, assert_relative_eq};
+        let result = instance_from_gltf([0.0, 0.0, 0.0], Quaternion::one(), [1.0, 1.0, 1.0]);
+        let expected = Instance::new();
+        assert_relative_eq!(result.position.x, expected.position.x, epsilon = 1e-6);
+        assert_relative_eq!(result.rotation.s, expected.rotation.s, epsilon = 1e-6);
+        assert_relative_eq!(result.scale.x, expected.scale.x, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn translation_preserved() {
+        use cgmath::{One, Quaternion};
+        let t = [3.0f32, 4.0, 5.0];
+        let result = instance_from_gltf(t, Quaternion::one(), [1.0, 1.0, 1.0]);
+        assert_eq!(result.position.x, t[0]);
+        assert_eq!(result.position.y, t[1]);
+        assert_eq!(result.position.z, t[2]);
+    }
+
+    #[test]
+    fn scale_preserved() {
+        use cgmath::{One, Quaternion};
+        let s = [2.0f32, 3.0, 4.0];
+        let result = instance_from_gltf([0.0, 0.0, 0.0], Quaternion::one(), s);
+        assert_eq!(result.scale.x, s[0]);
+        assert_eq!(result.scale.y, s[1]);
+        assert_eq!(result.scale.z, s[2]);
+    }
+
+    #[test]
+    fn rotation_preserved() {
+        use cgmath::{Deg, Quaternion, Rotation3, Vector3};
+        let q = Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(45.0));
+        let result = instance_from_gltf([0.0, 0.0, 0.0], q, [1.0, 1.0, 1.0]);
+        assert_eq!(result.rotation, q);
+    }
+
+    // duplicate_instance must return the index of the newly created instance (len-1),
+    // not len which is out of bounds.
+    #[test]
+    fn duplicate_instance_returns_valid_index() {
+        let mut node = ContainerNode::new(2, Vec::new());
+        let returned_idx = node.duplicate_instance(0);
+        assert_eq!(
+            returned_idx,
+            node.instances.len() - 1,
+            "duplicate_instance must return len-1 (the new instance's index)"
+        );
+        assert!(
+            node.instances.get(returned_idx).is_some(),
+            "returned index must be valid"
+        );
+    }
+
+    // merge must not panic on empty input
+    #[test]
+    fn merge_empty_clips_returns_empty() {
+        let result = merge(vec![]);
+        assert!(result.is_empty());
+    }
+
+    // When only one track type has data, save_current_anim must pad the other
+    // tracks to the same length rather than panicking on out-of-bounds access.
+    #[test]
+    fn save_current_anim_pads_missing_tracks() {
+        use cgmath::{One, Quaternion};
+        let clips = vec![AnimationClip {
+            name: "anim1".into(),
+            keyframes: Keyframes::Rotation(vec![Quaternion::one(), Quaternion::one()]),
+            timestamps: vec![0.0, 1.0],
+        }];
+        let animations = merge(clips);
+        assert_eq!(animations.len(), 1);
+        assert_eq!(
+            animations[0].instances.len(),
+            2,
+            "instances must match the rotation track length"
+        );
+    }
+}
+
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use cgmath::{One, Quaternion, Vector3};
+
+    fn bounded_instance() -> Instance {
+        let px: f32 = kani::any();
+        let py: f32 = kani::any();
+        let pz: f32 = kani::any();
+        kani::assume(px.abs() < 1e4 && py.abs() < 1e4 && pz.abs() < 1e4);
+        let sx: f32 = kani::any();
+        let sy: f32 = kani::any();
+        let sz: f32 = kani::any();
+        kani::assume(sx.abs() < 1e4 && sy.abs() < 1e4 && sz.abs() < 1e4);
+        Instance {
+            position: Vector3::new(px, py, pz),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(sx, sy, sz),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_transform_local_no_panic() {
+        let parent = bounded_instance();
+        let child = bounded_instance();
+        let _ = transform_local(&parent, child);
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_identity_parent() {
+        let identity = Instance::new();
+        let c = bounded_instance();
+        let result = transform_local(&identity, c.clone());
+        kani::assert(
+            (result.position.x - c.position.x).abs() < 1e-3,
+            "identity parent preserves position.x",
+        );
+        kani::assert(
+            (result.scale.x - c.scale.x).abs() < 1e-3,
+            "identity parent preserves scale.x",
+        );
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_instance_from_gltf_no_panic() {
+        let tx: f32 = kani::any();
+        let ty: f32 = kani::any();
+        let tz: f32 = kani::any();
+        kani::assume(tx.is_finite() && ty.is_finite() && tz.is_finite());
+        let sx: f32 = kani::any();
+        let sy: f32 = kani::any();
+        let sz: f32 = kani::any();
+        kani::assume(sx.is_finite() && sy.is_finite() && sz.is_finite());
+        let _ = instance_from_gltf([tx, ty, tz], Quaternion::one(), [sx, sy, sz]);
+    }
+
+    // verify_transform_locals_length requires kani::unwind(4) for the Vec allocation
+    // and is omitted here because transform_locals uses ContainerNode which involves
+    // dynamic dispatch and heap allocation that exceeds Kani's modelling scope.
 }

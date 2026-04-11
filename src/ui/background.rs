@@ -7,7 +7,7 @@ use crate::{
 
 /// A GPU-resident background texture ready for binding.
 ///
-/// Structurally mirrors `Atlas` but without grid layout — it covers the full image.
+/// Structurally mirrors `Atlas` but without grid layout.
 /// Wrap in `Arc` to share across multiple containers.
 pub struct BackgroundTexture {
     pub(crate) bind_group: wgpu::BindGroup,

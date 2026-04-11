@@ -30,6 +30,25 @@ pub struct BuildingBlocks {
     buffer_size_needs_change: bool,
 }
 
+pub(crate) fn uniform_instances(
+    amount: usize,
+    start_position: cgmath::Vector3<f32>,
+    start_rotation: cgmath::Quaternion<f32>,
+) -> Vec<Instance> {
+    (0..amount)
+        .map(|_| {
+            let mut instance = Instance::new();
+            instance.position = start_position;
+            instance.rotation = if start_position.is_zero() {
+                cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+            } else {
+                start_rotation
+            };
+            instance
+        })
+        .collect()
+}
+
 impl AsRef<BuildingBlocks> for BuildingBlocks {
     fn as_ref(&self) -> &BuildingBlocks {
         self
@@ -52,19 +71,7 @@ impl BuildingBlocks {
         }
         let obj_model = obj_model.unwrap();
 
-        let instances = (0..amount)
-            .map(|_| {
-                let mut instance = Instance::new();
-                instance.position = start_position;
-                let rotation = if start_position.is_zero() {
-                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
-                } else {
-                    start_rotation
-                };
-                instance.rotation = rotation;
-                instance
-            })
-            .collect::<Vec<_>>();
+        let instances = uniform_instances(amount, start_position, start_rotation);
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -217,5 +224,68 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
 
     fn get_render(&'a self) -> Render<'a, 'pass> {
         Render::Default(self.to_instanced())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cgmath::{assert_relative_eq, Deg, Quaternion, Rotation3, Vector3};
+
+    #[test]
+    fn uniform_instances_correct_count() {
+        let instances = uniform_instances(5, Vector3::new(1.0, 2.0, 3.0), Quaternion::one());
+        assert_eq!(instances.len(), 5);
+    }
+
+    #[test]
+    fn uniform_instances_zero_count_is_empty() {
+        let instances = uniform_instances(0, Vector3::new(1.0, 0.0, 0.0), Quaternion::one());
+        assert!(instances.is_empty());
+    }
+
+    #[test]
+    fn uniform_instances_all_share_position() {
+        let pos = Vector3::new(3.0, 4.0, 5.0);
+        let instances = uniform_instances(3, pos, Quaternion::one());
+        for inst in &instances {
+            assert_eq!(inst.position, pos);
+        }
+    }
+
+    #[test]
+    fn uniform_instances_zero_position_uses_identity_rotation() {
+        let rot = Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0));
+        let instances = uniform_instances(2, Vector3::zero(), rot);
+        // When position is zero, rotation is overridden to identity (Deg(0) around Z)
+        for inst in &instances {
+            // Identity quaternion from axis_angle(z, 0) should be (1, 0, 0, 0)
+            assert_relative_eq!(inst.rotation.s, 1.0, epsilon = 1e-6);
+            assert_relative_eq!(inst.rotation.v.x, 0.0, epsilon = 1e-6);
+            assert_relative_eq!(inst.rotation.v.y, 0.0, epsilon = 1e-6);
+            assert_relative_eq!(inst.rotation.v.z, 0.0, epsilon = 1e-6);
+        }
+    }
+
+    #[test]
+    fn uniform_instances_nonzero_position_preserves_rotation() {
+        let rot = Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0));
+        let instances = uniform_instances(2, Vector3::new(1.0, 0.0, 0.0), rot);
+        for inst in &instances {
+            assert_relative_eq!(inst.rotation.s, rot.s, epsilon = 1e-6);
+            assert_relative_eq!(inst.rotation.v.x, rot.v.x, epsilon = 1e-6);
+            assert_relative_eq!(inst.rotation.v.y, rot.v.y, epsilon = 1e-6);
+            assert_relative_eq!(inst.rotation.v.z, rot.v.z, epsilon = 1e-6);
+        }
+    }
+
+    #[test]
+    fn uniform_instances_near_zero_position_is_not_zero() {
+        // is_zero() checks exact equality, not epsilon
+        let rot = Quaternion::from_axis_angle(Vector3::unit_y(), Deg(90.0));
+        let near_zero = Vector3::new(1e-10, 0.0, 0.0);
+        let instances = uniform_instances(1, near_zero, rot);
+        // near_zero.is_zero() returns false, so rotation should be preserved
+        assert_relative_eq!(instances[0].rotation.s, rot.s, epsilon = 1e-6);
     }
 }

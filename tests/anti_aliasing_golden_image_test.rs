@@ -80,7 +80,7 @@ fn anti_aliased_render_should_differ_from_non_aa() {
                 return Ok(ImageTestResult::Waiting);
             }
 
-            // frame >= 2: rendered with MSAA — compare against baseline.
+            // frame >= 2: rendered with MSAA and compare against baseline.
             let baseline = self.baseline.borrow();
             let baseline = baseline.as_ref().expect("baseline should be captured by now");
 

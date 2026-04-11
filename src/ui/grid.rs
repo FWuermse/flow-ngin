@@ -75,7 +75,7 @@ impl<S: 'static, E: Send + 'static> Grid<S, E> {
         self
     }
 
-    /// Place a child element into the cell at `(col, row)` — non-panicking version.
+    /// Place a child element into the cell at `(col, row)` (non-panicking version).
     ///
     /// Returns `self` unchanged if coordinates are out of range.
     pub fn try_with_child(

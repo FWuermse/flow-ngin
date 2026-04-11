@@ -149,3 +149,125 @@ pub(crate) fn compute_tangents(vertices: &mut Vec<model::ModelVertex>, indices: 
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cgmath::InnerSpace;
+
+    fn make_vertex(pos: [f32; 3], uv: [f32; 2], normal: [f32; 3]) -> model::ModelVertex {
+        model::ModelVertex {
+            position: pos,
+            tex_coords: uv,
+            normal,
+            tangent: [0.0; 3],
+            bitangent: [0.0; 3],
+        }
+    }
+
+    /// A simple XZ-plane quad with up-facing normals and a standard UV layout.
+    fn quad_vertices_and_indices() -> (Vec<model::ModelVertex>, Vec<u32>) {
+        let verts = vec![
+            make_vertex([0.0, 0.0, 0.0], [0.0, 0.0], [0.0, 1.0, 0.0]),
+            make_vertex([1.0, 0.0, 0.0], [1.0, 0.0], [0.0, 1.0, 0.0]),
+            make_vertex([1.0, 0.0, 1.0], [1.0, 1.0], [0.0, 1.0, 0.0]),
+            make_vertex([0.0, 0.0, 1.0], [0.0, 1.0], [0.0, 1.0, 0.0]),
+        ];
+        let indices = vec![0, 1, 2, 0, 2, 3];
+        (verts, indices)
+    }
+
+    #[test]
+    fn tangent_is_orthogonal_to_normal() {
+        let (mut verts, indices) = quad_vertices_and_indices();
+        compute_tangents(&mut verts, &indices);
+        for v in &verts {
+            let n: cgmath::Vector3<f32> = v.normal.into();
+            let t: cgmath::Vector3<f32> = v.tangent.into();
+            let dot = n.dot(t);
+            assert!(
+                dot.abs() < 1e-5,
+                "tangent should be orthogonal to normal, got dot={}",
+                dot
+            );
+        }
+    }
+
+    #[test]
+    fn bitangent_is_orthogonal_to_normal_and_tangent() {
+        let (mut verts, indices) = quad_vertices_and_indices();
+        compute_tangents(&mut verts, &indices);
+        for v in &verts {
+            let n: cgmath::Vector3<f32> = v.normal.into();
+            let t: cgmath::Vector3<f32> = v.tangent.into();
+            let b: cgmath::Vector3<f32> = v.bitangent.into();
+            assert!(
+                n.dot(b).abs() < 1e-5,
+                "bitangent should be orthogonal to normal"
+            );
+            assert!(
+                t.dot(b).abs() < 1e-5,
+                "bitangent should be orthogonal to tangent"
+            );
+        }
+    }
+
+    #[test]
+    fn tangent_is_unit_length() {
+        let (mut verts, indices) = quad_vertices_and_indices();
+        compute_tangents(&mut verts, &indices);
+        for v in &verts {
+            let t: cgmath::Vector3<f32> = v.tangent.into();
+            let len = t.magnitude();
+            assert!(
+                (len - 1.0).abs() < 1e-5,
+                "tangent should be unit length, got {}",
+                len
+            );
+        }
+    }
+
+    #[test]
+    fn degenerate_uv_falls_back_to_default() {
+        // All vertices have identical UVs → degenerate tangent space
+        let mut verts = vec![
+            make_vertex([0.0, 0.0, 0.0], [0.5, 0.5], [0.0, 1.0, 0.0]),
+            make_vertex([1.0, 0.0, 0.0], [0.5, 0.5], [0.0, 1.0, 0.0]),
+            make_vertex([0.0, 0.0, 1.0], [0.5, 0.5], [0.0, 1.0, 0.0]),
+        ];
+        let indices = vec![0, 1, 2];
+        compute_tangents(&mut verts, &indices);
+        // Should fall back to NaN guard: tangent=[1,0,0], bitangent=[0,1,0]
+        for v in &verts {
+            assert_eq!(v.tangent, [1.0, 0.0, 0.0], "degenerate UVs should use fallback tangent");
+            assert_eq!(
+                v.bitangent,
+                [0.0, 1.0, 0.0],
+                "degenerate UVs should use fallback bitangent"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_indices_produces_no_tangents() {
+        let mut verts = vec![
+            make_vertex([0.0, 0.0, 0.0], [0.0, 0.0], [0.0, 1.0, 0.0]),
+        ];
+        compute_tangents(&mut verts, &[]);
+        // No triangles processed → zero tangent accumulator → NaN fallback
+        assert_eq!(verts[0].tangent, [1.0, 0.0, 0.0]);
+        assert_eq!(verts[0].bitangent, [0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn incomplete_triangle_chunk_is_skipped() {
+        let mut verts = vec![
+            make_vertex([0.0, 0.0, 0.0], [0.0, 0.0], [0.0, 1.0, 0.0]),
+            make_vertex([1.0, 0.0, 0.0], [1.0, 0.0], [0.0, 1.0, 0.0]),
+        ];
+        // Only 2 indices => not a complete triangle
+        compute_tangents(&mut verts, &[0, 1]);
+        // Should not panic, should produce fallback tangents
+        assert_eq!(verts[0].tangent, [1.0, 0.0, 0.0]);
+    }
+}

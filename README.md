@@ -48,7 +48,24 @@ You may want to use this engine if:
   - [x] Icons (including transparency)
   - [ ] Responsiveness
 
-## Running Integration Tests
+## Tests and Verification
+
+This engine currently has integration tests for an entire graphics module, unit tests for core functions,
+and kani proofs for pure functions that rely on transformation calculations and similar.
+
+### Running Unit Tests
+
+```sh
+cargo test
+```
+
+### Verify Kani Proofs
+
+```sh
+cargo kani
+```
+
+### Running Integration Tests
 
 Note: integrations tests with golden-image-tests can currently only be executed on Wayland and Windows.
 

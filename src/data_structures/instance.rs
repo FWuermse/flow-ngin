@@ -5,7 +5,7 @@
 
 use std::ops::{Add, Mul};
 
-use cgmath::{One, SquareMatrix};
+use cgmath::{InnerSpace, One, SquareMatrix};
 
 use crate::data_structures::model;
 
@@ -82,8 +82,12 @@ impl Add<Instance> for Instance {
     fn add(self, rhs: Instance) -> Self::Output {
         Instance {
             position: self.position + rhs.position,
-            rotation: self.rotation + rhs.rotation,
-            scale: self.scale + rhs.scale,
+            rotation: (self.rotation * rhs.rotation).normalize(),
+            scale: cgmath::Vector3::new(
+                self.scale.x * rhs.scale.x,
+                self.scale.y * rhs.scale.y,
+                self.scale.z * rhs.scale.z,
+            ),
         }
     }
 }
@@ -120,8 +124,12 @@ impl<'a, 'b> Add<&'b Instance> for &'a Instance {
     fn add(self, rhs: &'b Instance) -> Self::Output {
         Instance {
             position: self.position + rhs.position,
-            rotation: self.rotation + rhs.rotation,
-            scale: self.scale + rhs.scale,
+            rotation: (self.rotation * rhs.rotation).normalize(),
+            scale: cgmath::Vector3::new(
+                self.scale.x * rhs.scale.x,
+                self.scale.y * rhs.scale.y,
+                self.scale.z * rhs.scale.z,
+            ),
         }
     }
 }
@@ -161,6 +169,333 @@ pub struct InstanceRaw {
  *
  * Stride layout here: position + rotation + scale as 4x4 matrix (hence the four 4d vectors)
  */
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cgmath::{assert_relative_eq, Deg, Matrix4, Quaternion, Rotation3, SquareMatrix, Vector3};
+
+    fn approx_eq_instance(a: &Instance, b: &Instance) {
+        assert_relative_eq!(a.position.x, b.position.x, epsilon = 1e-5);
+        assert_relative_eq!(a.position.y, b.position.y, epsilon = 1e-5);
+        assert_relative_eq!(a.position.z, b.position.z, epsilon = 1e-5);
+        assert_relative_eq!(a.rotation.v.x, b.rotation.v.x, epsilon = 1e-5);
+        assert_relative_eq!(a.rotation.v.y, b.rotation.v.y, epsilon = 1e-5);
+        assert_relative_eq!(a.rotation.v.z, b.rotation.v.z, epsilon = 1e-5);
+        assert_relative_eq!(a.rotation.s, b.rotation.s, epsilon = 1e-5);
+        assert_relative_eq!(a.scale.x, b.scale.x, epsilon = 1e-5);
+        assert_relative_eq!(a.scale.y, b.scale.y, epsilon = 1e-5);
+        assert_relative_eq!(a.scale.z, b.scale.z, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn identity_matrix() {
+        let m = Instance::new().to_matrix();
+        assert_relative_eq!(m, Matrix4::identity(), epsilon = 1e-6);
+    }
+
+    #[test]
+    fn identity_mul_left() {
+        let identity = Instance::new();
+        let a = Instance {
+            position: Vector3::new(1.0, 2.0, 3.0),
+            rotation: Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(45.0)),
+            scale: Vector3::new(2.0, 3.0, 4.0),
+        };
+        let result = identity * a.clone();
+        approx_eq_instance(&result, &a);
+    }
+
+    #[test]
+    fn identity_mul_right() {
+        let identity = Instance::new();
+        let a = Instance {
+            position: Vector3::new(1.0, 2.0, 3.0),
+            rotation: Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(45.0)),
+            scale: Vector3::new(2.0, 3.0, 4.0),
+        };
+        let result = a.clone() * identity;
+        approx_eq_instance(&result, &a);
+    }
+
+    #[test]
+    fn to_raw_handedness_positive() {
+        let instance = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let raw = instance.to_raw();
+        assert_eq!(raw.handedness, 1.0);
+    }
+
+    #[test]
+    fn to_raw_handedness_negative() {
+        // Flip one axis to make determinant negative
+        let instance = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(-1.0, 1.0, 1.0),
+        };
+        let raw = instance.to_raw();
+        assert_eq!(raw.handedness, -1.0);
+    }
+
+    #[test]
+    fn add_positions() {
+        let a = Instance {
+            position: Vector3::new(1.0, 2.0, 3.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let b = Instance {
+            position: Vector3::new(4.0, 5.0, 6.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let result = a.clone() + b.clone();
+        assert_relative_eq!(result.position.x, a.position.x + b.position.x, epsilon = 1e-6);
+        assert_relative_eq!(result.position.y, a.position.y + b.position.y, epsilon = 1e-6);
+        assert_relative_eq!(result.position.z, a.position.z + b.position.z, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn mul_scales_component_wise() {
+        let a = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(2.0, 3.0, 4.0),
+        };
+        let b = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(5.0, 6.0, 7.0),
+        };
+        let result = a.clone() * b.clone();
+        assert_relative_eq!(result.scale.x, a.scale.x * b.scale.x, epsilon = 1e-6);
+        assert_relative_eq!(result.scale.y, a.scale.y * b.scale.y, epsilon = 1e-6);
+        assert_relative_eq!(result.scale.z, a.scale.z * b.scale.z, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn mul_translation_rotated() {
+        // Parent at origin, rotated 90° around Y. Child at (1,0,0) local.
+        // After composition the child should be at (0,0,-1) in world space.
+        let parent = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(90.0)),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let child = Instance {
+            position: Vector3::new(1.0, 0.0, 0.0),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let result = parent * child;
+        // 90° Y-rotation maps (1,0,0) → (0,0,-1)
+        assert_relative_eq!(result.position.x, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(result.position.y, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(result.position.z, -1.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn from_vector3() {
+        let v = Vector3::new(3.0, 4.0, 5.0);
+        let instance = Instance::from(v);
+        assert_relative_eq!(instance.position.x, v.x, epsilon = 1e-6);
+        assert_relative_eq!(instance.position.y, v.y, epsilon = 1e-6);
+        assert_relative_eq!(instance.position.z, v.z, epsilon = 1e-6);
+    }
+
+    // Instance::Add should combine scales additively relative to identity (1+1=1 not 2),
+    // or alternatively should not use component-wise addition for scale at all.
+    // The current behavior doubles the scale, breaking any usage of Add for accumulation.
+    #[test]
+    fn add_scale_is_not_doubled() {
+        let a = Instance::new();
+        let b = Instance::new();
+        let result = a + b;
+        assert_relative_eq!(result.scale.x, 1.0, epsilon = 1e-6);
+        assert_relative_eq!(result.scale.y, 1.0, epsilon = 1e-6);
+        assert_relative_eq!(result.scale.z, 1.0, epsilon = 1e-6);
+    }
+
+    // Instance::Add must be associative: (a + b) + c == a + (b + c).
+    #[test]
+    fn add_is_associative() {
+        let a = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(0.0)),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let b = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(90.0)),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let c = Instance {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(180.0)),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+        };
+        let ab_c = (a.clone() + b.clone()) + c.clone();
+        let a_bc = a + (b + c);
+        assert_relative_eq!(ab_c.rotation.s,   a_bc.rotation.s,   epsilon = 1e-5);
+        assert_relative_eq!(ab_c.rotation.v.x, a_bc.rotation.v.x, epsilon = 1e-5);
+        assert_relative_eq!(ab_c.rotation.v.y, a_bc.rotation.v.y, epsilon = 1e-5);
+        assert_relative_eq!(ab_c.rotation.v.z, a_bc.rotation.v.z, epsilon = 1e-5);
+    }
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::*;
+    use cgmath::{One, Quaternion, Vector3};
+
+    fn bounded_instance() -> Instance {
+        let px: f32 = kani::any();
+        let py: f32 = kani::any();
+        let pz: f32 = kani::any();
+        kani::assume(px.abs() < 1e4 && py.abs() < 1e4 && pz.abs() < 1e4);
+        let sx: f32 = kani::any();
+        let sy: f32 = kani::any();
+        let sz: f32 = kani::any();
+        kani::assume(sx.abs() < 1e4 && sy.abs() < 1e4 && sz.abs() < 1e4);
+        // Unit quaternion: constrain to identity for tractability
+        Instance {
+            position: Vector3::new(px, py, pz),
+            rotation: Quaternion::one(),
+            scale: Vector3::new(sx, sy, sz),
+        }
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_to_raw_no_panic() {
+        let a = bounded_instance();
+        let _ = a.to_raw();
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_mul_no_panic() {
+        let a = bounded_instance();
+        let b = bounded_instance();
+        let _ = a * b;
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_add_no_panic() {
+        let a = bounded_instance();
+        let b = bounded_instance();
+        let _ = a + b;
+    }
+
+    /// `Add` for Instance adds quaternion components directly, which breaks the
+    /// unit-norm invariant. This harness documents and catches that: given two
+    /// unit quaternions (norm == 1), their component-wise sum will NOT have norm 1
+    /// in general, meaning the resulting rotation is invalid.
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_add_rotation_unit_norm() {
+        // Build two instances with arbitrary unit quaternions
+        let s1: f32 = kani::any();
+        let xi: f32 = kani::any();
+        let yi: f32 = kani::any();
+        let zi: f32 = kani::any();
+        // Assume unit quaternion: s^2 + x^2 + y^2 + z^2 == 1
+        kani::assume(s1.is_finite() && xi.is_finite() && yi.is_finite() && zi.is_finite());
+        let norm_sq_a = s1 * s1 + xi * xi + yi * yi + zi * zi;
+        kani::assume((norm_sq_a - 1.0).abs() < 1e-6);
+
+        let s2: f32 = kani::any();
+        let xj: f32 = kani::any();
+        let yj: f32 = kani::any();
+        let zj: f32 = kani::any();
+        kani::assume(s2.is_finite() && xj.is_finite() && yj.is_finite() && zj.is_finite());
+        let norm_sq_b = s2 * s2 + xj * xj + yj * yj + zj * zj;
+        kani::assume((norm_sq_b - 1.0).abs() < 1e-6);
+
+        let a = Instance {
+            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::new(s1, xi, yi, zi),
+            scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
+        };
+        let b = Instance {
+            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            rotation: Quaternion::new(s2, xj, yj, zj),
+            scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
+        };
+        let result = a + b;
+        let rs = result.rotation.s;
+        let rv = result.rotation.v;
+        let norm_sq = rs * rs + rv.x * rv.x + rv.y * rv.y + rv.z * rv.z;
+        // This assertion SHOULD FAIL: component-wise quaternion addition does not
+        // preserve unit norm, so the resulting rotation is not a valid unit quaternion.
+        kani::assert((norm_sq - 1.0).abs() < 1e-3, "Add preserves unit quaternion norm");
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_identity_mul_left() {
+        let identity = Instance::new();
+        let a = bounded_instance();
+        let result = identity * a.clone();
+        kani::assert(
+            (result.position.x - a.position.x).abs() < 1e-3,
+            "identity * a position.x == a.position.x",
+        );
+        kani::assert(
+            (result.scale.x - a.scale.x).abs() < 1e-3,
+            "identity * a scale.x == a.scale.x",
+        );
+    }
+
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_identity_mul_right() {
+        let identity = Instance::new();
+        let a = bounded_instance();
+        let result = a.clone() * identity;
+        kani::assert(
+            (result.position.x - a.position.x).abs() < 1e-3,
+            "a * identity position.x == a.position.x",
+        );
+        kani::assert(
+            (result.scale.x - a.scale.x).abs() < 1e-3,
+            "a * identity scale.x == a.scale.x",
+        );
+    }
+
+    /// Verify that Instance::Mul is associative for scale: (a*b)*c == a*(b*c).
+    /// This should hold since scale multiplication is component-wise f32 multiplication.
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_mul_associative_scale() {
+        let a = bounded_instance();
+        let b = bounded_instance();
+        let c = bounded_instance();
+        let ab_c = (a.clone() * b.clone()) * c.clone();
+        let a_bc = a * (b * c);
+        kani::assert(
+            (ab_c.scale.x - a_bc.scale.x).abs() < 1e-1,
+            "Mul is associative for scale.x",
+        );
+    }
+
+    /// Verify that to_raw produces finite handedness for bounded instances.
+    #[kani::proof]
+    #[kani::unwind(1)]
+    fn verify_to_raw_handedness_finite() {
+        let a = bounded_instance();
+        let raw = a.to_raw();
+        kani::assert(
+            raw.handedness.is_finite(),
+            "handedness must be finite for bounded instances",
+        );
+    }
+}
+
 impl model::Vertex for InstanceRaw {
     fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;

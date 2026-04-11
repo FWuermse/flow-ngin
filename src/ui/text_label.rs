@@ -304,7 +304,7 @@ impl TextLabel {
                     return glyph.x;
                 }
             }
-            // Cursor is past last glyph — return end of line.
+            // Cursor is past last glyph => return end of line.
             return run.line_w;
         }
         0.0

@@ -121,7 +121,7 @@ pub(crate) fn save_or_compare(
     use std::path::Path;
 
     if !Path::new(fixture_path).exists() {
-        eprintln!("Golden fixture missing — generating: {fixture_path}");
+        eprintln!("Golden fixture missing. Generating: {fixture_path}");
         actual.save(fixture_path)?;
         return Ok(ImageTestResult::Passed);
     }

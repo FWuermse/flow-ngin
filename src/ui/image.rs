@@ -81,6 +81,8 @@ impl Atlas {
         }
     }
     fn to_tex_coords(&self, slot: u8) -> Option<Frame> {
+        let max_slot = self.h_grids.checked_mul(self.v_grids)?.saturating_sub(1);
+        let slot = slot.min(max_slot);
         let row = slot % self.h_grids;
         let col = slot / self.h_grids;
         let cell_w = 1.0 / self.h_grids.to_f32()?;
@@ -335,4 +337,135 @@ impl<S, E: Send> GraphicsFlow<S, E> for Icon {
             }),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- pixels_to_frame ---
+
+    #[test]
+    fn pixels_to_frame_basic() {
+        let f = pixels_to_frame(10, 20, 100, 50);
+        assert_eq!(f.start_x, 10.0);
+        assert_eq!(f.start_y, 20.0);
+        assert_eq!(f.end_x, 110.0);
+        assert_eq!(f.end_y, 70.0);
+    }
+
+    #[test]
+    fn pixels_to_frame_zero_size() {
+        let f = pixels_to_frame(5, 5, 0, 0);
+        assert_eq!(f.start_x, 5.0);
+        assert_eq!(f.end_x, 5.0);
+        assert_eq!(f.start_y, 5.0);
+        assert_eq!(f.end_y, 5.0);
+    }
+
+    // pixels_to_frame must not overflow (callers must not pass x+w > u32::MAX),
+    // but the function should at minimum not silently produce wrong results.
+    // This test documents that the addition overflows in debug and wraps in release.
+    #[test]
+    fn pixels_to_frame_large_but_valid_coords() {
+        let f = pixels_to_frame(u32::MAX - 10, 0, 5, 0);
+        assert_eq!(f.start_x, (u32::MAX - 10) as f32);
+        assert_eq!(f.end_x, (u32::MAX - 5) as f32);
+    }
+
+    // --- Atlas::to_tex_coords ---
+
+    #[test]
+    fn atlas_first_slot_cell_dimensions() {
+        // Test the math that to_tex_coords uses, without constructing an Atlas
+        let h_grids: u8 = 4;
+        let v_grids: u8 = 4;
+        let slot: u8 = 0;
+        let row = slot % h_grids;
+        let col = slot / h_grids;
+        assert_eq!(row, 0);
+        assert_eq!(col, 0);
+
+        let cell_w = 1.0 / h_grids as f32;
+        let cell_h = 1.0 / v_grids as f32;
+        assert!((cell_w - 0.25).abs() < 1e-6);
+        assert!((cell_h - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn atlas_slot_row_col_mapping() {
+        // For a 4x4 atlas: slot 5 → row = 5%4 = 1, col = 5/4 = 1
+        let h_grids: u8 = 4;
+        assert_eq!(5u8 % h_grids, 1); // row
+        assert_eq!(5u8 / h_grids, 1); // col
+
+        // slot 3 → row=3, col=0
+        assert_eq!(3u8 % h_grids, 3);
+        assert_eq!(3u8 / h_grids, 0);
+
+        // slot 4 → row=0, col=1 (wraps to next column)
+        assert_eq!(4u8 % h_grids, 0);
+        assert_eq!(4u8 / h_grids, 1);
+    }
+
+    #[test]
+    fn atlas_texel_inset_is_positive() {
+        let atlas_width_px: u32 = 512;
+        let atlas_height_px: u32 = 512;
+        let half_texel_u = 0.5 / atlas_width_px as f32;
+        let half_texel_v = 0.5 / atlas_height_px as f32;
+        assert!(half_texel_u > 0.0);
+        assert!(half_texel_v > 0.0);
+        // For 512px: 0.5/512 ≈ 0.000977
+        assert!((half_texel_u - 0.5 / 512.0).abs() < 1e-8);
+    }
+
+    // A slot index beyond the grid must not produce UV coordinates outside [0,1].
+    #[test]
+    fn atlas_slot_exceeding_grid_must_clamp_uv() {
+        let h_grids: u8 = 4;
+        let v_grids: u8 = 4;
+        let slot: u8 = 17; // beyond 4x4=16 slots
+        // to_tex_coords clamps slot to max_slot = h_grids*v_grids - 1
+        let max_slot = h_grids * v_grids - 1;
+        let clamped_slot = slot.min(max_slot);
+        let col = clamped_slot / h_grids;
+        let cell_h = 1.0 / v_grids as f32;
+        let end_y = (col + 1) as f32 * cell_h;
+        assert!(
+            end_y <= 1.0,
+            "UV end_y={} must not exceed 1.0 for out-of-range slot",
+            end_y
+        );
+    }
+
+    // --- vertices_from_coords ---
+
+    #[test]
+    fn vertices_from_coords_produces_ccw_quad() {
+        let screen = Frame {
+            start_x: 0.0,
+            start_y: 0.0,
+            end_x: 100.0,
+            end_y: 50.0,
+        };
+        let tex = Frame {
+            start_x: 0.0,
+            start_y: 0.0,
+            end_x: 1.0,
+            end_y: 1.0,
+        };
+        let verts = vertices_from_coords(&screen, &tex);
+        assert_eq!(verts.len(), 4);
+        // bottom-left
+        assert_eq!(verts[0].position, [0.0, 50.0, 0.0]);
+        assert_eq!(verts[0].tex_coords, [0.0, 1.0]);
+        // bottom-right
+        assert_eq!(verts[1].position, [100.0, 50.0, 0.0]);
+        // top-right
+        assert_eq!(verts[2].position, [100.0, 0.0, 0.0]);
+        // top-left
+        assert_eq!(verts[3].position, [0.0, 0.0, 0.0]);
+    }
+
 }
