@@ -321,6 +321,11 @@ pub trait SceneNode: Send {
 
     fn remove_child(&mut self, idx: usize) -> Box<dyn SceneNode>;
 
+    /// Removes the topmost instance and leaving all children unaffected.
+    /// This can be used to delete the last instance of a GLTF tree without
+    /// unloading the underlying model's sub-tree.
+    fn hide_instance(&mut self, idx: usize);
+
     fn set_local_transform(&mut self, idx: usize, instance: Instance);
 
     fn set_local_transform_all(&mut self, mutation: &mut dyn FnMut(&mut Instance));
@@ -643,6 +648,10 @@ impl SceneNode for ContainerNode {
         self.instances.remove(idx)
     }
 
+    fn hide_instance(&mut self, idx: usize) {
+        self.instances.remove(idx);
+    }
+
     fn add_instances(&mut self, instances: Vec<Instance>) -> usize {
         let cloned = instances.clone();
         let len = instances.len();
@@ -942,6 +951,11 @@ impl SceneNode for ModelNode {
         });
         self.buffer_size_needs_change = true;
         self.instances.remove(idx)
+    }
+
+    fn hide_instance(&mut self, idx: usize) {
+        self.buffer_size_needs_change = true;
+        self.instances.remove(idx);
     }
 
     fn add_instances(&mut self, instances: Vec<Instance>) -> usize {
