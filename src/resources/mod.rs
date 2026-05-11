@@ -152,10 +152,9 @@ pub async fn load_model_gltf(
         let pbr = material.pbr_metallic_roughness();
         let texture_source = &pbr
             .base_color_texture()
-            .map(|tex| tex.texture().source().source())
-            .expect("texture");
+            .map(|tex| tex.texture().source().source());
         let diffuse_texture = match texture_source {
-            gltf::image::Source::View { view, mime_type } => {
+            Some(gltf::image::Source::View { view, mime_type }) => {
                 let diffuse_texture = Texture::from_bytes(
                     device,
                     queue,
@@ -167,7 +166,7 @@ pub async fn load_model_gltf(
                 .expect("Couldn't load diffuse");
                 diffuse_texture
             }
-            gltf::image::Source::Uri { uri, mime_type } => {
+            Some(gltf::image::Source::Uri { uri, mime_type }) => {
                 let diffuse_texture = load_texture(
                     uri,
                     false,
@@ -177,6 +176,10 @@ pub async fn load_model_gltf(
                 )
                 .await?;
                 diffuse_texture
+            },
+            None => {
+                let colour = &pbr.base_color_factor().map(|c| (c * 255.0).round() as u8);
+                Texture::from_color(*colour, device, queue)
             }
         };
         let normal_texture = if let Some(texture) = material.normal_texture() {
