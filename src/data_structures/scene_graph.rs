@@ -1244,6 +1244,147 @@ mod tests {
             "instances must match the rotation track length"
         );
     }
+
+    #[test]
+    fn remove_instance_propagates_to_children() {
+        let mut parent = ContainerNode::new(3, Vec::new());
+        let child = ContainerNode::new(3, Vec::new());
+        parent.add_child(Box::new(child));
+
+        parent.remove_instance(1);
+
+        assert_eq!(parent.instances.len(), 2);
+        assert_eq!(parent.children[0].get_world_transforms().len(), 2);
+    }
+
+    #[test]
+    fn add_instance_propagates_to_children() {
+        let mut parent = ContainerNode::new(1, Vec::new());
+        let child = ContainerNode::new(1, Vec::new());
+        parent.add_child(Box::new(child));
+
+        let idx = parent.add_instance(Instance::default());
+
+        assert_eq!(idx, 1);
+        assert_eq!(parent.instances.len(), 2);
+        assert_eq!(parent.children[0].get_world_transforms().len(), 2);
+    }
+
+    #[test]
+    fn add_instances_propagates_to_children() {
+        let mut parent = ContainerNode::new(1, Vec::new());
+        let child = ContainerNode::new(1, Vec::new());
+        parent.add_child(Box::new(child));
+
+        parent.add_instances(vec![Instance::default(), Instance::default()]);
+
+        assert_eq!(parent.instances.len(), 3);
+        assert_eq!(parent.children[0].get_world_transforms().len(), 3);
+    }
+
+    fn test_device() -> wgpu::Device {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::PRIMARY,
+                flags: wgpu::InstanceFlags::default(),
+                memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+                backend_options: wgpu::BackendOptions::default(),
+                display: None,
+            });
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    compatible_surface: None,
+                    ..Default::default()
+                })
+                .await
+                .expect("no GPU adapter available");
+            let (device, _) = adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .unwrap();
+            device
+        })
+    }
+
+    fn test_model_node(device: &wgpu::Device, instances: usize) -> ModelNode {
+        let empty_model = model::Model {
+            meshes: vec![],
+            materials: vec![],
+        };
+        ModelNode::from_model(instances, 0u32, device, empty_model, Vec::new())
+    }
+
+    #[test]
+    fn hidden_remove_last_does_not_affect_children() {
+        let device = test_device();
+        let mut node = test_model_node(&device, 2);
+        let child = ContainerNode::new(2, Vec::new());
+        node.add_child(Box::new(child));
+
+        // Remove down to 1, then remove the last
+        node.remove_instance(0);
+        assert!(!node.hidden, "not hidden yet with 1 instance remaining");
+        assert_eq!(node.children[0].get_world_transforms().len(), 1);
+
+        node.remove_instance(0);
+        assert!(node.hidden, "hidden after removing last instance");
+        // Children must still have 1 instance (GLTF proportions preserved)
+        assert_eq!(
+            node.children[0].get_world_transforms().len(),
+            1,
+            "children must not be affected when hiding"
+        );
+    }
+
+    #[test]
+    fn hidden_get_render_returns_empty() {
+        let device = test_device();
+        let mut node = test_model_node(&device, 1);
+
+        assert!(!SceneNode::get_render(&node).is_empty(), "visible before hiding");
+
+        node.remove_instance(0);
+        assert!(node.hidden);
+        assert!(
+            SceneNode::get_render(&node).is_empty(),
+            "hidden node must return empty render list"
+        );
+    }
+
+    #[test]
+    fn hidden_add_instance_unhides() {
+        let device = test_device();
+        let mut node = test_model_node(&device, 1);
+        let child = ContainerNode::new(1, Vec::new());
+        node.add_child(Box::new(child));
+
+        node.remove_instance(0);
+        assert!(node.hidden);
+
+        node.add_instance(Instance::default());
+        assert!(!node.hidden, "must be unhidden after add_instance");
+        // Children should still have exactly 1 instance (not doubled)
+        assert_eq!(
+            node.children[0].get_world_transforms().len(),
+            1,
+            "children must not gain extra instances on unhide"
+        );
+    }
+
+    #[test]
+    fn hidden_add_instances_unhides() {
+        let device = test_device();
+        let mut node = test_model_node(&device, 1);
+        let child = ContainerNode::new(1, Vec::new());
+        node.add_child(Box::new(child));
+
+        node.remove_instance(0);
+        assert!(node.hidden);
+
+        node.add_instances(vec![Instance::default(), Instance::default()]);
+        assert!(!node.hidden, "must be unhidden after add_instances");
+    }
 }
 
 #[cfg(kani)]
