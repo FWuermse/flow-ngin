@@ -11,10 +11,16 @@ use log::warn;
 use wgpu::{Device, Queue, util::DeviceExt};
 
 use crate::{
-    context::GPUResource, data_structures::{
+    context::GPUResource,
+    data_structures::{
         instance::{Instance, InstanceRaw},
         model::{self, DrawModel},
-    }, pick::PickId, render::{Instanced, Render}, resources::{animation::Keyframes, load_model_obj, mesh::compute_tangents, pick::load_pick_model}
+    },
+    pick::PickId,
+    render::{Instanced, Render},
+    resources::{
+        animation::Keyframes, load_model_obj, mesh::compute_tangents, pick::load_pick_model,
+    },
 };
 
 /// An animation clip: a named animation with keyframes and timing.
@@ -111,7 +117,9 @@ pub fn to_scene_node(
                     .base_color_texture()
                     .map(|t| t.tex_coord())
                     .unwrap_or(0);
-                if let Some(tex_coord_attribute) = reader.read_tex_coords(texcoord_set).map(|v| v.into_f32()) {
+                if let Some(tex_coord_attribute) =
+                    reader.read_tex_coords(texcoord_set).map(|v| v.into_f32())
+                {
                     let mut tex_coord_index = 0;
                     tex_coord_attribute.for_each(|tex_coord| {
                         vertices[tex_coord_index].tex_coords = tex_coord;
@@ -201,10 +209,9 @@ fn save_current_anim(state: &mut ModelState, clip: &AnimationClip) -> ModelAnima
             max_len,
             state.trans.first().copied().unwrap_or(default_trans),
         );
-        state.rots.resize(
-            max_len,
-            state.rots.first().copied().unwrap_or(default_rot),
-        );
+        state
+            .rots
+            .resize(max_len, state.rots.first().copied().unwrap_or(default_rot));
         state.scals.resize(
             max_len,
             state.scals.first().copied().unwrap_or(default_scale),
@@ -918,7 +925,7 @@ impl SceneNode for ModelNode {
 
     fn get_render(&self) -> Vec<Instanced<'_>> {
         if self.hidden {
-            return Vec::new()
+            return Vec::new();
         }
         self.children
             .iter()
@@ -937,7 +944,7 @@ impl SceneNode for ModelNode {
         if self.instances.len() == 1 {
             // If last one is removed keep children unchanged to make sure GLTF proportions stay intact
             self.hidden = true;
-            return self.instances[0].clone()
+            return self.instances[0].clone();
         }
         self.children.iter_mut().for_each(|c| {
             c.remove_instance(idx);
@@ -969,10 +976,12 @@ impl SceneNode for ModelNode {
         // Add first with `add_instance` so hidden case is handled
         self.add_instance(fst[0].clone());
 
-        let mut rest = rest.to_vec().into_iter().zip(rest.to_vec()).collect();
+        let mut rest: Vec<(Instance, Instance)> =
+            rest.to_vec().into_iter().zip(rest.to_vec()).collect();
+        let rest_len = rest.len();
         self.instances.append(&mut rest);
         for child in &mut self.children {
-            child.add_instances((0..instances.len()).map(|_| Instance::default()).collect());
+            child.add_instances((0..rest_len).map(|_| Instance::default()).collect());
         }
         self.buffer_size_needs_change = true;
         self.instances.len() - 1
@@ -1114,7 +1123,7 @@ mod tests {
 
     #[test]
     fn parent_rotation_rotates_child_position() {
-        use cgmath::{assert_relative_eq, Deg, Quaternion, Rotation3, Vector3};
+        use cgmath::{Deg, Quaternion, Rotation3, Vector3, assert_relative_eq};
         let mut parent = Instance::default();
         parent.rotation = Quaternion::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(90.0));
         let child = Instance::from(cgmath::Vector3::from([1.0, 0.0, 0.0]));
@@ -1236,7 +1245,6 @@ mod tests {
         );
     }
 }
-
 
 #[cfg(kani)]
 mod kani_proofs {
