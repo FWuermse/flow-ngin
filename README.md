@@ -61,6 +61,15 @@ cargo test
 
 ### Verify Kani Proofs
 
+#### Setup
+
+```sh
+cargo install --locked kani-verifier
+cargo kani setup
+```
+
+#### Execute tests
+
 ```sh
 cargo kani
 ```

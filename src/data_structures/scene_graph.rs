@@ -321,11 +321,6 @@ pub trait SceneNode: Send {
 
     fn remove_child(&mut self, idx: usize) -> Box<dyn SceneNode>;
 
-    /// Removes the topmost instance and leaving all children unaffected.
-    /// This can be used to delete the last instance of a GLTF tree without
-    /// unloading the underlying model's sub-tree.
-    fn hide_instance(&mut self, idx: usize);
-
     fn set_local_transform(&mut self, idx: usize, instance: Instance);
 
     fn set_local_transform_all(&mut self, mutation: &mut dyn FnMut(&mut Instance));
@@ -648,10 +643,6 @@ impl SceneNode for ContainerNode {
         self.instances.remove(idx)
     }
 
-    fn hide_instance(&mut self, idx: usize) {
-        self.instances.remove(idx);
-    }
-
     fn add_instances(&mut self, instances: Vec<Instance>) -> usize {
         let cloned = instances.clone();
         let len = instances.len();
@@ -686,6 +677,7 @@ pub struct ModelNode {
     instances: Vec<(Instance, Instance)>,
     animations: Vec<ModelAnimation>,
     buffer_size_needs_change: bool,
+    hidden: bool,
     model: model::Model,
     id: PickId,
 }
@@ -738,6 +730,7 @@ impl ModelNode {
             front_face: direction,
             instance_buffer,
             instances,
+            hidden: false,
             model: obj_model,
             buffer_size_needs_change: size_changed,
             animations,
@@ -895,20 +888,12 @@ impl SceneNode for ModelNode {
             front_face: self.front_face,
             instance_buffer: self.instance_buffer.clone(),
             instances: self.instances.clone(),
+            hidden: self.hidden,
             buffer_size_needs_change: false,
             model: obj_model,
             animations: Vec::new(),
             id: id.into(),
         })
-    }
-
-    fn add_instance(&mut self, instance: Instance) -> usize {
-        self.instances.push((instance.clone(), instance));
-        for child in &mut self.children {
-            child.add_instance(Instance::default());
-        }
-        self.buffer_size_needs_change = true;
-        self.instances.len() - 1
     }
 
     fn update_world_transform_all(&mut self) {
@@ -932,6 +917,9 @@ impl SceneNode for ModelNode {
     }
 
     fn get_render(&self) -> Vec<Instanced<'_>> {
+        if self.hidden {
+            return Vec::new()
+        }
         self.children
             .iter()
             .flat_map(|child| (**child).get_render())
@@ -946,6 +934,11 @@ impl SceneNode for ModelNode {
     }
 
     fn remove_instance(&mut self, idx: usize) -> (Instance, Instance) {
+        if self.instances.len() == 1 {
+            // If last one is removed keep children unchanged to make sure GLTF proportions stay intact
+            self.hidden = true;
+            return self.instances.remove(idx)
+        }
         self.children.iter_mut().for_each(|c| {
             c.remove_instance(idx);
         });
@@ -953,18 +946,33 @@ impl SceneNode for ModelNode {
         self.instances.remove(idx)
     }
 
-    fn hide_instance(&mut self, idx: usize) {
+    fn add_instance(&mut self, instance: Instance) -> usize {
+        self.instances.push((instance.clone(), instance));
+        if self.hidden {
+            // Invariant: was previously len 1 => children still there, buffer not changed, not rendered
+            self.hidden = false;
+            return self.instances.len() - 1;
+        }
+        for child in &mut self.children {
+            child.add_instance(Instance::default());
+        }
         self.buffer_size_needs_change = true;
-        self.instances.remove(idx);
+        self.instances.len() - 1
     }
 
     fn add_instances(&mut self, instances: Vec<Instance>) -> usize {
-        let cloned = instances.clone();
-        let len = instances.len();
-        let mut instances = instances.into_iter().zip(cloned).collect();
+        if instances.is_empty() {
+            return self.instances.len() - 1;
+        }
+        // Invariant: len > 0
+        let (fst, rest) = instances.split_at(1);
+        // Add first with `add_instance` so hidden case is handled
+        self.add_instance(fst[0].clone());
+
+        let mut instances = rest.to_vec().into_iter().zip(rest.to_vec()).collect();
         self.instances.append(&mut instances);
         for child in &mut self.children {
-            child.add_instances((0..len).map(|_| Instance::default()).collect());
+            child.add_instances((0..instances.len()).map(|_| Instance::default()).collect());
         }
         self.buffer_size_needs_change = true;
         self.instances.len() - 1
