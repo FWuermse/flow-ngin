@@ -937,7 +937,7 @@ impl SceneNode for ModelNode {
         if self.instances.len() == 1 {
             // If last one is removed keep children unchanged to make sure GLTF proportions stay intact
             self.hidden = true;
-            return self.instances.remove(idx)
+            return self.instances[0].clone()
         }
         self.children.iter_mut().for_each(|c| {
             c.remove_instance(idx);
@@ -947,12 +947,12 @@ impl SceneNode for ModelNode {
     }
 
     fn add_instance(&mut self, instance: Instance) -> usize {
-        self.instances.push((instance.clone(), instance));
         if self.hidden {
-            // Invariant: was previously len 1 => children still there, buffer not changed, not rendered
             self.hidden = false;
+            self.update_world_transforms(0..0, &vec![instance]);
             return self.instances.len() - 1;
         }
+        self.instances.push((instance.clone(), instance));
         for child in &mut self.children {
             child.add_instance(Instance::default());
         }
@@ -969,8 +969,8 @@ impl SceneNode for ModelNode {
         // Add first with `add_instance` so hidden case is handled
         self.add_instance(fst[0].clone());
 
-        let mut instances = rest.to_vec().into_iter().zip(rest.to_vec()).collect();
-        self.instances.append(&mut instances);
+        let mut rest = rest.to_vec().into_iter().zip(rest.to_vec()).collect();
+        self.instances.append(&mut rest);
         for child in &mut self.children {
             child.add_instances((0..instances.len()).map(|_| Instance::default()).collect());
         }
