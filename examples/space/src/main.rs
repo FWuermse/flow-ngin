@@ -43,6 +43,7 @@ impl Astroids {
             flow_ngin::Quaternion::one(),
             10000,
             "Rock1.obj",
+            0.0,
         )
         .await;
         let background = Color::BLACK;

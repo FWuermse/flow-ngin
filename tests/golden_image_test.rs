@@ -22,6 +22,7 @@ fn should_match_rock_collection_render() {
             flow_ngin::Quaternion::one(),
             1,
             "Rock1.obj",
+            0.0,
         )
         .await;
         TestRender::new(

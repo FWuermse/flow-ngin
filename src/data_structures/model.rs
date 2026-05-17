@@ -19,7 +19,8 @@ struct MaterialParamsRaw {
     base_color_factor: [f32; 4],
     metallic: f32,
     roughness: f32,
-    _pad: [f32; 2],
+    normal_scale: f32,
+    _pad: f32,
 }
 
 /// Trait for types that describe their GPU vertex layout.
@@ -95,6 +96,7 @@ impl Material {
         base_color_factor: [f32; 4],
         metallic: f32,
         roughness: f32,
+        normal_scale: f32,
         layout: &wgpu::BindGroupLayout,
     ) -> Result<Self, anyhow::Error> {
         let diffuse_texture_sampler = diffuse_texture
@@ -109,7 +111,8 @@ impl Material {
                 base_color_factor,
                 metallic,
                 roughness,
-                _pad: [0.0; 2],
+                normal_scale,
+                _pad: 0.0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });

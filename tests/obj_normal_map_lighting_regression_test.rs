@@ -41,11 +41,11 @@ fn obj_normal_map_lighting_direction_must_be_consistent() {
             * flow_ngin::Quaternion::from_angle_x(cgmath::Deg(15.0));
         let cube = BuildingBlocks::new(
             0, &ctx.queue, &ctx.device,
-            [-1.5, 0.0, 0.0].into(), rotation, 1, "cube.obj",
+            [-1.5, 0.0, 0.0].into(), rotation, 1, "cube.obj", 0.0,
         ).await;
         let slab = BuildingBlocks::new(
             1, &ctx.queue, &ctx.device,
-            [1.5, 0.0, 0.0].into(), rotation, 1, "half_slab.obj",
+            [1.5, 0.0, 0.0].into(), rotation, 1, "half_slab.obj", 0.0,
         ).await;
         TestRender::new(
             TwoModels(cube, slab),

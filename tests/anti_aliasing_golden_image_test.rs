@@ -123,6 +123,7 @@ fn anti_aliased_render_should_differ_from_non_aa() {
                 flow_ngin::Quaternion::one(),
                 1,
                 "Rock1.obj",
+                0.0,
             )
             .await;
             Box::new(AAComparisonFlow {

@@ -64,8 +64,9 @@ impl BuildingBlocks {
         start_rotation: cgmath::Quaternion<f32>,
         amount: usize,
         obj_file: &str,
+        metallic: f32,
     ) -> Self {
-        let obj_model = resources::load_model_obj(obj_file, &device, &queue).await;
+        let obj_model = resources::load_model_obj(obj_file, metallic, &device, &queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}", e);
         }
@@ -137,6 +138,7 @@ impl BuildingBlocks {
                 cgmath::Quaternion::one(),
                 amount,
                 file_name,
+                0.0,
             )
         });
         futures::future::join_all(futures).await

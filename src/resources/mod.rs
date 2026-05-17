@@ -25,13 +25,14 @@ pub mod texture;
 
 pub async fn load_model_obj(
     file_name: &str,
+    metallic: f32,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
 ) -> anyhow::Result<model::Model> {
     let bind_group_layout = diffuse_normal_layout(device);
 
     let (materials, models) =
-        texture::load_textures(file_name, queue, device, &bind_group_layout).await?;
+        texture::load_textures(file_name, metallic, queue, device, &bind_group_layout).await?;
     let meshes = mesh::load_meshes(&models, file_name, device);
     let meshes = meshes.into_iter().enumerate().filter_map(|(idx, result)| {
         match result {
@@ -153,10 +154,6 @@ pub async fn load_model_gltf(
         let texture_source = &pbr
             .base_color_texture()
             .map(|tex| tex.texture().source().source());
-        // When a base color texture exists, the factor multiplies it in the shader.
-        // When no texture exists, the factor is baked into the 1x1 fallback texture,
-        // and the shader-side factor is the identity.
-        let has_base_color_texture = texture_source.is_some();
         let diffuse_texture = match texture_source {
             Some(gltf::image::Source::View { view, mime_type }) => {
                 let diffuse_texture = Texture::from_bytes(
@@ -181,11 +178,9 @@ pub async fn load_model_gltf(
                 .await?;
                 diffuse_texture
             },
-            None => {
-                let colour = &pbr.base_color_factor().map(|c| (c * 255.0).round() as u8);
-                Texture::from_color(*colour, device, queue)
-            }
+            None => Texture::from_color([255, 255, 255, 255], device, queue),
         };
+        let normal_scale = material.normal_texture().map(|nt| nt.scale()).unwrap_or(1.0);
         let normal_texture = if let Some(texture) = material.normal_texture() {
             // TODO: add this as param for Textures
             // let sampler = texture.texture().sampler().mag_filter().unwrap();
@@ -223,11 +218,7 @@ pub async fn load_model_gltf(
         let name = format!("{}.gltf", file_name);
         let name = name.as_str();
         let layout = &diffuse_normal_layout(device);
-        let base_color_factor = if has_base_color_texture {
-            pbr.base_color_factor()
-        } else {
-            [1.0, 1.0, 1.0, 1.0]
-        };
+        let base_color_factor = pbr.base_color_factor();
         let metallic = pbr.metallic_factor();
         let roughness = pbr.roughness_factor();
         if let Ok(material) = model::Material::new(
@@ -238,6 +229,7 @@ pub async fn load_model_gltf(
             base_color_factor,
             metallic,
             roughness,
+            normal_scale,
             layout,
         ) {
             materials.push(material);

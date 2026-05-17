@@ -114,6 +114,7 @@ pub async fn load_texture(
 
 pub async fn load_textures(
     file_name: &str,
+    metallic: f32,
     queue: &wgpu::Queue,
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -161,8 +162,9 @@ pub async fn load_textures(
                 diffuse_texture,
                 normal_texture,
                 [1.0, 1.0, 1.0, 1.0],
-                0.0,
+                metallic,
                 roughness,
+                1.0,
                 layout,
             ) {
                 materials.push(model);

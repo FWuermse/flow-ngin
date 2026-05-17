@@ -696,8 +696,9 @@ impl ModelNode {
         device: &Device,
         queue: &Queue,
         obj_file: &str,
+        metallic: f32,
     ) -> Self {
-        let obj_model = load_model_obj(obj_file, &device, &queue).await;
+        let obj_model = load_model_obj(obj_file, metallic, &device, &queue).await;
         if let Err(e) = obj_model {
             panic!("Error failed to load model: {}, at {}", e, obj_file);
         }
@@ -1022,7 +1023,7 @@ pub async fn mk_flat_scene_graph(
     futures::future::join_all(
         models
             .into_iter()
-            .map(|obj_file| ModelNode::new(amount, id, device, queue, obj_file)),
+            .map(|obj_file| ModelNode::new(amount, id, device, queue, obj_file, 0.0)),
     )
     .await
     .into_iter()

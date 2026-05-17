@@ -95,6 +95,7 @@ struct MaterialParams {
     base_color_factor: vec4<f32>,
     metallic: f32,
     roughness: f32,
+    normal_scale: f32,
 }
 @group(0) @binding(4)
 var<uniform> material: MaterialParams;
@@ -126,7 +127,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let object_normal = textureSample(t_normal, s_normal, in.tex_coords);
 
     var n = object_normal.xyz * 2.0 - 1.0;
-    n.z = abs(n.z);
+    n = vec3<f32>(n.xy * material.normal_scale, abs(n.z));
     n = normalize(n);
 
     let light_vec = in.tangent_light_position - in.tangent_position;
