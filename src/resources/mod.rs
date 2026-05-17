@@ -219,8 +219,11 @@ pub async fn load_model_gltf(
         let name = format!("{}.gltf", file_name);
         let name = name.as_str();
         let layout = &diffuse_normal_layout(device);
+        // Map PBR roughness to Blinn-Phong shininess (Karis approximation).
+        let roughness = pbr.roughness_factor().max(0.05);
+        let shininess = (2.0 / (roughness * roughness) - 2.0).max(1.0);
         if let Ok(material) =
-            model::Material::new(device, name, diffuse_texture, normal_texture, layout)
+            model::Material::new(device, name, diffuse_texture, normal_texture, shininess, layout)
         {
             materials.push(material);
         } else {

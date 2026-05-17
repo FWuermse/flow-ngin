@@ -37,6 +37,16 @@ pub fn diffuse_normal_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
         label: Some("Model texture_bind_group_layout"),
     })
@@ -146,6 +156,7 @@ pub async fn load_textures(
                 &m.name,
                 diffuse_texture,
                 normal_texture,
+                m.shininess.unwrap_or(32.0),
                 layout,
             ) {
                 materials.push(model);

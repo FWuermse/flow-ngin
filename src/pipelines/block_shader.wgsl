@@ -90,6 +90,12 @@ var t_normal: texture_2d<f32>;
 @group(0) @binding(3)
 var s_normal: sampler;
 
+struct MaterialParams {
+    shininess: f32,
+}
+@group(0) @binding(4)
+var<uniform> material: MaterialParams;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
@@ -110,7 +116,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
     let diffuse_color = light.color * diffuse_strength;
 
-    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
+    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), material.shininess);
     let specular_color = specular_strength * light.color;
 
     // vec3:

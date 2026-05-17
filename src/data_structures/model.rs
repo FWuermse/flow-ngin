@@ -9,7 +9,16 @@
 
 use std::ops::Range;
 
+use wgpu::util::DeviceExt;
+
 use crate::{data_structures::texture::{self, create_default_sampler}, resources::pick::pick_layout};
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct MaterialParamsRaw {
+    shininess: f32,
+    _pad: [f32; 3],
+}
 
 /// Trait for types that describe their GPU vertex layout.
 pub trait Vertex {
@@ -81,6 +90,7 @@ impl Material {
         name: &str,
         diffuse_texture: texture::Texture,
         normal_texture: texture::Texture,
+        shininess: f32,
         layout: &wgpu::BindGroupLayout,
     ) -> Result<Self, anyhow::Error> {
         let diffuse_texture_sampler = diffuse_texture
@@ -89,6 +99,14 @@ impl Material {
         let normal_texture_sampler = normal_texture
             .sampler
             .unwrap_or(create_default_sampler(device));
+        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("{name} material params")),
+            contents: bytemuck::bytes_of(&MaterialParamsRaw {
+                shininess,
+                _pad: [0.0; 3],
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
             entries: &[
@@ -108,6 +126,10 @@ impl Material {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&normal_texture_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: params_buffer.as_entire_binding(),
                 },
             ],
             label: Some(name),
