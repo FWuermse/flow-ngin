@@ -9,6 +9,7 @@ var<uniform> camera: Camera;
 
 struct Light {
     position: vec3<f32>,
+    radius: f32,
     color: vec3<f32>,
 }
 @group(2) @binding(0)
@@ -100,15 +101,14 @@ var<uniform> material: MaterialParams;
 
 const PI: f32 = 3.14159265359;
 
-fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
-    let a = roughness * roughness;
-    let a2 = a * a;
+fn distribution_ggx(n_dot_h: f32, alpha: f32) -> f32 {
+    let a2 = alpha * alpha;
     let denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
     return a2 / (PI * denom * denom);
 }
 
-fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
-    let r = roughness + 1.0;
+fn geometry_smith(n_dot_v: f32, n_dot_l: f32, alpha: f32) -> f32 {
+    let r = sqrt(alpha) + 1.0;
     let k = (r * r) / 8.0;
     let gv = n_dot_v / (n_dot_v * (1.0 - k) + k);
     let gl = n_dot_l / (n_dot_l * (1.0 - k) + k);
@@ -129,7 +129,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     n.z = abs(n.z);
     n = normalize(n);
 
-    let l = normalize(in.tangent_light_position - in.tangent_position);
+    let light_vec = in.tangent_light_position - in.tangent_position;
+    let dist_to_light = length(light_vec);
+    let l = light_vec / max(dist_to_light, 1e-4);
     let v = normalize(in.tangent_view_position - in.tangent_position);
     let h = normalize(v + l);
 
@@ -139,19 +141,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let v_dot_h = max(dot(v, h), 0.0);
 
     let roughness = max(material.roughness, 0.045);
+    let alpha = roughness * roughness;
+    let alpha_eff = clamp(alpha + light.radius / (2.0 * dist_to_light), alpha, 1.0);
     let f0 = mix(vec3<f32>(0.04), albedo.rgb, material.metallic);
 
-    let d = distribution_ggx(n_dot_h, roughness);
-    let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+    let d = distribution_ggx(n_dot_h, alpha_eff);
+    let g = geometry_smith(n_dot_v, n_dot_l, alpha_eff);
     let f = fresnel_schlick(v_dot_h, f0);
 
     let specular = (d * g * f) / max(4.0 * n_dot_v * n_dot_l, 1e-4);
     let kd = (vec3<f32>(1.0) - f) * (1.0 - material.metallic);
-    let diffuse = kd * albedo.rgb / PI;
+    let diffuse = kd * albedo.rgb;
 
-    let radiance = light.color;
-    let ambient = vec3<f32>(0.03) * albedo.rgb;
-    let color = ambient + (diffuse + specular) * radiance * n_dot_l;
+    let ambient = vec3<f32>(0.1) * albedo.rgb;
+    let color = ambient + (diffuse + specular) * light.color * n_dot_l;
 
     return vec4<f32>(color, albedo.a);
 }

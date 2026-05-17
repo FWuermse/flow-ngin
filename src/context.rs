@@ -261,7 +261,7 @@ impl Context {
 
         let light_uniform = LightUniform {
             position: [8.0, 80.0, 50.0],
-            _padding: 0,
+            radius: 1.0,
             // change when it's evening
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
