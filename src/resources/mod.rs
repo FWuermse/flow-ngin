@@ -153,6 +153,10 @@ pub async fn load_model_gltf(
         let texture_source = &pbr
             .base_color_texture()
             .map(|tex| tex.texture().source().source());
+        // When a base color texture exists, the factor multiplies it in the shader.
+        // When no texture exists, the factor is baked into the 1x1 fallback texture,
+        // and the shader-side factor is the identity.
+        let has_base_color_texture = texture_source.is_some();
         let diffuse_texture = match texture_source {
             Some(gltf::image::Source::View { view, mime_type }) => {
                 let diffuse_texture = Texture::from_bytes(
@@ -219,12 +223,23 @@ pub async fn load_model_gltf(
         let name = format!("{}.gltf", file_name);
         let name = name.as_str();
         let layout = &diffuse_normal_layout(device);
-        // Map PBR roughness to Blinn-Phong shininess (Karis approximation).
-        let roughness = pbr.roughness_factor().max(0.05);
-        let shininess = (2.0 / (roughness * roughness) - 2.0).max(1.0);
-        if let Ok(material) =
-            model::Material::new(device, name, diffuse_texture, normal_texture, shininess, layout)
-        {
+        let base_color_factor = if has_base_color_texture {
+            pbr.base_color_factor()
+        } else {
+            [1.0, 1.0, 1.0, 1.0]
+        };
+        let metallic = pbr.metallic_factor();
+        let roughness = pbr.roughness_factor();
+        if let Ok(material) = model::Material::new(
+            device,
+            name,
+            diffuse_texture,
+            normal_texture,
+            base_color_factor,
+            metallic,
+            roughness,
+            layout,
+        ) {
             materials.push(material);
         } else {
             log::warn!("Failed to create material for gltf ({})", file_name);

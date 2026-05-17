@@ -81,7 +81,11 @@ impl Atlas {
         }
     }
     fn to_tex_coords(&self, slot: u8) -> Option<Frame> {
-        let max_slot = self.h_grids.checked_mul(self.v_grids)?.saturating_sub(1);
+        let total = (self.h_grids as u16) * (self.v_grids as u16);
+        if total == 0 {
+            return None;
+        }
+        let max_slot = (total - 1).min(u8::MAX as u16) as u8;
         let slot = slot.min(max_slot);
         let row = slot % self.h_grids;
         let col = slot / self.h_grids;

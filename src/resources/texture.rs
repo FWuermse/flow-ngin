@@ -151,12 +151,18 @@ pub async fn load_textures(
                 },
                 None => texture::Texture::create_default_normal_map(1, 1, device, queue)
             };
+            let roughness = match m.shininess {
+                Some(ns) => (2.0 / (ns + 2.0)).sqrt().clamp(0.045, 1.0),
+                None => 0.5,
+            };
             if let Ok(model) = model::Material::new(
                 device,
                 &m.name,
                 diffuse_texture,
                 normal_texture,
-                m.shininess.unwrap_or(32.0),
+                [1.0, 1.0, 1.0, 1.0],
+                0.0,
+                roughness,
                 layout,
             ) {
                 materials.push(model);

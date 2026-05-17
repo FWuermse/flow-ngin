@@ -16,8 +16,10 @@ use crate::{data_structures::texture::{self, create_default_sampler}, resources:
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct MaterialParamsRaw {
-    shininess: f32,
-    _pad: [f32; 3],
+    base_color_factor: [f32; 4],
+    metallic: f32,
+    roughness: f32,
+    _pad: [f32; 2],
 }
 
 /// Trait for types that describe their GPU vertex layout.
@@ -90,7 +92,9 @@ impl Material {
         name: &str,
         diffuse_texture: texture::Texture,
         normal_texture: texture::Texture,
-        shininess: f32,
+        base_color_factor: [f32; 4],
+        metallic: f32,
+        roughness: f32,
         layout: &wgpu::BindGroupLayout,
     ) -> Result<Self, anyhow::Error> {
         let diffuse_texture_sampler = diffuse_texture
@@ -102,8 +106,10 @@ impl Material {
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("{name} material params")),
             contents: bytemuck::bytes_of(&MaterialParamsRaw {
-                shininess,
-                _pad: [0.0; 3],
+                base_color_factor,
+                metallic,
+                roughness,
+                _pad: [0.0; 2],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });

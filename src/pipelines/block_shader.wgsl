@@ -91,36 +91,67 @@ var t_normal: texture_2d<f32>;
 var s_normal: sampler;
 
 struct MaterialParams {
-    shininess: f32,
+    base_color_factor: vec4<f32>,
+    metallic: f32,
+    roughness: f32,
 }
 @group(0) @binding(4)
 var<uniform> material: MaterialParams;
 
+const PI: f32 = 3.14159265359;
+
+fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    return a2 / (PI * denom * denom);
+}
+
+fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = (r * r) / 8.0;
+    let gv = n_dot_v / (n_dot_v * (1.0 - k) + k);
+    let gl = n_dot_l / (n_dot_l * (1.0 - k) + k);
+    return gv * gl;
+}
+
+fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - cos_theta, 5.0);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
-    let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.tex_coords);
+    let tex_sample = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    let albedo = tex_sample * material.base_color_factor;
+    let object_normal = textureSample(t_normal, s_normal, in.tex_coords);
 
-    // We don't need (or want) much ambient light, so 0.1 is fine
-    let ambient_strength = 0.1;
-    let ambient_color = light.color * ambient_strength;
+    var n = object_normal.xyz * 2.0 - 1.0;
+    n.z = abs(n.z);
+    n = normalize(n);
 
-    // Create the lighting vectors
-    var tangent_normal = object_normal.xyz * 2.0 - 1.0;
-    // Ensure Z always points outward
-    tangent_normal.z = abs(tangent_normal.z);
-    let light_dir = normalize(in.tangent_light_position - in.tangent_position);
-    let view_dir = normalize(in.tangent_view_position - in.tangent_position);
-    let half_dir = normalize(view_dir + light_dir);
+    let l = normalize(in.tangent_light_position - in.tangent_position);
+    let v = normalize(in.tangent_view_position - in.tangent_position);
+    let h = normalize(v + l);
 
-    let diffuse_strength = max(dot(tangent_normal, light_dir), 0.0);
-    let diffuse_color = light.color * diffuse_strength;
+    let n_dot_l = max(dot(n, l), 0.0);
+    let n_dot_v = max(dot(n, v), 0.0);
+    let n_dot_h = max(dot(n, h), 0.0);
+    let v_dot_h = max(dot(v, h), 0.0);
 
-    let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), material.shininess);
-    let specular_color = specular_strength * light.color;
+    let roughness = max(material.roughness, 0.045);
+    let f0 = mix(vec3<f32>(0.04), albedo.rgb, material.metallic);
 
-    // vec3:
-    let result = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
+    let d = distribution_ggx(n_dot_h, roughness);
+    let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+    let f = fresnel_schlick(v_dot_h, f0);
 
-    return vec4<f32>(result, object_color.a);
+    let specular = (d * g * f) / max(4.0 * n_dot_v * n_dot_l, 1e-4);
+    let kd = (vec3<f32>(1.0) - f) * (1.0 - material.metallic);
+    let diffuse = kd * albedo.rgb / PI;
+
+    let radiance = light.color;
+    let ambient = vec3<f32>(0.03) * albedo.rgb;
+    let color = ambient + (diffuse + specular) * radiance * n_dot_l;
+
+    return vec4<f32>(color, albedo.a);
 }
