@@ -10,6 +10,7 @@
 //! - `terrain` will be used for terrain mesh and management
 
 pub mod block;
+pub mod collision;
 pub mod instance;
 pub mod model;
 pub mod scene_graph;
