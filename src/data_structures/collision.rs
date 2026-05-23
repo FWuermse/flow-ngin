@@ -1,8 +1,34 @@
 use crate::pick::PickId;
 
+pub trait Hitbox {
+    fn submerges(&self, other: &Self) -> bool;
+    fn split(&self) -> Vec<Self>
+    where
+        Self: Sized;
+}
+
+/// Bloom filter like hit testing using hitbox intervals
+pub trait CollisionTest<T: Hitbox> {
+    fn hit_candidates(&self, hitbox: T) -> Vec<T>;
+    fn insert(&mut self, hitbox: T) -> Vec<T>;
+    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T>;
+}
+
 pub struct CornerPoint {
     top_left: cgmath::Point2<f32>,
     axis_lens: Vec<f32>,
+}
+impl Hitbox for CornerPoint {
+    fn submerges(&self, other: &Self) -> bool {
+        todo!()
+    }
+
+    fn split(&self) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
 }
 
 #[derive(Clone)]
@@ -17,12 +43,13 @@ impl Bounds {
             upper_bound,
         }
     }
-
+}
+impl Hitbox for Bounds {
     fn submerges(&self, other: &Self) -> bool {
         self.lower_bound <= other.lower_bound && self.upper_bound >= other.upper_bound
     }
 
-    fn half(&self) -> (Self, Self) {
+    fn split(&self) -> Vec<Self> {
         let len = self.upper_bound - self.lower_bound;
         let half_len = len / 2.0;
         let upper_bound = self.upper_bound - half_len;
@@ -35,54 +62,95 @@ impl Bounds {
             lower_bound,
             upper_bound: self.upper_bound,
         };
-        return (left, right);
+        return vec![left, right];
     }
 }
 
-pub trait CollisionTest<T> {
-    fn hits(&self, hitbox: T) -> Vec<T>;
-    fn insert(&mut self, hitbox: T) -> Vec<T>;
-    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T>;
+/// Represents a hitbox as n-dimensional lower and upper bound tagged with a PickId to backtrack hit objects
+#[derive(Clone)]
+pub struct TaggedNDimBounds {
+    bounds: Vec<Bounds>,
+    tag: PickId,
 }
 
-pub struct QuadTree<T> {
-    threshold: usize,
-    bounds: Vec<Bounds>,
-    children: Option<[Box<QuadTree<T>>; 4]>,
-    hitboxes: Vec<T>,
-}
-impl<T> QuadTree<T> {
-    pub fn submerges(&self, other: &[Bounds]) -> bool {
+impl Hitbox for TaggedNDimBounds {
+    fn submerges(&self, other: &Self) -> bool {
+        let self_dim = self.bounds.len();
+        let other_dim = other.bounds.len();
+        if self_dim < other_dim {
+            // 2D boundaries can submerge 3D hitboxes but 3D boundaries will never check true for 2D hitboxes
+            for (i, _) in self.bounds.iter().enumerate() {
+                if !self.bounds[i].submerges(&other.bounds[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        if self_dim > other_dim {
+            return false;
+        }
         self.bounds
             .iter()
-            .zip(other)
-            .fold(true, |s, (a, b)| a.submerges(&b) && s)
+            .zip(other.bounds.iter())
+            .fold(true, |prev_sub, (self_i, other_i)| {
+                prev_sub && self_i.submerges(other_i)
+            })
+    }
+
+    fn split(&self) -> Vec<Self>
+    where
+        Self: Sized,
+    {
+        let bounds: Vec<_> = self.bounds.iter().map(|b| b.split()).collect();
+        let split_bounds = cartesian(&bounds);
+        split_bounds
+            .iter()
+            .map(|b| Self {
+                bounds: b.to_vec(),
+                tag: self.tag,
+            })
+            .collect()
     }
 }
 
-type B<'a> = (&'a [Bounds], PickId);
+pub struct SpatialTree<T> {
+    threshold: usize,
+    bounds: T,
+    children: Option<Vec<SpatialTree<T>>>,
+    hitboxes: Vec<T>,
+}
 
-impl<'a> CollisionTest<B<'a>> for QuadTree<B<'a>> {
-    fn hits(&self, hitbox: B<'a>) -> Vec<B<'a>> {
+pub fn cartesian<T: Clone>(arrs: &[Vec<T>]) -> Vec<Vec<T>> {
+    let mut results = vec![vec![]];
+    for arr in arrs {
+        let mut tmp_res = vec![];
+        for curr in std::mem::take(&mut results) {
+            for elem in arr {
+                let mut new = curr.clone();
+                new.push(elem.clone());
+                tmp_res.push(new);
+            }
+        }
+        results = tmp_res;
+    }
+    return results;
+}
+
+impl<'a> CollisionTest<TaggedNDimBounds> for SpatialTree<TaggedNDimBounds> {
+    fn hit_candidates(&self, hitbox: TaggedNDimBounds) -> Vec<TaggedNDimBounds> {
         todo!()
     }
 
-    fn insert(&mut self, hitbox: B<'a>) -> Vec<B<'a>> {
+    fn insert(&mut self, hitbox: TaggedNDimBounds) -> Vec<TaggedNDimBounds> {
         match &mut self.children {
             Some(quads) => {
-                let [left_up, right_up, left_low, right_low] = quads;
-                if left_up.submerges(&hitbox.0) {
-                    return [left_up.insert(hitbox), self.hitboxes.to_vec()].concat();
+                for bisection in quads {
+                    if bisection.bounds.submerges(&hitbox) {
+                        return [bisection.insert(hitbox), self.hitboxes.to_vec()].concat();
+                    }
                 }
-                if right_up.submerges(&hitbox.0) {
-                    return [right_up.insert(hitbox), self.hitboxes.to_vec()].concat();
-                }
-                if left_low.submerges(&hitbox.0) {
-                    return [left_low.insert(hitbox), self.hitboxes.to_vec()].concat();
-                }
-                if right_low.submerges(&hitbox.0) {
-                    return [right_low.insert(hitbox), self.hitboxes.to_vec()].concat();
-                }
+                // if new hitbox cannot be submerged by any child area it will be stored in a
+                // the parent node to avoid infinite recursion for multiple same-size hitboxes.
                 let possible_collisions = self.hitboxes.to_vec();
                 self.hitboxes.push(hitbox);
                 return possible_collisions;
@@ -93,87 +161,48 @@ impl<'a> CollisionTest<B<'a>> for QuadTree<B<'a>> {
                     self.hitboxes.push(hitbox);
                     return possible_collisions;
                 } else {
-                    let (x_left_bounds, x_right_bounds) = self.bounds[0].half();
-                    let (y_low_bounds, y_up_bounds) = self.bounds[1].half();
-                    let mut left_up = Vec::new();
-                    let mut right_up = Vec::new();
-                    let mut left_low = Vec::new();
-                    let mut right_low = Vec::new();
-                    let mut intersecting = Vec::new();
+                    let sub_bounds: Vec<_> = self.bounds.split();
+                    let mut sub_trees: Vec<SpatialTree<TaggedNDimBounds>> = sub_bounds
+                        .into_iter()
+                        .map(|sb| SpatialTree {
+                            threshold: self.threshold,
+                            bounds: sb,
+                            children: None,
+                            hitboxes: vec![],
+                        })
+                        .collect();
                     let hitboxes = std::mem::take(&mut self.hitboxes);
                     for hb in hitboxes {
-                        let (x, y) = (&hb.0[0], &hb.0[1]);
-                        if x_left_bounds.submerges(x) {
-                            if y_up_bounds.submerges(y) {
-                                left_up.push(hb);
-                                continue;
-                            }
-                            if y_low_bounds.submerges(y) {
-                                left_low.push(hb);
-                                continue;
+                        let mut sorted = false;
+                        for bisection in &mut sub_trees {
+                            if bisection.bounds.submerges(&hb) {
+                                // Don't recurse here to avoid high depth for multiple small identical hitboxes that fall through large grids
+                                bisection.hitboxes.push(hb.clone());
+                                sorted = true;
+                                break;
                             }
                         }
-                        if x_right_bounds.submerges(x) {
-                            if y_up_bounds.submerges(y) {
-                                right_up.push(hb);
-                                continue;
-                            }
-                            if y_low_bounds.submerges(y) {
-                                right_low.push(hb);
-                                continue;
-                            }
+                        if !sorted {
+                            // Keep in current node if it touches boundaries
+                            self.hitboxes.push(hb);
                         }
-                        intersecting.push(hb);
                     }
-                    self.hitboxes.append(&mut intersecting);
-                    self.children = Some([
-                        Box::new(QuadTree {
-                            threshold: self.threshold,
-                            bounds: vec![x_left_bounds.clone(), y_up_bounds.clone()],
-                            children: None,
-                            hitboxes: left_up,
-                        }),
-                        Box::new(QuadTree {
-                            threshold: self.threshold,
-                            bounds: vec![x_right_bounds.clone(), y_up_bounds.clone()],
-                            children: None,
-                            hitboxes: right_up,
-                        }),
-                        Box::new(QuadTree {
-                            threshold: self.threshold,
-                            bounds: vec![x_left_bounds.clone(), y_low_bounds.clone()],
-                            children: None,
-                            hitboxes: left_low,
-                        }),
-                        Box::new(QuadTree {
-                            threshold: self.threshold,
-                            bounds: vec![x_right_bounds.clone(), y_low_bounds.clone()],
-                            children: None,
-                            hitboxes: right_low,
-                        }),
-                    ]);
-                    let [left_up, right_up, left_low, right_low] = self.children.as_mut().unwrap();
-                    if left_up.submerges(&hitbox.0) {
-                        return [left_up.insert(hitbox), self.hitboxes.to_vec()].concat();
+                    let mut possible_collisions = self.hitboxes.to_vec();
+                    for bisection in &mut sub_trees {
+                        if bisection.bounds.submerges(&hitbox) {
+                            possible_collisions.append(bisection.hitboxes.clone().as_mut());
+                            bisection.hitboxes.push(hitbox);
+                            break;
+                        }
                     }
-                    if right_up.submerges(&hitbox.0) {
-                        return [right_up.insert(hitbox), self.hitboxes.to_vec()].concat();
-                    }
-                    if left_low.submerges(&hitbox.0) {
-                        return [left_low.insert(hitbox), self.hitboxes.to_vec()].concat();
-                    }
-                    if right_low.submerges(&hitbox.0) {
-                        return [right_low.insert(hitbox), self.hitboxes.to_vec()].concat();
-                    }
-                    let possible_collisions = self.hitboxes.to_vec();
-                    self.hitboxes.push(hitbox);
+                    self.children = Some(sub_trees);
                     return possible_collisions;
                 }
             }
         }
     }
 
-    fn insert_if_no_hit(&mut self, hitbox: B<'a>) -> Vec<B<'a>> {
+    fn insert_if_no_hit(&mut self, hitbox: TaggedNDimBounds) -> Vec<TaggedNDimBounds> {
         todo!()
     }
 }
@@ -185,54 +214,179 @@ mod tests {
     use super::*;
 
     #[test]
-    fn should_split_area_if_threshold_exceeded() {
-        let mut tree: QuadTree<B> = QuadTree {
-            threshold: 4,
-            bounds: vec![Bounds::new(-2.0, 8.0), Bounds::new(4.0, 5.0)],
-            children: None,
-            hitboxes: vec![],
-        };
-        let tl = [Bounds::new(0.0, 1.0), Bounds::new(4.8, 4.9)];
-        tree.insert((&tl, PickId(0)));
-        let tr = [Bounds::new(5.0, 7.0), Bounds::new(4.8, 4.9)];
-        tree.insert((&tr, PickId(1)));
-        tree.insert((&tr, PickId(2)));
-        let bl = [Bounds::new(-2.0, 1.0), Bounds::new(4.0, 4.2)];
-        tree.insert((&bl, PickId(3)));
-        let br = [Bounds::new(5.0, 6.0), Bounds::new(4.0, 4.2)];
-        tree.insert((&br, PickId(4)));
-
-        assert!(tree.children.is_some());
-        assert!(tree.hitboxes.is_empty());
-        assert_eq!(tree.children.as_ref().unwrap()[0].hitboxes.first().unwrap().1.0, 0);
-        assert_eq!(tree.children.as_ref().unwrap()[1].hitboxes.iter().count(), 2);
-        assert_eq!(tree.children.as_ref().unwrap()[2].hitboxes.first().unwrap().1.0, 3);
-        assert_eq!(tree.children.as_ref().unwrap()[3].hitboxes.first().unwrap().1.0, 4);
+    fn should_return_cartesian_product() {
+        let list = [vec![1, 2, 3], vec![4, 5], vec![6, 7, 8, 9]];
+        let cart = cartesian(&list);
+        assert_eq!(
+            cart,
+            [
+                [1, 4, 6],
+                [1, 4, 7],
+                [1, 4, 8],
+                [1, 4, 9],
+                [1, 5, 6],
+                [1, 5, 7],
+                [1, 5, 8],
+                [1, 5, 9],
+                [2, 4, 6],
+                [2, 4, 7],
+                [2, 4, 8],
+                [2, 4, 9],
+                [2, 5, 6],
+                [2, 5, 7],
+                [2, 5, 8],
+                [2, 5, 9],
+                [3, 4, 6],
+                [3, 4, 7],
+                [3, 4, 8],
+                [3, 4, 9],
+                [3, 5, 6],
+                [3, 5, 7],
+                [3, 5, 8],
+                [3, 5, 9]
+            ]
+        )
     }
 
     #[test]
-    fn should_split_area_if_threshold_exceeded_different_order() {
-        let mut tree: QuadTree<B> = QuadTree {
+    fn should_split_area_if_threshold_exceeded() {
+        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
             threshold: 4,
-            bounds: vec![Bounds::new(-2.0, 8.0), Bounds::new(4.0, 5.0)],
+            bounds: TaggedNDimBounds {
+                bounds: vec![Bounds::new(-2.0, 8.0), Bounds::new(4.0, 5.0)],
+                tag: PickId(0),
+            },
             children: None,
             hitboxes: vec![],
         };
-        let br = [Bounds::new(5.0, 6.0), Bounds::new(4.0, 4.2)];
-        tree.insert((&br, PickId(4)));
-        let tr = [Bounds::new(5.0, 7.0), Bounds::new(4.8, 4.9)];
-        tree.insert((&tr, PickId(1)));
-        tree.insert((&tr, PickId(2)));
-        let bl = [Bounds::new(-2.0, 1.0), Bounds::new(4.0, 4.2)];
-        tree.insert((&bl, PickId(3)));
-        let tl = [Bounds::new(0.0, 1.0), Bounds::new(4.8, 4.9)];
-        tree.insert((&tl, PickId(0)));
+        let bl = vec![Bounds::new(-2.0, 1.0), Bounds::new(4.0, 4.2)];
+        tree.insert(TaggedNDimBounds {
+            bounds: bl,
+            tag: PickId(1),
+        });
+        let tl = vec![Bounds::new(0.0, 1.0), Bounds::new(4.8, 4.9)];
+        tree.insert(TaggedNDimBounds {
+            bounds: tl.to_vec(),
+            tag: PickId(2),
+        });
+        tree.insert(TaggedNDimBounds {
+            bounds: tl,
+            tag: PickId(3),
+        });
+        let br = vec![Bounds::new(5.0, 6.0), Bounds::new(4.0, 4.2)];
+        tree.insert(TaggedNDimBounds {
+            bounds: br,
+            tag: PickId(4),
+        });
+        let tr = vec![Bounds::new(5.0, 7.0), Bounds::new(4.8, 4.9)];
+        tree.insert(TaggedNDimBounds {
+            bounds: tr,
+            tag: PickId(5),
+        });
 
         assert!(tree.children.is_some());
         assert!(tree.hitboxes.is_empty());
-        assert_eq!(tree.children.as_ref().unwrap()[0].hitboxes.first().unwrap().1.0, 0);
-        assert_eq!(tree.children.as_ref().unwrap()[1].hitboxes.iter().count(), 2);
-        assert_eq!(tree.children.as_ref().unwrap()[2].hitboxes.first().unwrap().1.0, 3);
-        assert_eq!(tree.children.as_ref().unwrap()[3].hitboxes.first().unwrap().1.0, 4);
+        assert_eq!(
+            tree.children.as_ref().unwrap()[0]
+                .hitboxes
+                .first()
+                .unwrap()
+                .tag
+                .0,
+            1
+        );
+        assert_eq!(
+            tree.children.as_ref().unwrap()[1].hitboxes.iter().count(),
+            2
+        );
+        assert_eq!(
+            tree.children.as_ref().unwrap()[2]
+                .hitboxes
+                .first()
+                .unwrap()
+                .tag
+                .0,
+            4
+        );
+        assert_eq!(
+            tree.children.as_ref().unwrap()[3]
+                .hitboxes
+                .first()
+                .unwrap()
+                .tag
+                .0,
+            5
+        );
+    }
+
+    #[test]
+    fn should_split_area_if_threshold_exceeded_insert_order_changed() {
+        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+            threshold: 4,
+            bounds: TaggedNDimBounds {
+                bounds: vec![Bounds::new(-2.0, 8.0), Bounds::new(4.0, 5.0)],
+                tag: PickId(0),
+            },
+            children: None,
+            hitboxes: vec![],
+        };
+        let br = vec![Bounds::new(5.0, 6.0), Bounds::new(4.0, 4.2)];
+        tree.insert(TaggedNDimBounds {
+            bounds: br,
+            tag: PickId(4),
+        });
+        let tr = vec![Bounds::new(5.0, 7.0), Bounds::new(4.8, 4.9)];
+        tree.insert(TaggedNDimBounds {
+            bounds: tr,
+            tag: PickId(5),
+        });
+        let bl = vec![Bounds::new(-2.0, 1.0), Bounds::new(4.0, 4.2)];
+        tree.insert(TaggedNDimBounds {
+            bounds: bl,
+            tag: PickId(1),
+        });
+        let tl = vec![Bounds::new(0.0, 1.0), Bounds::new(4.8, 4.9)];
+        tree.insert(TaggedNDimBounds {
+            bounds: tl.to_vec(),
+            tag: PickId(2),
+        });
+        tree.insert(TaggedNDimBounds {
+            bounds: tl,
+            tag: PickId(3),
+        });
+
+        assert!(tree.children.is_some());
+        assert!(tree.hitboxes.is_empty());
+        assert_eq!(
+            tree.children.as_ref().unwrap()[0]
+                .hitboxes
+                .first()
+                .unwrap()
+                .tag
+                .0,
+            1
+        );
+        assert_eq!(
+            tree.children.as_ref().unwrap()[1].hitboxes.iter().count(),
+            2
+        );
+        assert_eq!(
+            tree.children.as_ref().unwrap()[2]
+                .hitboxes
+                .first()
+                .unwrap()
+                .tag
+                .0,
+            4
+        );
+        assert_eq!(
+            tree.children.as_ref().unwrap()[3]
+                .hitboxes
+                .first()
+                .unwrap()
+                .tag
+                .0,
+            5
+        );
     }
 }
