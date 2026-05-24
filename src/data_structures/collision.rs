@@ -14,7 +14,7 @@
 //! Most of this implementation is inspired by [Mikola Lysenko](https://github.com/mikolalysenko/`)'s
 //! [blog post](https://0fps.net/2015/01/07/collision-detection-part-1/) about collision detection.
 //!
-use std::collections::HashMap;
+use std::{collections::HashMap, marker::PhantomData};
 
 use crate::pick::PickId;
 
@@ -32,6 +32,29 @@ pub trait CollisionTest<T: Hitbox> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T>;
     fn insert(&mut self, hitbox: T) -> Vec<T>;
     fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T>;
+}
+
+pub struct CollisionDetection<C: CollisionTest<H>, H: Hitbox> {
+    collision_test: C,
+    _pd: PhantomData<H>
+}
+impl<C: CollisionTest<H>, H: Hitbox + Clone> CollisionDetection<C, H> {
+    fn insert(&mut self, hitbox: H) -> Vec<H> {
+        let possible_collisison = self.collision_test.insert(hitbox.clone());
+        let collisions: Vec<_> = possible_collisison.into_iter().filter(|hb| sat(&hitbox, hb)).collect();
+        return collisions;
+    }
+
+    fn hits(&self, hitbox: &H) -> Vec<H> {
+        let possible_collisison = self.collision_test.hit_candidates(hitbox.clone());
+        let collisions: Vec<_> = possible_collisison.into_iter().filter(|hb| sat(hitbox, hb)).collect();
+        return collisions;
+    }
+}
+
+/// Separating Axis Theorem
+fn sat<H: Hitbox>(hitbox: &H, hb: &H) -> bool {
+    todo!()
 }
 
 pub struct CornerPoint {
@@ -271,18 +294,17 @@ impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
                             self.hitboxes.push(hb);
                         }
                     }
-                    let mut possible_collisions = self.hitboxes.to_vec();
+                    let mut possible_collisions = self.hitboxes.clone();
                     let mut sorted = false;
                     for bisection in &mut sub_trees {
                         if bisection.bounds.submerges(&hitbox) {
-                            possible_collisions.append(bisection.hitboxes.clone().as_mut());
-                            bisection.hitboxes.push(hitbox.clone());
+                            possible_collisions.append(&mut bisection.insert(hitbox.clone()));
                             sorted = true;
                             break;
                         }
                     }
                     if !sorted {
-                        self.hitboxes.push(hitbox);
+                        self.hitboxes.push(hitbox.clone());
                     }
                     self.children = Some(sub_trees);
                     return possible_collisions;
