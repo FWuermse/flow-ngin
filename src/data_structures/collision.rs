@@ -74,7 +74,7 @@ impl Bounds {
 }
 impl Hitbox for Bounds {
     fn submerges(&self, other: &Self) -> bool {
-        self.lower_bound <= other.lower_bound && self.upper_bound >= other.upper_bound
+        self.lower_bound < other.lower_bound && self.upper_bound > other.upper_bound
     }
 
     fn split(&self) -> Vec<Self> {
@@ -204,33 +204,39 @@ pub fn cartesian<T: Clone>(arrs: &[Vec<T>]) -> Vec<Vec<T>> {
 
 impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
-        match &self.children {
-            Some(sub_trees) => {
-                for bisection in sub_trees {
-                    if bisection.bounds.submerges(&hitbox) {
-                        return [bisection.hit_candidates(hitbox), self.hitboxes.to_vec()].concat();
-                    }
-                }
-                return self.hitboxes.to_vec();
+        let mut result = vec![];
+        for hb in &self.hitboxes {
+            if hb.overlaps(&hitbox) {
+                result.push(hb.clone());
             }
-            None => return self.hitboxes.to_vec(),
         }
+        if let Some(children) = &self.children {
+            for child in children {
+                if child.bounds.overlaps(&hitbox) {
+                    result.extend(child.hit_candidates(hitbox.clone()));
+                }
+            }
+        }
+        result
     }
 
     fn insert(&mut self, hitbox: T) -> Vec<T> {
         match &mut self.children {
             Some(sub_trees) => {
-                for bisection in sub_trees {
+                let mut possible_collisions = self.hitboxes.to_vec();
+                for bisection in sub_trees.iter_mut() {
                     if bisection.bounds.submerges(&hitbox) {
-                        return [bisection.insert(hitbox), self.hitboxes.to_vec()].concat();
+                        return [bisection.insert(hitbox), possible_collisions].concat();
                     }
                 }
                 // if new hitbox cannot be submerged by any child area it will be stored in
                 // the parent node to avoid infinite recursion for multiple same-size hitboxes.
                 // Eventually multiple same-size hitboxes will hit a boundary and stack
                 // anyway. This is just deferring it.
-                let possible_collisions = self.hitboxes.to_vec();
-                self.hitboxes.push(hitbox);
+                self.hitboxes.push(hitbox.clone());
+                for bisection in sub_trees {
+                    possible_collisions.append(&mut bisection.hit_candidates(hitbox.clone()));
+                }
                 return possible_collisions;
             }
             None => {
@@ -266,12 +272,17 @@ impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
                         }
                     }
                     let mut possible_collisions = self.hitboxes.to_vec();
+                    let mut sorted = false;
                     for bisection in &mut sub_trees {
                         if bisection.bounds.submerges(&hitbox) {
                             possible_collisions.append(bisection.hitboxes.clone().as_mut());
-                            bisection.hitboxes.push(hitbox);
+                            bisection.hitboxes.push(hitbox.clone());
+                            sorted = true;
                             break;
                         }
+                    }
+                    if !sorted {
+                        self.hitboxes.push(hitbox);
                     }
                     self.children = Some(sub_trees);
                     return possible_collisions;
@@ -577,7 +588,7 @@ mod tests {
             children: None,
             hitboxes: vec![],
         };
-        let bl = vec![Bounds::new(-2.0, 1.0), Bounds::new(4.0, 4.2)];
+        let bl = vec![Bounds::new(-1.9, 1.0), Bounds::new(4.1, 4.2)];
         tree.insert(TaggedNDimBounds {
             bounds: bl,
             tag: PickId(1),
@@ -591,7 +602,7 @@ mod tests {
             bounds: tl,
             tag: PickId(3),
         });
-        let br = vec![Bounds::new(5.0, 6.0), Bounds::new(4.0, 4.2)];
+        let br = vec![Bounds::new(5.0, 6.0), Bounds::new(4.1, 4.2)];
         tree.insert(TaggedNDimBounds {
             bounds: br,
             tag: PickId(4),
@@ -648,7 +659,7 @@ mod tests {
             children: None,
             hitboxes: vec![],
         };
-        let br = vec![Bounds::new(5.0, 6.0), Bounds::new(4.0, 4.2)];
+        let br = vec![Bounds::new(5.0, 6.0), Bounds::new(4.1, 4.2)];
         tree.insert(TaggedNDimBounds {
             bounds: br,
             tag: PickId(4),
@@ -658,7 +669,7 @@ mod tests {
             bounds: tr,
             tag: PickId(5),
         });
-        let bl = vec![Bounds::new(-2.0, 1.0), Bounds::new(4.0, 4.2)];
+        let bl = vec![Bounds::new(-1.9, 1.0), Bounds::new(4.1, 4.2)];
         tree.insert(TaggedNDimBounds {
             bounds: bl,
             tag: PickId(1),
