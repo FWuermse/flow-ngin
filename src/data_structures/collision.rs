@@ -8,7 +8,7 @@
 //! origin points with their width/height/depth etc.
 //!
 //! Currently spacial trees (Quadtrees/Octrees) and grids are supported for
-//! narrowing down the search space. The special trees use a bisection approaoch
+//! narrowing down the search space. The spacial trees use a bisection approaoch
 //! while the grids reduce the search space by rasterization. For grids
 //! the two supported implementations are dense array- and has-based.
 //! Most of this implementation is inspired by [Mikola Lysenko](https://github.com/mikolalysenko/`)'s
@@ -529,7 +529,7 @@ impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, 
 mod tests {
     use std::collections::HashSet;
 
-use super::*;
+    use super::*;
 
     #[test]
     fn should_return_cartesian_product() {
@@ -780,11 +780,11 @@ use super::*;
     fn one_d_empty_grid_no_candidates() {
         let g: HitGridND<TaggedNDimBounds, 1> = HitGridND::new([0.0], [100.0], 10.0);
         assert!(g.hit_candidates(tb(0, [(5.0, 15.0)])).is_empty());
- 
+
         let s: SparseHitGridND<TaggedNDimBounds, 1> = SparseHitGridND::new(10.0);
         assert!(s.hit_candidates(tb(0, [(5.0, 15.0)])).is_empty());
     }
- 
+
     #[test]
     fn one_d_single_pair() {
         let boxes = vec![
@@ -796,7 +796,7 @@ use super::*;
         assert_eq!(insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0), expected);
         assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), expected);
     }
- 
+
     #[test]
     fn one_d_chain_of_overlaps() {
         let boxes = vec![
@@ -810,7 +810,7 @@ use super::*;
         assert_eq!(insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0), truth);
         assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), truth);
     }
- 
+
     #[test]
     fn one_d_dedup_large_boxes() {
         // Both boxes span many cells; the pair must be reported exactly once.
@@ -820,5 +820,314 @@ use super::*;
             HashSet::from([(0, 1)])
         );
         assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), HashSet::from([(0, 1)]));
+    }
+
+    // Actual 2D tests
+    #[test]
+    fn two_d_empty_grid_no_candidates() {
+        let g: HitGridND<TaggedNDimBounds, 2> = HitGridND::new([0.0, 0.0], [100.0, 100.0], 10.0);
+        assert!(
+            g.hit_candidates(tb(0, [(5.0, 15.0), (5.0, 15.0)]))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn two_d_single_pair() {
+        let boxes = vec![
+            tb(0, [(0.0, 10.0), (0.0, 10.0)]),
+            tb(1, [(5.0, 15.0), (5.0, 15.0)]),
+            tb(2, [(20.0, 30.0), (20.0, 30.0)]),
+        ];
+        let expected = HashSet::from([(0, 1)]);
+        assert_eq!(
+            insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
+            expected
+        );
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), expected);
+    }
+
+    #[test]
+    fn two_d_dedup_large_boxes() {
+        // Each box spans a 5x5 cell region therefore many shared cells.
+        let boxes = vec![
+            tb(0, [(0.0, 25.0), (0.0, 25.0)]),
+            tb(1, [(5.0, 20.0), (5.0, 20.0)]),
+        ];
+        assert_eq!(
+            insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
+            HashSet::from([(0, 1)])
+        );
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), HashSet::from([(0, 1)]));
+    }
+
+    #[test]
+    fn two_d_cluster_with_isolated_outlier() {
+        let boxes = vec![
+            tb(0, [(10.0, 14.0), (10.0, 14.0)]),
+            tb(1, [(11.0, 15.0), (11.0, 15.0)]),
+            tb(2, [(12.0, 16.0), (12.0, 16.0)]),
+            tb(3, [(50.0, 54.0), (50.0, 54.0)]), // isolated
+        ];
+        let truth = brute_force(&boxes);
+        assert_eq!(
+            insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
+            truth
+        );
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), truth);
+    }
+
+    #[test]
+    fn two_d_separated_in_one_dim() {
+        // Overlap in x but separated in y — must not collide.
+        let boxes = vec![
+            tb(0, [(0.0, 10.0), (0.0, 5.0)]),
+            tb(1, [(0.0, 10.0), (10.0, 15.0)]),
+        ];
+        assert!(insert_all_dense::<2>(&boxes, [0.0, 0.0], [50.0, 50.0], 5.0).is_empty());
+        assert!(insert_all_sparse::<2>(&boxes, 5.0).is_empty());
+    }
+
+    #[test]
+    fn two_d_negative_coords_sparse() {
+        let boxes = vec![
+            tb(0, [(-15.0, -5.0), (-15.0, -5.0)]),
+            tb(1, [(-10.0, 0.0), (-10.0, 0.0)]),
+            tb(2, [(5.0, 15.0), (5.0, 15.0)]),
+        ];
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), HashSet::from([(0, 1)]));
+    }
+
+    #[test]
+    fn two_d_dense_with_origin_offset() {
+        // Dense grid covering [-50, 50] in both dimensions.
+        let boxes = vec![
+            tb(0, [(-15.0, -5.0), (-15.0, -5.0)]),
+            tb(1, [(-10.0, 0.0), (-10.0, 0.0)]),
+            tb(2, [(5.0, 15.0), (5.0, 15.0)]),
+        ];
+        let pairs = insert_all_dense::<2>(&boxes, [-50.0, -50.0], [100.0, 100.0], 5.0);
+        assert_eq!(pairs, HashSet::from([(0, 1)]));
+    }
+
+    #[test]
+    fn two_d_dense_out_of_bounds_is_silent() {
+        // A box entirely outside the grid should not panic and not collide.
+        let mut g: HitGridND<TaggedNDimBounds, 2> = HitGridND::new([0.0, 0.0], [50.0, 50.0], 5.0);
+        assert!(g.insert(tb(0, [(10.0, 20.0), (10.0, 20.0)])).is_empty());
+        assert!(
+            g.insert(tb(1, [(100.0, 110.0), (100.0, 110.0)])).is_empty(),
+            "out-of-bounds box must report no collisions"
+        );
+    }
+
+    #[test]
+    fn two_d_boundary_aligned_boxes_touch() {
+        // Adjacent boxes touching exactly at a cell boundary.
+        // Per Hitbox::overlaps (<=, >=), edge contact counts as overlap.
+        let boxes = vec![
+            tb(0, [(0.0, 10.0), (0.0, 10.0)]),
+            tb(1, [(10.0, 20.0), (10.0, 20.0)]),
+        ];
+        let expected = HashSet::from([(0, 1)]);
+        assert_eq!(
+            insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
+            expected
+        );
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), expected);
+    }
+
+    #[test]
+    fn two_d_fractional_coordinates() {
+        let boxes = vec![
+            tb(0, [(0.5, 1.5), (0.5, 1.5)]),
+            tb(1, [(1.2, 2.0), (1.2, 2.0)]),
+            tb(2, [(10.0, 11.0), (10.0, 11.0)]),
+        ];
+        let truth = brute_force(&boxes);
+        assert_eq!(truth, HashSet::from([(0, 1)]));
+        assert_eq!(
+            insert_all_dense::<2>(&boxes, [0.0, 0.0], [50.0, 50.0], 1.0),
+            truth
+        );
+        assert_eq!(insert_all_sparse::<2>(&boxes, 1.0), truth);
+    }
+
+    #[test]
+    fn two_d_random_vs_brute_force() {
+        // Pseudo-random scatter of small boxes.
+        let boxes: Vec<TaggedNDimBounds> = (0..30u32)
+            .map(|i| {
+                let x = (i.wrapping_mul(7) % 60) as f32;
+                let y = (i.wrapping_mul(11) % 60) as f32;
+                let w = 2.0 + (i % 5) as f32;
+                let h = 2.0 + (i % 4) as f32;
+                tb(i, [(x, x + w), (y, y + h)])
+            })
+            .collect();
+
+        let truth = brute_force(&boxes);
+        assert_eq!(
+            insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
+            truth
+        );
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), truth);
+    }
+
+    // 3D tests
+    #[test]
+    fn three_d_single_pair() {
+        let boxes = vec![
+            tb(0, [(0.0, 10.0), (0.0, 10.0), (0.0, 10.0)]),
+            tb(1, [(5.0, 15.0), (5.0, 15.0), (5.0, 15.0)]),
+            // overlaps box 0 in xy, but separated in z plane
+            tb(2, [(0.0, 10.0), (0.0, 10.0), (20.0, 30.0)]),
+        ];
+        let expected = HashSet::from([(0, 1)]);
+        assert_eq!(
+            insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0),
+            expected
+        );
+        assert_eq!(insert_all_sparse::<3>(&boxes, 5.0), expected);
+    }
+
+    #[test]
+    fn three_d_dedup_large_boxes() {
+        // Two boxes spanning many cells in all three dimensions.
+        let boxes = vec![
+            tb(0, [(0.0, 30.0), (0.0, 30.0), (0.0, 30.0)]),
+            tb(1, [(10.0, 25.0), (10.0, 25.0), (10.0, 25.0)]),
+        ];
+        assert_eq!(
+            insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0),
+            HashSet::from([(0, 1)])
+        );
+        assert_eq!(insert_all_sparse::<3>(&boxes, 5.0), HashSet::from([(0, 1)]));
+    }
+
+    #[test]
+    fn three_d_separated_along_z() {
+        let boxes = vec![
+            tb(0, [(0.0, 10.0), (0.0, 10.0), (0.0, 5.0)]),
+            tb(1, [(0.0, 10.0), (0.0, 10.0), (10.0, 15.0)]),
+        ];
+        assert!(insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0).is_empty());
+        assert!(insert_all_sparse::<3>(&boxes, 5.0).is_empty());
+    }
+
+    #[test]
+    fn three_d_random_vs_brute_force() {
+        let boxes: Vec<TaggedNDimBounds> = (0..25u32)
+            .map(|i| {
+                let x = (i.wrapping_mul(7) % 40) as f32;
+                let y = (i.wrapping_mul(11) % 40) as f32;
+                let z = (i.wrapping_mul(13) % 40) as f32;
+                let s = 2.0 + (i % 4) as f32;
+                tb(i, [(x, x + s), (y, y + s), (z, z + s)])
+            })
+            .collect();
+
+        let truth = brute_force(&boxes);
+        assert_eq!(
+            insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0),
+            truth
+        );
+        assert_eq!(insert_all_sparse::<3>(&boxes, 5.0), truth);
+    }
+
+    // Mixed dimensions as per above definition
+    #[test]
+    fn mixed_size_workload_2d_all_agree() {
+        // Mostly small boxes with occasional large ones that span many cells.
+        // The large boxes exercise the deduplication path heavily.
+        let boxes: Vec<TaggedNDimBounds> = (0..50u32)
+            .map(|i| {
+                let x = (i.wrapping_mul(17) % 80) as f32;
+                let y = (i.wrapping_mul(23) % 80) as f32;
+                let size = if i % 7 == 0 {
+                    15.0
+                } else {
+                    3.0 + (i % 4) as f32
+                };
+                tb(i, [(x, x + size), (y, y + size)])
+            })
+            .collect();
+
+        let truth = brute_force(&boxes);
+        let dense = insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0);
+        let sparse = insert_all_sparse::<2>(&boxes, 5.0);
+
+        assert_eq!(dense, sparse, "dense and sparse disagree");
+        assert_eq!(dense, truth, "dense vs brute force");
+    }
+
+    #[test]
+    fn mixed_size_workload_3d_all_agree() {
+        let boxes: Vec<TaggedNDimBounds> = (0..40u32)
+            .map(|i| {
+                let x = (i.wrapping_mul(17) % 40) as f32;
+                let y = (i.wrapping_mul(23) % 40) as f32;
+                let z = (i.wrapping_mul(29) % 40) as f32;
+                let size = if i % 9 == 0 {
+                    12.0
+                } else {
+                    2.0 + (i % 3) as f32
+                };
+                tb(i, [(x, x + size), (y, y + size), (z, z + size)])
+            })
+            .collect();
+
+        let truth = brute_force(&boxes);
+        let dense = insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0);
+        let sparse = insert_all_sparse::<3>(&boxes, 5.0);
+
+        assert_eq!(dense, sparse, "dense and sparse disagree in 3D");
+        assert_eq!(dense, truth, "dense vs brute force in 3D");
+    }
+
+    #[test]
+    fn hit_candidates_finds_all_inserted_overlaps() {
+        let mut g: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(5.0);
+        g.insert(tb(0, [(0.0, 10.0), (0.0, 10.0)]));
+        g.insert(tb(1, [(20.0, 30.0), (20.0, 30.0)]));
+        g.insert(tb(2, [(5.0, 8.0), (5.0, 8.0)]));
+
+        // Query a box that overlaps box 0 and box 2 but not box 1.
+        let probe = tb(99, [(6.0, 9.0), (6.0, 9.0)]);
+        let hits: HashSet<u32> = g.hit_candidates(probe).iter().map(id_of).collect();
+        assert_eq!(hits, HashSet::from([0, 2]));
+    }
+
+    // Minimal higher dimension test
+    #[test]
+    fn five_d_random_vs_brute_force() {
+        let boxes: Vec<TaggedNDimBounds> = (0..20u32)
+            .map(|i| {
+                let coord = |mul: u32| (i.wrapping_mul(mul) % 30) as f32;
+                let s = 2.0 + (i % 3) as f32;
+                let c0 = coord(7);
+                let c1 = coord(11);
+                let c2 = coord(13);
+                let c3 = coord(17);
+                let c4 = coord(19);
+                tb(
+                    i,
+                    [
+                        (c0, c0 + s),
+                        (c1, c1 + s),
+                        (c2, c2 + s),
+                        (c3, c3 + s),
+                        (c4, c4 + s),
+                    ],
+                )
+            })
+            .collect();
+ 
+        let truth = brute_force(&boxes);
+        let dense = insert_all_dense::<5>(&boxes, [0.0; 5], [40.0; 5], 5.0);
+        let sparse = insert_all_sparse::<5>(&boxes, 5.0);
+ 
+        assert_eq!(dense, sparse, "5D dense and sparse disagree");
+        assert_eq!(dense, truth, "5D dense vs brute force");
     }
 }
