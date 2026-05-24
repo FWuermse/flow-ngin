@@ -1,3 +1,19 @@
+//! This module contains a configurable hitbox detection engine using
+//! multiple datastructures and algorithms to narrow down the amount
+//! of elements that need to be checked. Everything works with multiple
+//! dimensions and also cross-dimension such as testing for 3D hitboxes
+//! in a 2D space.
+//!
+//! Current implementations for Hitboxes are N-dimensional intervals and
+//! origin points with their width/height/depth etc.
+//!
+//! Currently spacial trees (Quadtrees/Octrees) and grids are supported for
+//! narrowing down the search space. The special trees use a bisection approaoch
+//! while the grids reduce the search space by rasterization. For grids
+//! the two supported implementations are dense array- and has-based.
+//! Most of this implementation is inspired by [Mikola Lysenko](https://github.com/mikolalysenko/`)'s
+//! [blog post](https://0fps.net/2015/01/07/collision-detection-part-1/) about collision detection.
+//!
 use std::collections::HashMap;
 
 use crate::pick::PickId;
@@ -269,117 +285,152 @@ impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
     }
 }
 
-pub struct HitGrid2D<T> {
-    origin: (f32, f32),
-    grid_dims: (f32, f32),
+/// An `N`-dimensional grid for collision detection.
+pub struct HitGridND<T, const N: usize> {
+    origin: [f32; N],
     cell_len: f32,
-    cols: usize,
-    rows: usize,
+    dims: [usize; N],
+    /// The precompute strides are used to address flattened out grid
+    /// e.g. 3D the index is computed x * strides[0] + y * strides[1]
+    /// + z * strides[2].
+    strides: [usize; N],
+    /// Represents the flattened grid, eath with a Vec of hitboxes
+    /// intersecting at cell[i].
     cells: Vec<Vec<T>>,
 }
 
-impl<T: Hitbox + Clone> HitGrid2D<T> {
-    pub fn new(origin: (f32, f32), grid_dims: (f32, f32), cell_len: f32) -> Self {
-        let cols = (grid_dims.0 / cell_len).ceil() as usize;
-        let rows = (grid_dims.1 / cell_len).ceil() as usize;
+impl<T: Hitbox + Clone, const N: usize> HitGridND<T, N> {
+    pub fn new(origin: [f32; N], grid_dims: [f32; N], cell_len: f32) -> Self {
+        let dims: [usize; N] = std::array::from_fn(|i| (grid_dims[i] / cell_len).ceil() as usize);
+
+        let mut strides = [0usize; N];
+        let mut s = 1usize;
+        for i in 0..N {
+            strides[i] = s;
+            s *= dims[i];
+        }
+        let total = s;
+
         Self {
             origin,
-            grid_dims,
             cell_len,
-            cols,
-            rows,
-            cells: vec![vec![]; cols * rows],
+            dims,
+            strides,
+            cells: vec![vec![]; total],
         }
     }
 
-    /// Returns the inclusive cell range covering a hitbox, clamped to the grid.
-    /// Returns None if the hitbox lies entirely outside the grid.
-    pub fn cell_range(&self, hitbox: &T) -> Option<(i32, i32, i32, i32)> {
+    fn flat_index(&self, coord: &[i32; N]) -> usize {
+        let mut idx = 0usize;
+        for i in 0..N {
+            idx += (coord[i] as usize) * self.strides[i];
+        }
+        idx
+    }
+
+    /// The grid can live in the negative world coord spectrum and thus
+    /// must be clamped when iterating over cells to avoid negative
+    /// indexes.
+    fn cell_ranges(&self, hitbox: &T) -> Option<[(i32, i32); N]> {
         let h = self.cell_len;
-        let (x_start, x_end) = hitbox.interval(0);
-        let (y_start, y_end) = hitbox.interval(1);
+        let mut ranges = [(0i32, 0i32); N];
+        for d in 0..N {
+            let (lower_bound, upper_bound) = hitbox.interval(d);
+            let start = ((lower_bound - self.origin[d]) / h).floor() as i32;
+            let end = ((upper_bound - self.origin[d]) / h).ceil() as i32;
+            let start = start.max(0);
+            let end = end.min(self.dims[d] as i32 - 1);
+            if start > end {
+                return None;
+            }
+            ranges[d] = (start, end);
+        }
+        Some(ranges)
+    }
+}
 
-        let x_start = ((x_start - self.origin.0) / h).floor() as i32;
-        let x_end = ((x_end - self.origin.0) / h).ceil() as i32;
-        let y_start = ((y_start - self.origin.1) / h).floor() as i32;
-        let y_end = ((y_end - self.origin.1) / h).ceil() as i32;
-
-        // Clamp to grid bounds.
-        let cs = x_start.max(0);
-        let ce = x_end.min(self.cols as i32 - 1);
-        let rs = y_start.max(0);
-        let re = y_end.min(self.rows as i32 - 1);
-
-        if cs > ce || rs > re {
-            None
-        } else {
-            Some((cs, ce, rs, re))
+/// Iterate the cartesian product of N inclusive ranges, no allocation.
+fn for_each_cell<const N: usize>(ranges: &[(i32, i32); N], mut f: impl FnMut(&[i32; N])) {
+    let mut coord: [i32; N] = std::array::from_fn(|d| ranges[d].0);
+    loop {
+        f(&coord);
+        // find the lowest dim that wasn't visited.
+        let mut d = 0;
+        while d < N {
+            if coord[d] < ranges[d].1 {
+                coord[d] += 1;
+                break;
+            }
+            coord[d] = ranges[d].0;
+            d += 1;
+        }
+        if d == N {
+            return;
         }
     }
 }
-impl<T: Hitbox + Clone> CollisionTest<T> for HitGrid2D<T> {
+
+impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
-        let h = self.cell_len;
-        let cols = (self.grid_dims.0 / h).ceil() as usize;
-
-        let (x_start, x_end) = hitbox.interval(0);
-        let (y_start, y_end) = hitbox.interval(1);
-
-        let x_start = (x_start / h).floor() as usize;
-        let x_end = (x_end / h).ceil() as usize;
-        let y_start = (y_start / h).floor() as usize;
-        let y_end = (y_end / h).ceil() as usize;
-
+        let Some(ranges) = self.cell_ranges(&hitbox) else {
+            return vec![];
+        };
         let mut possible_collisions = vec![];
-        for cx in x_start..=x_end {
-            for cy in y_start..=y_end {
-                let idx = cy * cols + cx;
-                if let Some(cell) = self.cells.get(idx) {
-                    for other in cell {
-                        if hitbox.overlaps(other) {
-                            possible_collisions.push(other.clone());
-                        }
-                    }
+        for_each_cell(&ranges, |coord| {
+            let idx = self.flat_index(coord);
+            for other in &self.cells[idx] {
+                if hitbox.overlaps(other) {
+                    possible_collisions.push(other.clone());
                 }
             }
-        }
+        });
         possible_collisions
     }
 
     fn insert(&mut self, hitbox: T) -> Vec<T> {
-        let Some((x_start, x_end, y_start, y_end)) = self.cell_range(&hitbox) else {
-            return vec![]; // entirely outside the grid
+        let Some(ranges) = self.cell_ranges(&hitbox) else {
+            return vec![];
         };
 
         let h = self.cell_len;
+        let origin = self.origin;
+        let strides = self.strides;
         let mut result = vec![];
 
-        for x in x_start..=x_end {
-            for y in y_start..=y_end {
-                let idx = (y as usize) * self.cols + (x as usize);
-                let cell = &mut self.cells[idx];
-                for other in cell.iter() {
-                    if !hitbox.overlaps(other) {
-                        continue;
-                    }
-                    let lexs = (0..2).map(|i| {
-                        let (o_x_start, _) = other.interval(i);
-                        let (h_x_start, _) = hitbox.interval(i);
-                        ((o_x_start - self.origin.0) / h)
-                            .floor()
-                            .max(((h_x_start - self.origin.0) / h).floor())
-                            as i32
-                    });
-                    let unique_overlap = lexs
-                        .zip([x, y])
-                        .fold(true, |overlap, (lex_i, i)| overlap && lex_i == i);
-                    if unique_overlap {
-                        result.push(other.clone());
+        for_each_cell(&ranges, |coord| {
+            let mut idx = 0usize;
+            // compute index from all dimensions with precomputed strides
+            for i in 0..N {
+                idx += (coord[i] as usize) * strides[i];
+            }
+            let cell = &mut self.cells[idx];
+
+            // check existing other hitboxes in currently inspected cell
+            for other in cell.iter() {
+                if !hitbox.overlaps(other) {
+                    continue;
+                }
+                // Lex-smallest check is cheaper than hashset to avoid
+                // duplicate matches if objects overlap in multiple cells
+                let mut unique = true;
+                for d in 0..N {
+                    let (other_lower_bound, _) = other.interval(d);
+                    let (other_upper_bound, _) = hitbox.interval(d);
+                    let lex = ((other_lower_bound - origin[d]) / h)
+                        .floor()
+                        .max(((other_upper_bound - origin[d]) / h).floor())
+                        as i32;
+                    if lex != coord[d] {
+                        unique = false;
+                        break;
                     }
                 }
-                cell.push(hitbox.clone());
+                if unique {
+                    result.push(other.clone());
+                }
             }
-        }
+            cell.push(hitbox.clone());
+        });
         result
     }
 
@@ -388,69 +439,80 @@ impl<T: Hitbox + Clone> CollisionTest<T> for HitGrid2D<T> {
     }
 }
 
-pub struct SparseHitGridND<T> {
+pub struct SparseHitGridND<T, const N: usize> {
     cell_len: f32,
-    dims: usize,
-    cells: HashMap<Vec<i32>, Vec<T>>,
+    cells: HashMap<[i32; N], Vec<T>>,
 }
 
-impl<T: Hitbox + Clone> SparseHitGridND<T> {
-    /// Returns all cell coordinates covered by a hitbox via Cartesian product
-    /// of per-dimension cell ranges.
-    fn covering_cells(&self, hitbox: &T) -> Vec<Vec<i32>> {
+impl<T: Hitbox + Clone, const N: usize> SparseHitGridND<T, N> {
+    pub fn new(cell_len: f32) -> Self {
+        Self {
+            cell_len,
+            cells: HashMap::new(),
+        }
+    }
+
+    /// Per-dimension inclusive cell ranges covered by a hitbox.
+    /// Unlike the dense version, no clamping. HashMap can have
+    /// negative indexes (i.e. keys).
+    fn cell_ranges(&self, hitbox: &T) -> [(i32, i32); N] {
         let h = self.cell_len;
-        let per_dim_ranges: Vec<Vec<i32>> = (0..self.dims)
-            .map(|d| {
-                let (lower_bound, upper_bound) = hitbox.interval(d);
-                let start = (lower_bound / h).floor() as i32;
-                let end = (upper_bound / h).ceil() as i32;
-                (start..=end).collect()
-            })
-            .collect();
-        cartesian(&per_dim_ranges)
+        let mut ranges = [(0i32, 0i32); N];
+        for d in 0..N {
+            let (lower_bound, upper_bound) = hitbox.interval(d);
+            ranges[d] = (
+                (lower_bound / h).floor() as i32,
+                (upper_bound / h).ceil() as i32,
+            );
+        }
+        ranges
     }
 }
 
-fn lex_smallest_shared_cell<T: Hitbox>(dims: usize, cell_len: f32, a: &T, b: &T) -> Vec<i32> {
-    (0..dims)
-        .map(|d| {
-            let (a_lower_bound, _) = a.interval(d);
-            let (b_lower_bound, _) = b.interval(d);
-            ((a_lower_bound / cell_len).floor() as i32).max((b_lower_bound / cell_len).floor() as i32)
-        })
-        .collect()
+fn lex_smallest_shared_cell<T: Hitbox, const N: usize>(cell_len: f32, a: &T, b: &T) -> [i32; N] {
+    let mut result = [0i32; N];
+    for d in 0..N {
+        let (lower_bound_a, _) = a.interval(d);
+        let (lower_bound_b, _) = b.interval(d);
+        result[d] = ((lower_bound_a / cell_len).floor() as i32)
+            .max((lower_bound_b / cell_len).floor() as i32);
+    }
+    result
 }
 
-impl<T: Hitbox + Clone> CollisionTest<T> for SparseHitGridND<T> {
+impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, N> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
+        let ranges = self.cell_ranges(&hitbox);
         let mut possible_collisions = vec![];
-        for cell_coord in self.covering_cells(&hitbox) {
-            if let Some(cell) = self.cells.get(&cell_coord) {
+        for_each_cell(&ranges, |coord| {
+            if let Some(cell) = self.cells.get(coord) {
                 for other in cell {
                     if hitbox.overlaps(other) {
                         possible_collisions.push(other.clone());
                     }
                 }
             }
-        }
+        });
         possible_collisions
     }
 
     fn insert(&mut self, hitbox: T) -> Vec<T> {
+        let ranges = self.cell_ranges(&hitbox);
+        let cell_len = self.cell_len; // Copy so closure doesn't need &self
         let mut result = vec![];
-        for cell_coord in self.covering_cells(&hitbox) {
-            let cell = self.cells.entry(cell_coord.clone()).or_default();
+
+        for_each_cell(&ranges, |coord| {
+            let cell = self.cells.entry(*coord).or_default();
             for other in cell.iter() {
                 if !hitbox.overlaps(other) {
                     continue;
                 }
-                if cell_coord == lex_smallest_shared_cell(self.dims, self.cell_len, &hitbox, other)
-                {
+                if *coord == lex_smallest_shared_cell(cell_len, &hitbox, other) {
                     result.push(other.clone());
                 }
             }
             cell.push(hitbox.clone());
-        }
+        });
         result
     }
 
@@ -465,7 +527,9 @@ impl<T: Hitbox + Clone> CollisionTest<T> for SparseHitGridND<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::HashSet;
+
+use super::*;
 
     #[test]
     fn should_return_cartesian_product() {
@@ -642,5 +706,119 @@ mod tests {
                 .0,
             5
         );
+    }
+
+    // Helper for iter to TaggedNDimBounds
+    fn tb(id: u32, intervals: impl IntoIterator<Item = (f32, f32)>) -> TaggedNDimBounds {
+        TaggedNDimBounds {
+            bounds: intervals
+                .into_iter()
+                .map(|(lo, hi)| Bounds::new(lo, hi))
+                .collect(),
+            tag: PickId(id),
+        }
+    }
+
+    fn id_of(b: &TaggedNDimBounds) -> u32 {
+        b.tag.0
+    }
+
+    /// Normalize a pair so (a, b) and (b, a) hash the same.
+    fn pair(a: &TaggedNDimBounds, b: &TaggedNDimBounds) -> (u32, u32) {
+        let x = id_of(a);
+        let y = id_of(b);
+        (x.min(y), x.max(y))
+    }
+
+    // Helper for inserting multiple into a grid
+    fn insert_all_dense<const N: usize>(
+        boxes: &[TaggedNDimBounds],
+        origin: [f32; N],
+        dims: [f32; N],
+        cell_len: f32,
+    ) -> HashSet<(u32, u32)> {
+        let mut grid: HitGridND<TaggedNDimBounds, N> = HitGridND::new(origin, dims, cell_len);
+        let mut pairs = HashSet::new();
+        for hb in boxes {
+            for other in grid.insert(hb.clone()) {
+                pairs.insert(pair(&other, hb));
+            }
+        }
+        pairs
+    }
+
+    // Helper for inserting multiple into a has-based grid
+    fn insert_all_sparse<const N: usize>(
+        boxes: &[TaggedNDimBounds],
+        cell_len: f32,
+    ) -> HashSet<(u32, u32)> {
+        let mut grid: SparseHitGridND<TaggedNDimBounds, N> = SparseHitGridND::new(cell_len);
+        let mut pairs = HashSet::new();
+        for hb in boxes {
+            for other in grid.insert(hb.clone()) {
+                pairs.insert(pair(&other, hb));
+            }
+        }
+        pairs
+    }
+
+    /// O(n²) ground truth: every pair that actually overlaps.
+    fn brute_force(boxes: &[TaggedNDimBounds]) -> HashSet<(u32, u32)> {
+        let mut pairs = HashSet::new();
+        for i in 0..boxes.len() {
+            for j in (i + 1)..boxes.len() {
+                if boxes[i].overlaps(&boxes[j]) {
+                    pairs.insert(pair(&boxes[i], &boxes[j]));
+                }
+            }
+        }
+        pairs
+    }
+
+    // 1D test as sainity check :D
+    #[test]
+    fn one_d_empty_grid_no_candidates() {
+        let g: HitGridND<TaggedNDimBounds, 1> = HitGridND::new([0.0], [100.0], 10.0);
+        assert!(g.hit_candidates(tb(0, [(5.0, 15.0)])).is_empty());
+ 
+        let s: SparseHitGridND<TaggedNDimBounds, 1> = SparseHitGridND::new(10.0);
+        assert!(s.hit_candidates(tb(0, [(5.0, 15.0)])).is_empty());
+    }
+ 
+    #[test]
+    fn one_d_single_pair() {
+        let boxes = vec![
+            tb(0, [(0.0, 10.0)]),
+            tb(1, [(5.0, 15.0)]),
+            tb(2, [(20.0, 30.0)]),
+        ];
+        let expected = HashSet::from([(0, 1)]);
+        assert_eq!(insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0), expected);
+        assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), expected);
+    }
+ 
+    #[test]
+    fn one_d_chain_of_overlaps() {
+        let boxes = vec![
+            tb(0, [(0.0, 10.0)]),
+            tb(1, [(5.0, 15.0)]),
+            tb(2, [(12.0, 22.0)]),
+            tb(3, [(20.0, 30.0)]),
+        ];
+        let truth = brute_force(&boxes);
+        assert_eq!(truth, HashSet::from([(0, 1), (1, 2), (2, 3)]));
+        assert_eq!(insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0), truth);
+        assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), truth);
+    }
+ 
+    #[test]
+    fn one_d_dedup_large_boxes() {
+        // Both boxes span many cells; the pair must be reported exactly once.
+        let boxes = vec![tb(0, [(0.0, 50.0)]), tb(1, [(10.0, 40.0)])];
+        assert_eq!(
+            insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0),
+            HashSet::from([(0, 1)])
+        );
+        assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), HashSet::from([(0, 1)]));
     }
 }
