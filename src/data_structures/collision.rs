@@ -762,7 +762,7 @@ mod tests {
         pairs
     }
 
-    /// O(n²) ground truth: every pair that actually overlaps.
+    /// O(n²) ground expected: every pair that actually overlaps.
     fn brute_force(boxes: &[TaggedNDimBounds]) -> HashSet<(u32, u32)> {
         let mut pairs = HashSet::new();
         for i in 0..boxes.len() {
@@ -775,7 +775,202 @@ mod tests {
         pairs
     }
 
-    // 1D test as sainity check :D
+    /// Tag is irrelevant for search area
+    fn root_bounds(intervals: impl IntoIterator<Item = (f32, f32)>) -> TaggedNDimBounds {
+        tb(u32::MAX, intervals)
+    }
+
+    /// This function is is used to compare to brute_force so
+    /// we filter by `overlaps()` to match the grid behaviour.
+    fn insert_all_tree(
+        boxes: &[TaggedNDimBounds],
+        tree_bounds: TaggedNDimBounds,
+        threshold: usize,
+    ) -> HashSet<(u32, u32)> {
+        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+            threshold,
+            bounds: tree_bounds,
+            children: None,
+            hitboxes: vec![],
+        };
+        let mut pairs = HashSet::new();
+        for hb in boxes {
+            for other in tree.insert(hb.clone()) {
+                if other.overlaps(hb) {
+                    pairs.insert(pair(&other, hb));
+                }
+            }
+        }
+        pairs
+    }
+
+    #[test]
+    fn tree_1d_chain() {
+        let boxes = vec![
+            tb(0, [(0.0, 10.0)]),
+            tb(1, [(5.0, 15.0)]),
+            tb(2, [(12.0, 22.0)]),
+            tb(3, [(20.0, 30.0)]),
+        ];
+        let bounds = root_bounds([(0.0, 100.0)]);
+        let expected = brute_force(&boxes);
+        assert_eq!(insert_all_tree(&boxes, bounds, 3), expected);
+    }
+
+    #[test]
+    fn tree_2d_no_splits_matches_expected() {
+        // High threshold → tree never splits → returns all prior boxes.
+        // Equivalent to brute force after overlap filtering.
+        let boxes = vec![
+            tb(0, [(0.0, 10.0), (0.0, 10.0)]),
+            tb(1, [(5.0, 15.0), (5.0, 15.0)]),
+            tb(2, [(20.0, 30.0), (20.0, 30.0)]),
+            tb(3, [(8.0, 12.0), (8.0, 12.0)]),
+        ];
+        let bounds = root_bounds([(0.0, 100.0), (0.0, 100.0)]);
+        let expected = brute_force(&boxes);
+        assert_eq!(insert_all_tree(&boxes, bounds, 100), expected);
+    }
+
+    #[test]
+    fn tree_2d_with_splits_matches_expected() {
+        // Lower threshold forces splits. Coords kept off the subdivision
+        // boundaries (50, 25, 75, ...) to avoid the tree's known edge case
+        // where boxes touching a quadrant boundary land in sibling subtrees.
+        let boxes: Vec<TaggedNDimBounds> = (0..15u32)
+            .map(|i| {
+                let x = 1.0 + (i.wrapping_mul(7) % 57) as f32;
+                let y = 1.0 + (i.wrapping_mul(11) % 57) as f32;
+                let w = 2.0 + (i % 5) as f32;
+                let h = 2.0 + (i % 4) as f32;
+                tb(i, [(x, x + w), (y, y + h)])
+            })
+            .collect();
+        let bounds = root_bounds([(0.0, 100.0), (0.0, 100.0)]);
+        let expected = brute_force(&boxes);
+        let tree = insert_all_tree(&boxes, bounds, 3);
+        let dense = insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0);
+        let sparse = insert_all_sparse::<2>(&boxes, 5.0);
+
+        assert_eq!(dense, expected, "dense vs brute force");
+        assert_eq!(sparse, expected, "sparse vs brute force");
+        assert_eq!(tree, expected, "tree vs brute force");
+    }
+
+    #[test]
+    fn tree_3d_with_splits_matches_expected() {
+        let boxes: Vec<TaggedNDimBounds> = (0..15u32)
+            .map(|i| {
+                let x = 1.0 + (i.wrapping_mul(7) % 27) as f32;
+                let y = 1.0 + (i.wrapping_mul(11) % 27) as f32;
+                let z = 1.0 + (i.wrapping_mul(13) % 27) as f32;
+                let s = 2.0 + (i % 3) as f32;
+                tb(i, [(x, x + s), (y, y + s), (z, z + s)])
+            })
+            .collect();
+        let bounds = root_bounds([(0.0, 50.0); 3]);
+        let expected = brute_force(&boxes);
+        let tree = insert_all_tree(&boxes, bounds, 4);
+        let dense = insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0);
+        let sparse = insert_all_sparse::<3>(&boxes, 5.0);
+
+        assert_eq!(dense, expected);
+        assert_eq!(sparse, expected);
+        assert_eq!(tree, expected);
+    }
+
+    #[test]
+    fn tree_5d_modest_workload() {
+        let boxes: Vec<TaggedNDimBounds> = (0..12u32)
+            .map(|i| {
+                let coord = |mul: u32| 1.0 + (i.wrapping_mul(mul) % 27) as f32;
+                let s = 2.0 + (i % 3) as f32;
+                let c = [coord(7), coord(11), coord(13), coord(17), coord(19)];
+                tb(
+                    i,
+                    [
+                        (c[0], c[0] + s),
+                        (c[1], c[1] + s),
+                        (c[2], c[2] + s),
+                        (c[3], c[3] + s),
+                        (c[4], c[4] + s),
+                    ],
+                )
+            })
+            .collect();
+        let bounds = root_bounds([(0.0, 40.0); 5]);
+        let expected = brute_force(&boxes);
+        let tree = insert_all_tree(&boxes, bounds, 6);
+        assert_eq!(tree, expected);
+    }
+
+    #[test]
+    fn tree_all_four_implementations_agree_2d() {
+        // Definitive cross-check: brute force, dense, sparse, and tree
+        // all produce the same set of confirmed collision pairs.
+        let boxes: Vec<TaggedNDimBounds> = (0..30u32)
+            .map(|i| {
+                let x = 1.0 + (i.wrapping_mul(17) % 77) as f32;
+                let y = 1.0 + (i.wrapping_mul(23) % 77) as f32;
+                let s = 3.0 + (i % 4) as f32;
+                tb(i, [(x, x + s), (y, y + s)])
+            })
+            .collect();
+        let bounds = root_bounds([(0.0, 100.0), (0.0, 100.0)]);
+        let expected = brute_force(&boxes);
+        let dense = insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0);
+        let sparse = insert_all_sparse::<2>(&boxes, 5.0);
+        let tree = insert_all_tree(&boxes, bounds, 5);
+
+        assert_eq!(dense, expected, "dense vs brute force");
+        assert_eq!(sparse, expected, "sparse vs brute force");
+        assert_eq!(tree, expected, "tree vs brute force");
+        assert_eq!(dense, sparse, "dense vs sparse");
+        assert_eq!(dense, tree, "dense vs tree");
+    }
+
+    #[test]
+    fn tree_broad_phase_returns_superset_of_true_overlaps() {
+        // Even without filtering by overlaps(), the tree must return at
+        // least every box that actually overlaps the inserted one.
+        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+            threshold: 3,
+            bounds: root_bounds([(0.0, 100.0), (0.0, 100.0)]),
+            children: None,
+            hitboxes: vec![],
+        };
+
+        let mut all_inserted: Vec<TaggedNDimBounds> = vec![];
+        let boxes: Vec<TaggedNDimBounds> = (0..20u32)
+            .map(|i| {
+                let x = 1.0 + (i.wrapping_mul(7) % 57) as f32;
+                let y = 1.0 + (i.wrapping_mul(11) % 57) as f32;
+                let s = 3.0 + (i % 4) as f32;
+                tb(i, [(x, x + s), (y, y + s)])
+            })
+            .collect();
+
+        for hb in &boxes {
+            let returned = tree.insert(hb.clone());
+            let returned_ids: HashSet<u32> = returned.iter().map(id_of).collect();
+
+            // Every previously inserted box that actually overlaps hb
+            // must appear in the returned candidate set.
+            for prior in &all_inserted {
+                if prior.overlaps(hb) {
+                    assert!(
+                        returned_ids.contains(&id_of(prior)),
+                        "tree missed a real overlap: {} vs {}",
+                        id_of(prior),
+                        id_of(hb)
+                    );
+                }
+            }
+            all_inserted.push(hb.clone());
+        }
+    }
+
+    // 1D test for grid as sainity check :D
     #[test]
     fn one_d_empty_grid_no_candidates() {
         let g: HitGridND<TaggedNDimBounds, 1> = HitGridND::new([0.0], [100.0], 10.0);
@@ -805,10 +1000,10 @@ mod tests {
             tb(2, [(12.0, 22.0)]),
             tb(3, [(20.0, 30.0)]),
         ];
-        let truth = brute_force(&boxes);
-        assert_eq!(truth, HashSet::from([(0, 1), (1, 2), (2, 3)]));
-        assert_eq!(insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0), truth);
-        assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), truth);
+        let expected = brute_force(&boxes);
+        assert_eq!(expected, HashSet::from([(0, 1), (1, 2), (2, 3)]));
+        assert_eq!(insert_all_dense::<1>(&boxes, [0.0], [100.0], 5.0), expected);
+        assert_eq!(insert_all_sparse::<1>(&boxes, 5.0), expected);
     }
 
     #[test]
@@ -849,7 +1044,7 @@ mod tests {
 
     #[test]
     fn two_d_dedup_large_boxes() {
-        // Each box spans a 5x5 cell region therefore many shared cells.
+        // Each box spans a 5x5 cell region — many shared cells.
         let boxes = vec![
             tb(0, [(0.0, 25.0), (0.0, 25.0)]),
             tb(1, [(5.0, 20.0), (5.0, 20.0)]),
@@ -869,12 +1064,12 @@ mod tests {
             tb(2, [(12.0, 16.0), (12.0, 16.0)]),
             tb(3, [(50.0, 54.0), (50.0, 54.0)]), // isolated
         ];
-        let truth = brute_force(&boxes);
+        let expected = brute_force(&boxes);
         assert_eq!(
             insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
-            truth
+            expected
         );
-        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), truth);
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), expected);
     }
 
     #[test]
@@ -944,13 +1139,13 @@ mod tests {
             tb(1, [(1.2, 2.0), (1.2, 2.0)]),
             tb(2, [(10.0, 11.0), (10.0, 11.0)]),
         ];
-        let truth = brute_force(&boxes);
-        assert_eq!(truth, HashSet::from([(0, 1)]));
+        let expected = brute_force(&boxes);
+        assert_eq!(expected, HashSet::from([(0, 1)]));
         assert_eq!(
             insert_all_dense::<2>(&boxes, [0.0, 0.0], [50.0, 50.0], 1.0),
-            truth
+            expected
         );
-        assert_eq!(insert_all_sparse::<2>(&boxes, 1.0), truth);
+        assert_eq!(insert_all_sparse::<2>(&boxes, 1.0), expected);
     }
 
     #[test]
@@ -966,12 +1161,12 @@ mod tests {
             })
             .collect();
 
-        let truth = brute_force(&boxes);
+        let expected = brute_force(&boxes);
         assert_eq!(
             insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0),
-            truth
+            expected
         );
-        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), truth);
+        assert_eq!(insert_all_sparse::<2>(&boxes, 5.0), expected);
     }
 
     // 3D tests
@@ -1027,12 +1222,12 @@ mod tests {
             })
             .collect();
 
-        let truth = brute_force(&boxes);
+        let expected = brute_force(&boxes);
         assert_eq!(
             insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0),
-            truth
+            expected
         );
-        assert_eq!(insert_all_sparse::<3>(&boxes, 5.0), truth);
+        assert_eq!(insert_all_sparse::<3>(&boxes, 5.0), expected);
     }
 
     // Mixed dimensions as per above definition
@@ -1053,12 +1248,14 @@ mod tests {
             })
             .collect();
 
-        let truth = brute_force(&boxes);
+        let expected = brute_force(&boxes);
         let dense = insert_all_dense::<2>(&boxes, [0.0, 0.0], [100.0, 100.0], 5.0);
         let sparse = insert_all_sparse::<2>(&boxes, 5.0);
+        let tree = insert_all_tree(&boxes, root_bounds([(0.0, 100.0), (0.0, 100.0)]), 8);
 
         assert_eq!(dense, sparse, "dense and sparse disagree");
-        assert_eq!(dense, truth, "dense vs brute force");
+        assert_eq!(dense, expected, "dense vs brute force");
+        assert_eq!(tree, expected, "tree vs brute force");
     }
 
     #[test]
@@ -1077,14 +1274,17 @@ mod tests {
             })
             .collect();
 
-        let truth = brute_force(&boxes);
+        let expected = brute_force(&boxes);
         let dense = insert_all_dense::<3>(&boxes, [0.0; 3], [50.0; 3], 5.0);
         let sparse = insert_all_sparse::<3>(&boxes, 5.0);
+        let tree = insert_all_tree(&boxes, root_bounds([(0.0, 50.0); 3]), 8);
 
         assert_eq!(dense, sparse, "dense and sparse disagree in 3D");
-        assert_eq!(dense, truth, "dense vs brute force in 3D");
+        assert_eq!(dense, expected, "dense vs brute force in 3D");
+        assert_eq!(tree, expected, "tree vs brute force in 3D");
     }
 
+    // Consitency checks
     #[test]
     fn hit_candidates_finds_all_inserted_overlaps() {
         let mut g: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(5.0);
@@ -1098,7 +1298,49 @@ mod tests {
         assert_eq!(hits, HashSet::from([0, 2]));
     }
 
-    // Minimal higher dimension test
+    #[test]
+    fn five_d_handcrafted_pair() {
+        let boxes = vec![
+            tb(
+                0,
+                [
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                ],
+            ),
+            tb(
+                1,
+                [
+                    (5.0, 15.0),
+                    (5.0, 15.0),
+                    (5.0, 15.0),
+                    (5.0, 15.0),
+                    (5.0, 15.0),
+                ],
+            ),
+            tb(
+                2,
+                [
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                    (0.0, 10.0),
+                    (50.0, 60.0),
+                ],
+            ),
+        ];
+        let expected = HashSet::from([(0, 1)]);
+
+        assert_eq!(
+            insert_all_dense::<5>(&boxes, [0.0; 5], [30.0; 5], 5.0),
+            expected
+        );
+        assert_eq!(insert_all_sparse::<5>(&boxes, 5.0), expected);
+    }
+
     #[test]
     fn five_d_random_vs_brute_force() {
         let boxes: Vec<TaggedNDimBounds> = (0..20u32)
@@ -1122,12 +1364,12 @@ mod tests {
                 )
             })
             .collect();
- 
-        let truth = brute_force(&boxes);
+
+        let expected = brute_force(&boxes);
         let dense = insert_all_dense::<5>(&boxes, [0.0; 5], [40.0; 5], 5.0);
         let sparse = insert_all_sparse::<5>(&boxes, 5.0);
- 
+
         assert_eq!(dense, sparse, "5D dense and sparse disagree");
-        assert_eq!(dense, truth, "5D dense vs brute force");
+        assert_eq!(dense, expected, "5D dense vs brute force");
     }
 }
