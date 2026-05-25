@@ -36,18 +36,24 @@ pub trait CollisionTest<T: Hitbox> {
 
 pub struct CollisionDetection<C: CollisionTest<H>, H: Hitbox> {
     collision_test: C,
-    _pd: PhantomData<H>
+    _pd: PhantomData<H>,
 }
 impl<C: CollisionTest<H>, H: Hitbox + Clone> CollisionDetection<C, H> {
     fn insert(&mut self, hitbox: H) -> Vec<H> {
         let possible_collisison = self.collision_test.insert(hitbox.clone());
-        let collisions: Vec<_> = possible_collisison.into_iter().filter(|hb| sat(&hitbox, hb)).collect();
+        let collisions: Vec<_> = possible_collisison
+            .into_iter()
+            .filter(|hb| sat(&hitbox, hb))
+            .collect();
         return collisions;
     }
 
     fn hits(&self, hitbox: &H) -> Vec<H> {
         let possible_collisison = self.collision_test.hit_candidates(hitbox.clone());
-        let collisions: Vec<_> = possible_collisison.into_iter().filter(|hb| sat(hitbox, hb)).collect();
+        let collisions: Vec<_> = possible_collisison
+            .into_iter()
+            .filter(|hb| sat(hitbox, hb))
+            .collect();
         return collisions;
     }
 }
@@ -305,6 +311,9 @@ impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
                     }
                     if !sorted {
                         self.hitboxes.push(hitbox.clone());
+                        sub_trees.iter().for_each(|tree| {
+                            possible_collisions.append(&mut tree.hitboxes.to_vec());
+                        });
                     }
                     self.children = Some(sub_trees);
                     return possible_collisions;
