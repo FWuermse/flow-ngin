@@ -22,6 +22,7 @@ pub enum Strategy {
     BruteForce,
 }
 
+/// Wraps every collision strategy variant so callers can switch at runtime.
 pub enum CollisionBackend {
     Quadtree(SpatialTree<TaggedNDimBounds>),
     Octree(SpatialTree<TaggedNDimBounds>),

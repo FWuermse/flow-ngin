@@ -85,7 +85,12 @@ impl GraphicsFlow<State, Event> for SceneFlow {
             Rad::from(Deg(-90.0_f32)),
             Rad::from(Deg(-25.0_f32)),
         );
-        ctx.clear_colour = wgpu::Color { r: 0.835, g: 0.769, b: 0.631, a: 1.0 };
+        ctx.clear_colour = wgpu::Color {
+            r: 0.42,
+            g: 0.38,
+            b: 0.31,
+            a: 1.0,
+        };
         Out::Empty
     }
 
