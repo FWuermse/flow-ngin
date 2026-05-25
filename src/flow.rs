@@ -897,7 +897,18 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             position,
         } = event
         {
+            let dx = position.x - state.ctx.mouse.coords.x;
+            let dy = position.y - state.ctx.mouse.coords.y;
+            state.ctx.mouse.prev_coords = state.ctx.mouse.coords;
             state.ctx.mouse.coords = position;
+            if let MouseButtonState::Right = state.ctx.mouse.pressed {
+                let speed_factor = 5.0;
+                state
+                    .ctx
+                    .camera
+                    .controller
+                    .handle_mouse(dx * speed_factor, dy * speed_factor);
+            }
         };
 
         // Update config before dispatching so components see current dimensions.

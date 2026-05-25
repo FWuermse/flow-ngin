@@ -13,7 +13,7 @@ fn should_have_correct_tangents_on_arms() {
     };
     use wgpu::Color;
     golden_image_test!(async move |ctx: InitContext| {
-        let model = load_model_gltf(1, "woodcutter_updated.gltf", &ctx.device, &ctx.queue).await.unwrap();
+        let model = load_model_gltf(1, "woodcutter.gltf", &ctx.device, &ctx.queue).await.unwrap();
         TestRender::new(
             model,
             &|ctx: &mut Context| {
