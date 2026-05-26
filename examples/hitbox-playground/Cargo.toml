@@ -5,10 +5,8 @@ edition = "2024"
 
 [dependencies]
 flow-ngin = { path = "../../", features = ["ui"] }
-tokio = { version = "1", features = ["full"] }
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = "29"
-cgmath = "0.18"
 winit = "0.30"
 
 [[bin]]

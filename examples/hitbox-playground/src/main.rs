@@ -1,87 +1,119 @@
-//! Interactive demo of flow-ngin's spatial collision data structures.
-//!
-//! Controls:
-//!   Mouse move: drag the active cube along the XZ plane
-//!   Scroll wheel: move the active cube up / down (Y axis)
-//! Left click: place the current cube and start a new one
-//!   WASD / Arrow keys: pan the camera (built-in)
-//!
-//! GUI buttons select the collision strategy. Yellow overlays are broad-phase
-//! candidates; red overlays will be SAT-confirmed collisions once SAT is implemented
-
-mod collision_manager;
-mod gui;
-mod hitbox_overlay;
-mod partition_viz;
-mod scene;
+mod collision_backend;
+mod gui_flow;
+mod overlay_flow;
+mod partition_viz_flow;
+mod scene_flow;
 
 use std::collections::HashSet;
 
-use cgmath::Vector3;
-use collision_manager::{CollisionBackend, Strategy};
-use flow_ngin::flow::{FlowConstructor, GraphicsFlow, run};
-use flow_ngin::pick::PickId;
+use flow_ngin::{
+    Vector3,
+    flow::{FlowConstructor, GraphicsFlow},
+    pick::PickId,
+};
 
-pub struct PlacedObject {
-    pub position: Vector3<f32>,
-    pub id: PickId,
-}
+use gui_flow::GuiFlow;
+use overlay_flow::OverlayFlow;
+use partition_viz_flow::PartitionVizFlow;
+use scene_flow::SceneFlow;
 
+// ── State shared across all flows ──────────────────────────────────────────
+
+/// Currently selected detection dimensionality (1, 2, or 3).
 pub struct State {
+    pub detection_dims: u8,
+    pub object_shape: ObjectShape,
     pub strategy: Strategy,
-    pub drag_position: Vector3<f32>,
-    pub placed_objects: Vec<PlacedObject>,
+    /// Cursor position in world space (x, y, z).
+    pub drag_pos: Vector3<f32>,
+    pub placed: Vec<PlacedObject>,
     pub next_id: u32,
-    pub broad_phase_candidates: HashSet<u32>,
-    pub geometric_collisions: HashSet<u32>,
-    pub collision_backend: Option<CollisionBackend>,
+    /// IDs returned by broad-phase `hit_candidates` for the drag object.
+    pub broad_ids: HashSet<u32>,
+    /// IDs confirmed geometrically overlapping the drag object.
+    pub overlap_ids: HashSet<u32>,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
-            strategy: Strategy::Octree,
-            drag_position: Vector3::new(0.0, std::f32::consts::FRAC_1_SQRT_2, 0.0),
-            placed_objects: Vec::new(),
+            detection_dims: 2,
+            object_shape: ObjectShape::Cube3D,
+            strategy: Strategy::SparseGrid,
+            drag_pos: Vector3::new(0.0, 0.0, 0.0),
+            placed: Vec::new(),
             next_id: 1,
-            broad_phase_candidates: HashSet::new(),
-            geometric_collisions: HashSet::new(),
-            collision_backend: None,
+            broad_ids: HashSet::new(),
+            overlap_ids: HashSet::new(),
         }
     }
 }
 
-#[derive(Clone, Copy)]
+// ── Object shapes ───────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ObjectShape {
+    Plane2D,
+    Cube3D,
+}
+
+// ── Spatial-partition strategies ────────────────────────────────────────────
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Strategy {
+    Grid,
+    SparseGrid,
+    BruteForce,
+    SpatialTree,
+}
+
+// ── Placed object ────────────────────────────────────────────────────────────
+
+#[derive(Clone)]
+pub struct PlacedObject {
+    pub id: PickId,
+    pub shape: ObjectShape,
+    pub position: Vector3<f32>,
+}
+
+// ── Events exchanged between flows ──────────────────────────────────────────
+
+#[derive(Clone)]
 pub enum Event {
+    /// Sent when the detection-space dimensionality slider changes; clears all placed objects.
+    DetectionDimsChanged(u8),
+    /// Sent when the object-shape slider changes.
+    ObjectShapeChanged(ObjectShape),
+    /// Sent when a strategy button is clicked.
     StrategyChanged(Strategy),
 }
+
+// ── Entry point ──────────────────────────────────────────────────────────────
 
 fn main() {
     let scene: FlowConstructor<State, Event> = Box::new(|ctx| {
         Box::pin(async move {
-            Box::new(scene::SceneFlow::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
+            Box::new(SceneFlow::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
         })
     });
 
     let overlay: FlowConstructor<State, Event> = Box::new(|ctx| {
         Box::pin(async move {
-            Box::new(hitbox_overlay::HitboxOverlayFlow::new(ctx).await)
-                as Box<dyn GraphicsFlow<_, _>>
+            Box::new(OverlayFlow::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
         })
     });
 
-    let partition: FlowConstructor<State, Event> = Box::new(|ctx| {
+    let partition_viz: FlowConstructor<State, Event> = Box::new(|ctx| {
         Box::pin(async move {
-            Box::new(partition_viz::PartitionVizFlow::new(ctx))
-                as Box<dyn GraphicsFlow<_, _>>
+            Box::new(PartitionVizFlow::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
         })
     });
 
     let gui: FlowConstructor<State, Event> = Box::new(|ctx| {
         Box::pin(async move {
-            Box::new(gui::GuiFlow::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
+            Box::new(GuiFlow::new(ctx).await) as Box<dyn GraphicsFlow<_, _>>
         })
     });
 
-    let _ = run(vec![scene, overlay, partition, gui]);
+    let _ = flow_ngin::flow::run(vec![scene, overlay, partition_viz, gui]);
 }

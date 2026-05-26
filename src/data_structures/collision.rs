@@ -416,7 +416,7 @@ impl<T: Hitbox + Clone, const N: usize> HitGridND<T, N> {
         for d in 0..N {
             let (lower_bound, upper_bound) = hitbox.interval(d);
             let start = ((lower_bound - self.origin[d]) / h).floor() as i32;
-            let end = ((upper_bound - self.origin[d]) / h).ceil() as i32;
+            let end = ((upper_bound - self.origin[d]) / h).floor() as i32;
             let start = start.max(0);
             let end = end.min(self.dims[d] as i32 - 1);
             if start > end {
@@ -556,7 +556,7 @@ impl<T: Hitbox + Clone, const N: usize> SparseHitGridND<T, N> {
             let (lower_bound, upper_bound) = hitbox.interval(d);
             ranges[d] = (
                 (lower_bound / h).floor() as i32,
-                (upper_bound / h).ceil() as i32,
+                (upper_bound / h).floor() as i32,
             );
         }
         ranges
