@@ -8,6 +8,7 @@ flow-ngin = { path = "../../", features = ["ui"] }
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = "29"
 winit = "0.30"
+rand = "0.8"
 
 [[bin]]
 name = "hitbox-playground"

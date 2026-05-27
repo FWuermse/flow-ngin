@@ -4,9 +4,10 @@ use flow_ngin::{
     WindowEvent,
     context::{Context, InitContext},
     flow::{GraphicsFlow, Out},
+    pick::PickId,
     render::Render,
     ui::{
-        Button, Grid, HAlign, Layout, Slider, VAlign, VStack, Value,
+        Button, Container, Grid, HAlign, Layout, Slider, VAlign, VStack, Value,
         image::{Atlas, Icon},
         text_label::TextLabel,
     },
@@ -17,13 +18,12 @@ use crate::{Event, ObjectShape, State, Strategy};
 pub struct GuiFlow {
     #[allow(dead_code)]
     atlas: Arc<Atlas>,
-    panel: Option<VStack<State, Event>>,
-    // Sliders stored outside so we can read their values
+    panel: Option<Container<State, Event>>,
     dim_value: Value<f32>,
     shape_value: Value<f32>,
-    // FPS counter — held separately so we can call set_text each frame
     fps_label: Option<TextLabel>,
     fps_smoothed: f32,
+    fps_timer: f32,
 }
 
 impl GuiFlow {
@@ -32,21 +32,21 @@ impl GuiFlow {
         Self {
             atlas,
             panel: None,
-            dim_value: Value::new(0.5), // middle = 2D
-            shape_value: Value::new(0.0), // 0.0 = Cube3D
+            dim_value: Value::new(0.5),
+            shape_value: Value::new(0.0),
             fps_label: None,
             fps_smoothed: 60.0,
+            fps_timer: 0.0,
         }
     }
 }
 
 impl GraphicsFlow<State, Event> for GuiFlow {
     fn on_init(&mut self, ctx: &mut Context, state: &mut State) -> Out<State, Event> {
-        // Button dimensions
-        let btn_h = 44u32;
-        let panel_w = 340u32;
+        let btn_h = 52u32;
+        let panel_w = 440u32;
+        let panel_h = 32u32 + 40 + 32 + 40 + 32 + btn_h + 28 + 28 + btn_h;
 
-        // ── Strategy buttons ──────────────────────────────────────────────────
         let strategy_buttons = Grid::<State, Event>::new(4, 1)
             .width(panel_w)
             .height(btn_h)
@@ -56,7 +56,7 @@ impl GraphicsFlow<State, Event> for GuiFlow {
                     .fill(Icon::from_color(ctx, [50, 120, 50, 220]))
                     .hover_fill(Icon::from_color(ctx, [70, 150, 70, 220]))
                     .click_fill(Icon::from_color(ctx, [30, 100, 30, 220]))
-                    .with_text(TextLabel::new("Grid").font_size(18.0).color([255, 255, 255]))
+                    .with_text(TextLabel::new("Grid").font_size(22.0).color([255, 255, 255]))
                     .on_click(|_, _| Event::StrategyChanged(Strategy::Grid)),
             )
             .with_child(
@@ -65,7 +65,7 @@ impl GraphicsFlow<State, Event> for GuiFlow {
                     .fill(Icon::from_color(ctx, [50, 80, 160, 220]))
                     .hover_fill(Icon::from_color(ctx, [70, 100, 190, 220]))
                     .click_fill(Icon::from_color(ctx, [30, 60, 140, 220]))
-                    .with_text(TextLabel::new("Sparse").font_size(18.0).color([255, 255, 255]))
+                    .with_text(TextLabel::new("Sparse").font_size(22.0).color([255, 255, 255]))
                     .on_click(|_, _| Event::StrategyChanged(Strategy::SparseGrid)),
             )
             .with_child(
@@ -74,7 +74,7 @@ impl GraphicsFlow<State, Event> for GuiFlow {
                     .fill(Icon::from_color(ctx, [140, 60, 60, 220]))
                     .hover_fill(Icon::from_color(ctx, [170, 80, 80, 220]))
                     .click_fill(Icon::from_color(ctx, [120, 40, 40, 220]))
-                    .with_text(TextLabel::new("Brute").font_size(18.0).color([255, 255, 255]))
+                    .with_text(TextLabel::new("Brute").font_size(22.0).color([255, 255, 255]))
                     .on_click(|_, _| Event::StrategyChanged(Strategy::BruteForce)),
             )
             .with_child(
@@ -83,14 +83,13 @@ impl GraphicsFlow<State, Event> for GuiFlow {
                     .fill(Icon::from_color(ctx, [120, 60, 160, 220]))
                     .hover_fill(Icon::from_color(ctx, [150, 80, 190, 220]))
                     .click_fill(Icon::from_color(ctx, [100, 40, 140, 220]))
-                    .with_text(TextLabel::new("Tree").font_size(18.0).color([255, 255, 255]))
+                    .with_text(TextLabel::new("Tree").font_size(22.0).color([255, 255, 255]))
                     .on_click(|_, _| Event::StrategyChanged(Strategy::SpatialTree)),
             );
 
-        // ── Detection dims slider ─────────────────────────────────────────────
         let dim_slider = Slider::<State, Event>::new()
             .width(panel_w)
-            .height(32)
+            .height(40)
             .halign(HAlign::Left)
             .track(Icon::from_color(ctx, [80, 80, 80, 200]))
             .handle(Icon::from_color(ctx, [180, 220, 255, 255]))
@@ -102,10 +101,9 @@ impl GraphicsFlow<State, Event> for GuiFlow {
                 Out::FutEvent(vec![Box::new(async move { Event::DetectionDimsChanged(dims) })])
             });
 
-        // ── Object shape slider ───────────────────────────────────────────────
         let shape_slider = Slider::<State, Event>::new()
             .width(panel_w)
-            .height(32)
+            .height(40)
             .halign(HAlign::Left)
             .track(Icon::from_color(ctx, [80, 80, 80, 200]))
             .handle(Icon::from_color(ctx, [255, 220, 100, 255]))
@@ -117,56 +115,74 @@ impl GraphicsFlow<State, Event> for GuiFlow {
                 Out::FutEvent(vec![Box::new(async move { Event::ObjectShapeChanged(shape) })])
             });
 
-        // ── Assemble panel VStack ─────────────────────────────────────────────
-        let mut panel = VStack::<State, Event>::new()
+        let panel = VStack::<State, Event>::new()
             .width(panel_w)
             .halign(HAlign::Left)
             .valign(VAlign::Bottom)
             .with_child(
-                24,
+                32,
                 TextLabel::new("Detection Space")
-                    .font_size(16.0)
+                    .font_size(22.0)
                     .color([200, 200, 200]),
             )
-            .with_child(32, dim_slider)
+            .with_child(40, dim_slider)
             .with_child(
-                24,
+                32,
                 TextLabel::new("Object Shape")
-                    .font_size(16.0)
+                    .font_size(22.0)
                     .color([200, 200, 200]),
             )
-            .with_child(32, shape_slider)
+            .with_child(40, shape_slider)
             .with_child(
-                22,
+                32,
                 TextLabel::new("Strategy")
-                    .font_size(16.0)
+                    .font_size(22.0)
                     .color([200, 200, 200]),
             )
             .with_child(btn_h, strategy_buttons)
             .with_child(
-                22,
+                28,
                 TextLabel::new("Move: mouse  Y: scroll  Place: LClick")
-                    .font_size(14.0)
+                    .font_size(18.0)
                     .color([150, 150, 150]),
             )
             .with_child(
-                20,
-                TextLabel::new("White=idle  Yellow=broad  Red=overlap")
-                    .font_size(14.0)
-                    .color([150, 150, 150]),
+                28,
+                Grid::<State, Event>::new(3, 1)
+                    .width(panel_w)
+                    .height(28)
+                    .with_child(0, 0, TextLabel::new("White = idle").font_size(18.0).color([255, 255, 255]))
+                    .with_child(1, 0, TextLabel::new("Yellow = broad").font_size(18.0).color([255, 220, 50]))
+                    .with_child(2, 0, TextLabel::new("Red = overlap").font_size(18.0).color([255, 80, 80])),
+            )
+            .with_child(
+                btn_h,
+                Button::<State, Event>::new()
+                    .fill(Icon::from_color(ctx, [180, 100, 20, 220]))
+                    .hover_fill(Icon::from_color(ctx, [210, 130, 40, 220]))
+                    .click_fill(Icon::from_color(ctx, [150, 80, 10, 220]))
+                    .with_text(TextLabel::new("Scatter 200").font_size(22.0).color([255, 255, 255]))
+                    .on_click(|_, _| Event::PlaceRandom(200)),
             );
 
-        panel.on_init(ctx, state);
-        self.panel = Some(panel);
+        let mut container = Container::<State, Event>::new()
+            .width(panel_w)
+            .height(panel_h)
+            .halign(HAlign::Left)
+            .valign(VAlign::Bottom)
+            .with_background_color([20, 20, 25, 200])
+            .clickable(PickId(u32::MAX - 2))
+            .with_child(panel);
+        container.on_init(ctx, state);
+        self.panel = Some(container);
 
-        // ── FPS label — top-right corner ──────────────────────────────────────
         let mut fps = TextLabel::new("FPS: --")
-            .font_size(16.0)
+            .font_size(22.0)
             .color([180, 220, 140])
             .halign(HAlign::Right)
             .valign(VAlign::Top)
-            .width(120)
-            .height(24);
+            .width(160)
+            .height(32);
         fps.init(ctx);
         Layout::resolve(&mut fps, 0, 0, ctx.config.width, ctx.config.height, &ctx.queue);
         self.fps_label = Some(fps);
@@ -180,12 +196,16 @@ impl GraphicsFlow<State, Event> for GuiFlow {
         state: &mut State,
         dt: std::time::Duration,
     ) -> Out<State, Event> {
-        // Exponentially smooth FPS to avoid flicker
         let dt_secs = dt.as_secs_f32().max(1e-6);
         let raw_fps = 1.0 / dt_secs;
         self.fps_smoothed = self.fps_smoothed * 0.9 + raw_fps * 0.1;
-        if let Some(label) = &mut self.fps_label {
-            label.set_text(&format!("FPS: {:.0}", self.fps_smoothed));
+        // Throttle label update to ~2× per second so the digits are readable
+        self.fps_timer += dt_secs;
+        if self.fps_timer >= 0.5 {
+            self.fps_timer = 0.0;
+            if let Some(label) = &mut self.fps_label {
+                label.set_text(&format!("FPS: {:.0}", self.fps_smoothed));
+            }
         }
 
         if let Some(panel) = &mut self.panel {
@@ -228,6 +248,7 @@ impl GraphicsFlow<State, Event> for GuiFlow {
             Event::ObjectShapeChanged(shape) => {
                 state.object_shape = *shape;
             }
+            Event::PlaceRandom(_) => {} // handled by SceneFlow
         }
         Some(event)
     }

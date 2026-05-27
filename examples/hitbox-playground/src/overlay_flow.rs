@@ -9,12 +9,10 @@ use flow_ngin::{
     render::Render,
 };
 
-use crate::{Event, ObjectShape, State};
+use crate::{Event, ObjectShape, State, Strategy};
 use crate::collision_backend::{CollisionBackend, PLANE_Y, make_hitbox};
 
-/// Scale factor for overlays so they enclose the visible geometry.
 const OVERLAY_SCALE: f32 = 1.07;
-/// Thin scale for 2D plane overlays (very flat slab).
 const PLANE_OVERLAY_Y_SCALE: f32 = 0.05;
 
 pub struct OverlayFlow {
@@ -22,13 +20,18 @@ pub struct OverlayFlow {
     cube_white: BuildingBlocks,
     cube_yellow: BuildingBlocks,
     cube_red: BuildingBlocks,
-    // 2D plane overlays (3 colors) — rendered as flat slabs
+    // 2D plane overlays (3 colors)
     plane_white: BuildingBlocks,
     plane_yellow: BuildingBlocks,
     plane_red: BuildingBlocks,
     // Drag-cursor overlay (white)
     drag_overlay_cube: BuildingBlocks,
     drag_overlay_plane: BuildingBlocks,
+    // Persistent collision backend
+    backend: CollisionBackend,
+    cached_strategy: Strategy,
+    cached_dims: u8,
+    cached_placed_count: usize,
 }
 
 impl OverlayFlow {
@@ -47,6 +50,8 @@ impl OverlayFlow {
         let drag_overlay_cube  = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 1, "overlay-white.obj").await;
         let drag_overlay_plane = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 1, "overlay-white.obj").await;
 
+        let backend = CollisionBackend::new(Strategy::SparseGrid, 2);
+
         Self {
             cube_white,
             cube_yellow,
@@ -56,13 +61,17 @@ impl OverlayFlow {
             plane_red,
             drag_overlay_cube,
             drag_overlay_plane,
+            backend,
+            cached_strategy: Strategy::SparseGrid,
+            cached_dims: 2,
+            cached_placed_count: 0,
         }
     }
 }
 
 fn cube_overlay(pos: Vector3<f32>) -> Instance {
     let mut inst = Instance::new();
-    inst.position = pos;
+    inst.position = Vector3::new(pos.x, pos.y - 0.5 * OVERLAY_SCALE, pos.z);
     inst.scale = Vector3::new(OVERLAY_SCALE, OVERLAY_SCALE, OVERLAY_SCALE);
     inst
 }
@@ -75,34 +84,46 @@ fn plane_overlay(pos: Vector3<f32>) -> Instance {
 }
 
 impl GraphicsFlow<State, Event> for OverlayFlow {
+    fn on_init(&mut self, _ctx: &mut flow_ngin::context::Context, state: &mut State) -> Out<State, Event> {
+        self.backend = CollisionBackend::rebuild(state.strategy, state.detection_dims, &state.placed);
+        self.cached_strategy = state.strategy;
+        self.cached_dims = state.detection_dims;
+        self.cached_placed_count = state.placed.len();
+        Out::Empty
+    }
+
     fn on_update(
         &mut self,
         ctx: &Context,
         state: &mut State,
         _dt: std::time::Duration,
     ) -> Out<State, Event> {
-        // ── Build collision backend and run queries ───────────────────────────
-        let mut backend = CollisionBackend::new(state.strategy, state.detection_dims);
+        let needs_full_rebuild = state.strategy != self.cached_strategy
+            || state.detection_dims != self.cached_dims
+            || state.placed.len() < self.cached_placed_count; // objects were cleared
 
-        for placed in &state.placed {
-            let hb = make_hitbox(placed.position, placed.shape, placed.id);
-            backend.insert(hb);
+        if needs_full_rebuild {
+            self.backend = CollisionBackend::rebuild(state.strategy, state.detection_dims, &state.placed);
+            self.cached_strategy = state.strategy;
+            self.cached_dims = state.detection_dims;
+            self.cached_placed_count = state.placed.len();
+        } else if state.placed.len() > self.cached_placed_count {
+            // Incrementally insert only the newly added tail objects
+            for placed in &state.placed[self.cached_placed_count..] {
+                self.backend.insert(make_hitbox(placed.position, placed.shape, placed.id));
+            }
+            self.cached_placed_count = state.placed.len();
         }
 
-        // Drag hitbox
         let drag_id = PickId(0);
         let drag_hb = make_hitbox(state.drag_pos, state.object_shape, drag_id);
 
-        // Broad-phase candidates
-        let candidates = backend.hit_candidates(drag_hb.clone());
+        let candidates = self.backend.hit_candidates(drag_hb.clone());
         let broad_ids: HashSet<u32> = candidates.iter().map(|c| c.tag().0).collect();
 
-        // Narrow-phase (geometric overlap)
         let overlap_ids: HashSet<u32> = candidates
             .iter()
             .filter(|c| {
-                // Use overlaps() from TaggedNDimBounds
-                // drag_hb checks against the candidate
                 drag_hb.overlaps(c)
             })
             .map(|c| c.tag().0)
@@ -111,7 +132,6 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
         state.broad_ids = broad_ids;
         state.overlap_ids = overlap_ids.clone();
 
-        // ── Rebuild overlay instance lists ────────────────────────────────────
         let mut cw = Vec::new();
         let mut cy = Vec::new();
         let mut cr = Vec::new();
@@ -160,13 +180,12 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
         self.plane_yellow.write_to_buffer(&ctx.queue, &ctx.device);
         self.plane_red.write_to_buffer(&ctx.queue, &ctx.device);
 
-        // ── Drag overlay ─────────────────────────────────────────────────────
         let dp = state.drag_pos;
         match state.object_shape {
             ObjectShape::Cube3D => {
                 self.drag_overlay_cube.instances_mut_size_unchanged()[0] = {
                     let mut inst = Instance::new();
-                    inst.position = dp;
+                    inst.position = Vector3::new(dp.x, dp.y - 0.5 * OVERLAY_SCALE, dp.z);
                     inst.scale = Vector3::new(OVERLAY_SCALE, OVERLAY_SCALE, OVERLAY_SCALE);
                     inst
                 };
@@ -217,7 +236,6 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
         push_transparent!(self.plane_white);
         push_transparent!(self.plane_yellow);
         push_transparent!(self.plane_red);
-        // Drag overlay always rendered
         renders.push(Render::Transparent(self.drag_overlay_cube.to_instanced()));
         renders.push(Render::Transparent(self.drag_overlay_plane.to_instanced()));
 

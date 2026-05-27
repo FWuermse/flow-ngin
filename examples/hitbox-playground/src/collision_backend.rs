@@ -7,60 +7,37 @@ use flow_ngin::{
     pick::PickId,
 };
 
-use crate::{ObjectShape, Strategy};
-
-/// Half-size of each hitbox (unit-sized objects).
+use crate::{ObjectShape, PlacedObject, Strategy};
 pub const HALF: f32 = 0.5;
-
-/// World half-extent for the dense grid (covers [-WORLD_HALF, WORLD_HALF] per axis).
-pub const WORLD_HALF: f32 = 20.0;
-/// Cell size for both grid variants.
+pub const WORLD_HALF: f32 = 10.0;
 pub const CELL_SIZE: f32 = 2.0;
-
-/// Y position at which 2D planes are rendered and at which the 2D grid is drawn.
 pub const PLANE_Y: f32 = 0.0;
 
-// ── Hitbox factory ────────────────────────────────────────────────────────────
-//
-// Dimension convention used everywhere in this example:
-//   dim 0 = X  (horizontal)
-//   dim 1 = Z  (horizontal depth)
-//   dim 2 = Y  (vertical)
-//
-// This ensures cross-dimensional semantics are intuitive:
-//   A 2D grid (N=2) checks [X, Z] and correctly captures ground-plane collisions.
-//   A 3D grid (N=3) additionally checks [Y].
-//   A 2D hitbox [X,Z] can be tested in a 3D space (it just ignores Y).
-//   A 3D hitbox [X,Z,Y] in a 2D space → treated as 2D (cross-dim rule: Y ignored).
+pub fn make_hitbox_for(p: &PlacedObject) -> TaggedNDimBounds {
+    make_hitbox(p.position, p.shape, p.id)
+}
 
 pub fn make_hitbox(pos: Vector3<f32>, shape: ObjectShape, id: PickId) -> TaggedNDimBounds {
     let h = HALF;
     match shape {
         ObjectShape::Plane2D => TaggedNDimBounds::new(
             vec![
-                Bounds::new(pos.x - h, pos.x + h), // dim 0 = X
-                Bounds::new(pos.z - h, pos.z + h), // dim 1 = Z
+                Bounds::new(pos.x - h, pos.x + h),
+                Bounds::new(pos.z - h, pos.z + h),
             ],
             id,
         ),
         ObjectShape::Cube3D => TaggedNDimBounds::new(
             vec![
-                Bounds::new(pos.x - h, pos.x + h), // dim 0 = X
-                Bounds::new(pos.z - h, pos.z + h), // dim 1 = Z
-                Bounds::new(pos.y - h, pos.y + h), // dim 2 = Y
+                Bounds::new(pos.x - h, pos.x + h),
+                Bounds::new(pos.z - h, pos.z + h),
+                Bounds::new(pos.y - h, pos.y + h),
             ],
             id,
         ),
     }
 }
 
-// ── CollisionBackend ──────────────────────────────────────────────────────────
-
-/// A type-erased wrapper over all supported collision backends.
-///
-/// Grid and SparseGrid variants require const `N` at compile time, so they are
-/// monomorphised here as 1D/2D/3D specialisations. SpatialTree and BruteForce
-/// work at any runtime dimension.
 pub enum CollisionBackend {
     Grid1D(HitGridND<TaggedNDimBounds, 1>),
     Grid2D(HitGridND<TaggedNDimBounds, 2>),
@@ -92,7 +69,6 @@ impl CollisionBackend {
             (Strategy::SparseGrid, _) => Self::SparseGrid3D(SparseHitGridND::new(cl)),
 
             (Strategy::SpatialTree, dims) => {
-                // Build root bounds matching the chosen dimensionality.
                 let bounds = match dims {
                     1 => TaggedNDimBounds::new(
                         vec![Bounds::new(-wh, wh)],
@@ -116,6 +92,14 @@ impl CollisionBackend {
 
             (Strategy::BruteForce, _) => Self::BruteForce(BruteForce::new()),
         }
+    }
+
+    pub fn rebuild(strategy: Strategy, detection_dims: u8, placed: &[PlacedObject]) -> Self {
+        let mut backend = Self::new(strategy, detection_dims);
+        for p in placed {
+            backend.insert(make_hitbox(p.position, p.shape, p.id));
+        }
+        backend
     }
 
     pub fn insert(&mut self, hb: TaggedNDimBounds) -> Vec<TaggedNDimBounds> {
@@ -161,8 +145,6 @@ impl CollisionBackend {
     }
 }
 
-// ── Line generators ───────────────────────────────────────────────────────────
-
 fn grid_lines_1d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
     let mut lines = Vec::new();
     let y = PLANE_Y;
@@ -171,7 +153,6 @@ fn grid_lines_1d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
         Vector3::new(-wh, y, 0.0),
         Vector3::new(wh, y, 0.0),
     ]);
-    // Tick marks at each cell boundary
     let ticks = ((wh * 2.0) / cl).ceil() as i32 + 1;
     for i in 0..=ticks {
         let x = -wh + i as f32 * cl;
@@ -187,7 +168,6 @@ fn grid_lines_2d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
     let mut lines = Vec::new();
     let y = PLANE_Y;
     let cells = ((wh * 2.0) / cl).ceil() as i32 + 1;
-    // Lines parallel to X axis (varying Z)
     for i in 0..=cells {
         let z = -wh + i as f32 * cl;
         lines.push([
@@ -195,7 +175,6 @@ fn grid_lines_2d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
             Vector3::new(wh, y, z),
         ]);
     }
-    // Lines parallel to Z axis (varying X)
     for i in 0..=cells {
         let x = -wh + i as f32 * cl;
         lines.push([
@@ -209,10 +188,8 @@ fn grid_lines_2d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
 fn grid_lines_3d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
     let mut lines = Vec::new();
     let cells = ((wh * 2.0) / cl).ceil() as i32 + 1;
-    // For each Y plane: draw XZ grid
     for iy in 0..=cells {
         let y = -wh + iy as f32 * cl;
-        // Lines parallel to X
         for iz in 0..=cells {
             let z = -wh + iz as f32 * cl;
             lines.push([
@@ -220,7 +197,6 @@ fn grid_lines_3d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
                 Vector3::new(wh, y, z),
             ]);
         }
-        // Lines parallel to Z
         for ix in 0..=cells {
             let x = -wh + ix as f32 * cl;
             lines.push([
@@ -229,7 +205,6 @@ fn grid_lines_3d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
             ]);
         }
     }
-    // Vertical lines (parallel to Y) at each (X,Z) corner
     for ix in 0..=cells {
         for iz in 0..=cells {
             let x = -wh + ix as f32 * cl;

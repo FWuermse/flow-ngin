@@ -7,8 +7,8 @@ use flow_ngin::{
 };
 use wgpu::util::DeviceExt;
 
-use crate::{Event, State};
-use crate::collision_backend::{CollisionBackend, make_hitbox};
+use crate::{Event, State, Strategy};
+use crate::collision_backend::{CollisionBackend, make_hitbox_for};
 
 const LINE_SHADER: &str = r#"
 struct Camera {
@@ -63,19 +63,21 @@ pub struct PartitionVizFlow {
     pipeline: Option<wgpu::RenderPipeline>,
     vertex_buffer: Option<wgpu::Buffer>,
     num_vertices: u32,
-    /// Cached key to detect when lines need rebuilding.
-    cached_strategy: crate::Strategy,
+    backend: CollisionBackend,
+    cached_strategy: Strategy,
     cached_dims: u8,
     cached_placed_count: usize,
 }
 
 impl PartitionVizFlow {
     pub async fn new(_ctx: InitContext) -> Self {
+        let backend = CollisionBackend::new(Strategy::SparseGrid, 2);
         Self {
             pipeline: None,
             vertex_buffer: None,
             num_vertices: 0,
-            cached_strategy: crate::Strategy::SparseGrid,
+            backend,
+            cached_strategy: Strategy::SparseGrid,
             cached_dims: 2,
             cached_placed_count: 0,
         }
@@ -154,14 +156,33 @@ impl PartitionVizFlow {
         })
     }
 
-    fn rebuild_lines(&mut self, state: &State, device: &wgpu::Device) {
-        // Build backend and insert all placed objects so the tree actually subdivides
-        let mut backend = CollisionBackend::new(state.strategy, state.detection_dims);
-        for placed in &state.placed {
-            let hb = make_hitbox(placed.position, placed.shape, placed.id);
-            backend.insert(hb);
+    fn sync_backend(&mut self, state: &State) -> bool {
+        let needs_full_rebuild = state.strategy != self.cached_strategy
+            || state.detection_dims != self.cached_dims
+            || state.placed.len() < self.cached_placed_count; // objects were cleared
+
+        if needs_full_rebuild {
+            self.backend = CollisionBackend::rebuild(state.strategy, state.detection_dims, &state.placed);
+            self.cached_strategy = state.strategy;
+            self.cached_dims = state.detection_dims;
+            self.cached_placed_count = state.placed.len();
+            return true;
         }
-        let lines = backend.partition_lines(state.detection_dims);
+
+        if state.placed.len() > self.cached_placed_count {
+            // Incrementally insert only newly added tail objects
+            for placed in &state.placed[self.cached_placed_count..] {
+                self.backend.insert(make_hitbox_for(placed));
+            }
+            self.cached_placed_count = state.placed.len();
+            return true;
+        }
+
+        false
+    }
+
+    fn update_lines(&mut self, state: &State, device: &wgpu::Device) {
+        let lines = self.backend.partition_lines(state.detection_dims);
 
         let vertices: Vec<LineVertex> = lines
             .iter()
@@ -186,10 +207,6 @@ impl PartitionVizFlow {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         self.vertex_buffer = Some(buf);
-
-        self.cached_strategy = state.strategy;
-        self.cached_dims = state.detection_dims;
-        self.cached_placed_count = state.placed.len();
     }
 }
 
@@ -202,7 +219,9 @@ impl GraphicsFlow<State, Event> for PartitionVizFlow {
             &ctx.camera.bind_group_layout,
             sample_count,
         ));
-        self.rebuild_lines(state, &ctx.device);
+        // Sync backend against real initial State, then generate lines once.
+        self.sync_backend(state);
+        self.update_lines(state, &ctx.device);
         Out::Empty
     }
 
@@ -212,12 +231,8 @@ impl GraphicsFlow<State, Event> for PartitionVizFlow {
         state: &mut State,
         _dt: std::time::Duration,
     ) -> Out<State, Event> {
-        let needs_rebuild = state.strategy != self.cached_strategy
-            || state.detection_dims != self.cached_dims
-            || state.placed.len() != self.cached_placed_count;
-
-        if needs_rebuild {
-            self.rebuild_lines(state, &ctx.device);
+        if self.sync_backend(state) {
+            self.update_lines(state, &ctx.device);
         }
         Out::Empty
     }
