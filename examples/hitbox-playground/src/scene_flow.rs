@@ -19,8 +19,9 @@ pub struct SceneFlow {
     drag_plane: BuildingBlocks,
     placed_cubes: BuildingBlocks,
     placed_planes: BuildingBlocks,
-    /// Whether placed instance buffers need rebuilding this frame.
     dirty: bool,
+    cached_drag_pos: Vector3<f32>,
+    cached_object_shape: ObjectShape,
 }
 
 impl SceneFlow {
@@ -39,6 +40,8 @@ impl SceneFlow {
             placed_cubes,
             placed_planes,
             dirty: false,
+            cached_drag_pos: Vector3::new(f32::NAN, f32::NAN, f32::NAN),
+            cached_object_shape: ObjectShape::Cube3D,
         }
     }
 
@@ -117,32 +120,38 @@ impl GraphicsFlow<State, Event> for SceneFlow {
             state.drag_pos.z = floor_pos.y; // ray_to_floor returns Point2(x, z)
         }
 
-        // Update the drag preview position and only show the active shape
-        let dp = state.drag_pos;
-        match state.object_shape {
-            ObjectShape::Cube3D => {
-                let cube_rot = Quaternion::from_axis_angle(Vector3::unit_x(), Deg(45.0))
-                    * Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0))
-                    * Quaternion::from_axis_angle(Vector3::unit_z(), Deg(45.0));
-                let cube_scale = 0.5_f32;
-                let center_offset = cube_rot.rotate_vector(Vector3::new(0.0, 0.5 * cube_scale, 0.0));
-                let inst = &mut self.drag_cube.instances_mut_size_unchanged()[0];
-                inst.position = dp - center_offset;
-                inst.rotation = cube_rot;
-                inst.scale = Vector3::new(cube_scale, cube_scale, cube_scale);
-                let plane_inst = &mut self.drag_plane.instances_mut_size_unchanged()[0];
-                plane_inst.scale = Vector3::new(0.0, 0.0, 0.0);
+        if state.drag_pos != self.cached_drag_pos
+            || state.object_shape != self.cached_object_shape
+        {
+            self.cached_drag_pos = state.drag_pos;
+            self.cached_object_shape = state.object_shape;
+
+            let dp = state.drag_pos;
+            match state.object_shape {
+                ObjectShape::Cube3D => {
+                    let cube_rot = Quaternion::from_axis_angle(Vector3::unit_x(), Deg(45.0))
+                        * Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0))
+                        * Quaternion::from_axis_angle(Vector3::unit_z(), Deg(45.0));
+                    let cube_scale = 0.5_f32;
+                    let center_offset = cube_rot.rotate_vector(Vector3::new(0.0, 0.5 * cube_scale, 0.0));
+                    let inst = &mut self.drag_cube.instances_mut_size_unchanged()[0];
+                    inst.position = dp - center_offset;
+                    inst.rotation = cube_rot;
+                    inst.scale = Vector3::new(cube_scale, cube_scale, cube_scale);
+                    let plane_inst = &mut self.drag_plane.instances_mut_size_unchanged()[0];
+                    plane_inst.scale = Vector3::new(0.0, 0.0, 0.0);
+                }
+                ObjectShape::Plane2D => {
+                    let inst = &mut self.drag_plane.instances_mut_size_unchanged()[0];
+                    inst.position = Vector3::new(dp.x, PLANE_Y, dp.z);
+                    inst.scale = Vector3::new(1.0, 1.0, 1.0);
+                    let cube_inst = &mut self.drag_cube.instances_mut_size_unchanged()[0];
+                    cube_inst.scale = Vector3::new(0.0, 0.0, 0.0);
+                }
             }
-            ObjectShape::Plane2D => {
-                let inst = &mut self.drag_plane.instances_mut_size_unchanged()[0];
-                inst.position = Vector3::new(dp.x, PLANE_Y, dp.z);
-                inst.scale = Vector3::new(1.0, 1.0, 1.0);
-                let cube_inst = &mut self.drag_cube.instances_mut_size_unchanged()[0];
-                cube_inst.scale = Vector3::new(0.0, 0.0, 0.0);
-            }
+            self.drag_cube.write_to_buffer(&ctx.queue, &ctx.device);
+            self.drag_plane.write_to_buffer(&ctx.queue, &ctx.device);
         }
-        self.drag_cube.write_to_buffer(&ctx.queue, &ctx.device);
-        self.drag_plane.write_to_buffer(&ctx.queue, &ctx.device);
 
         if self.dirty {
             self.rebuild_placed(state, ctx);
@@ -232,7 +241,7 @@ impl GraphicsFlow<State, Event> for SceneFlow {
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         // Drag previews + placed objects
-        let mut renders = Vec::new();
+        let mut renders = Vec::with_capacity(4);
 
         // Using the feature/bug that emitting pickId 0 will always make this
         // get click events when clicked into void. As no cube is rendered at

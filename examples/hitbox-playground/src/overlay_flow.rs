@@ -32,6 +32,8 @@ pub struct OverlayFlow {
     cached_strategy: Strategy,
     cached_dims: u8,
     cached_placed_count: usize,
+    cached_drag_pos: Vector3<f32>,
+    cached_object_shape: ObjectShape,
 }
 
 impl OverlayFlow {
@@ -65,6 +67,8 @@ impl OverlayFlow {
             cached_strategy: Strategy::SparseGrid,
             cached_dims: 2,
             cached_placed_count: 0,
+            cached_drag_pos: Vector3::new(f32::NAN, f32::NAN, f32::NAN),
+            cached_object_shape: ObjectShape::Cube3D,
         }
     }
 }
@@ -100,7 +104,8 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
     ) -> Out<State, Event> {
         let needs_full_rebuild = state.strategy != self.cached_strategy
             || state.detection_dims != self.cached_dims
-            || state.placed.len() < self.cached_placed_count; // objects were cleared
+            || state.placed.len() < self.cached_placed_count;
+        let mut objects_changed = needs_full_rebuild;
 
         if needs_full_rebuild {
             self.backend = CollisionBackend::rebuild(state.strategy, state.detection_dims, &state.placed);
@@ -108,12 +113,22 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
             self.cached_dims = state.detection_dims;
             self.cached_placed_count = state.placed.len();
         } else if state.placed.len() > self.cached_placed_count {
-            // Incrementally insert only the newly added tail objects
             for placed in &state.placed[self.cached_placed_count..] {
                 self.backend.insert(make_hitbox(placed.position, placed.shape, placed.id));
             }
             self.cached_placed_count = state.placed.len();
+            objects_changed = true;
         }
+
+        let drag_moved = state.drag_pos != self.cached_drag_pos
+            || state.object_shape != self.cached_object_shape;
+
+        if !drag_moved && !objects_changed {
+            return Out::Empty;
+        }
+
+        self.cached_drag_pos = state.drag_pos;
+        self.cached_object_shape = state.object_shape;
 
         let drag_id = PickId(0);
         let drag_hb = make_hitbox(state.drag_pos, state.object_shape, drag_id);
@@ -123,26 +138,22 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
 
         let overlap_ids: HashSet<u32> = candidates
             .iter()
-            .filter(|c| {
-                drag_hb.overlaps(c)
-            })
+            .filter(|c| drag_hb.overlaps(c))
             .map(|c| c.tag().0)
             .collect();
 
-        state.broad_ids = broad_ids;
-        state.overlap_ids = overlap_ids.clone();
-
-        let mut cw = Vec::new();
-        let mut cy = Vec::new();
-        let mut cr = Vec::new();
-        let mut pw = Vec::new();
-        let mut py = Vec::new();
-        let mut pr = Vec::new();
+        let n = state.placed.len();
+        let mut cw = Vec::with_capacity(n);
+        let mut cy = Vec::with_capacity(n);
+        let mut cr = Vec::with_capacity(n);
+        let mut pw = Vec::with_capacity(n);
+        let mut py = Vec::with_capacity(n);
+        let mut pr = Vec::with_capacity(n);
 
         for placed in &state.placed {
             let id = placed.id.0;
             let is_overlap = overlap_ids.contains(&id);
-            let is_broad = state.broad_ids.contains(&id);
+            let is_broad = broad_ids.contains(&id);
 
             match placed.shape {
                 ObjectShape::Cube3D => {
@@ -165,6 +176,9 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
                 }
             }
         }
+
+        state.broad_ids = broad_ids;
+        state.overlap_ids = overlap_ids;
 
         *self.cube_white.instances_mut()  = cw;
         *self.cube_yellow.instances_mut() = cy;
@@ -219,7 +233,7 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        let mut renders: Vec<Render<'_, 'pass>> = Vec::new();
+        let mut renders: Vec<Render<'_, 'pass>> = Vec::with_capacity(8);
 
         macro_rules! push_transparent {
             ($bb:expr) => {

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Hitbox Playground</title>
+    <style>
+      body {
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background: #1e1e1e;
+      }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <canvas id="canvas" width="1280" height="800"></canvas>
+    <script type="module">
+      import init, { run_web } from "./pkg/hitbox_playground.js";
+      await init();
+      run_web();
+    </script>
+  </body>
+</html>
