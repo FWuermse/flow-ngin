@@ -94,7 +94,7 @@ pub struct Bounds {
     upper_bound: f32,
 }
 impl Bounds {
-    fn new(lower_bound: f32, upper_bound: f32) -> Self {
+    pub fn new(lower_bound: f32, upper_bound: f32) -> Self {
         Self {
             lower_bound,
             upper_bound,
@@ -136,6 +136,16 @@ impl Hitbox for Bounds {
 pub struct TaggedNDimBounds {
     bounds: Vec<Bounds>,
     tag: PickId,
+}
+
+impl TaggedNDimBounds {
+    pub fn new(bounds: Vec<Bounds>, tag: PickId) -> Self {
+        Self { bounds, tag }
+    }
+
+    pub fn tag(&self) -> PickId {
+        self.tag
+    }
 }
 
 impl Hitbox for TaggedNDimBounds {
@@ -215,6 +225,34 @@ pub struct SpatialTree<T> {
     hitboxes: Vec<T>,
 }
 
+impl<T: Hitbox + Clone> SpatialTree<T> {
+    /// Create a new spatial tree with the given threshold and bounding region.
+    /// The threshold controls how many items accumulate in a leaf before it splits.
+    pub fn new(threshold: usize, bounds: T) -> Self {
+        Self {
+            threshold,
+            bounds,
+            children: None,
+            hitboxes: vec![],
+        }
+    }
+
+    /// Visit every node's bounds in the tree (depth-first), calling `f(bounds, depth)`.
+    /// Useful for visualising the spatial subdivision structure.
+    pub fn visit_bounds(&self, f: &mut impl FnMut(&T, usize)) {
+        self.visit_bounds_inner(f, 0);
+    }
+
+    fn visit_bounds_inner(&self, f: &mut impl FnMut(&T, usize), depth: usize) {
+        f(&self.bounds, depth);
+        if let Some(children) = &self.children {
+            for child in children {
+                child.visit_bounds_inner(f, depth + 1);
+            }
+        }
+    }
+}
+
 pub fn cartesian<T: Clone>(arrs: &[Vec<T>]) -> Vec<Vec<T>> {
     let mut results = vec![vec![]];
     for arr in arrs {
@@ -234,13 +272,12 @@ pub fn cartesian<T: Clone>(arrs: &[Vec<T>]) -> Vec<Vec<T>> {
 impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
         let mut result = vec![];
-        for hb in &self.hitboxes {
-            if hb.overlaps(&hitbox) {
-                result.push(hb.clone());
-            }
-        }
+        // All items at this node are partition-mates — include without geometric filter.
+        result.extend(self.hitboxes.iter().cloned());
         if let Some(children) = &self.children {
             for child in children {
+                // Traverse only subtrees whose bounds overlap — this is spatial navigation,
+                // not a geometric overlap check on the stored items.
                 if child.bounds.overlaps(&hitbox) {
                     result.extend(child.hit_candidates(hitbox.clone()));
                 }
@@ -379,7 +416,7 @@ impl<T: Hitbox + Clone, const N: usize> HitGridND<T, N> {
         for d in 0..N {
             let (lower_bound, upper_bound) = hitbox.interval(d);
             let start = ((lower_bound - self.origin[d]) / h).floor() as i32;
-            let end = ((upper_bound - self.origin[d]) / h).ceil() as i32;
+            let end = ((upper_bound - self.origin[d]) / h).floor() as i32;
             let start = start.max(0);
             let end = end.min(self.dims[d] as i32 - 1);
             if start > end {
@@ -417,11 +454,29 @@ impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
         let Some(ranges) = self.cell_ranges(&hitbox) else {
             return vec![];
         };
+        let h = self.cell_len;
+        let origin = self.origin;
         let mut possible_collisions = vec![];
         for_each_cell(&ranges, |coord| {
             let idx = self.flat_index(coord);
             for other in &self.cells[idx] {
-                if hitbox.overlaps(other) {
+                // Dedup: only report from the lex-smallest cell both items share,
+                // so items spanning multiple cells aren't returned more than once.
+                // This check is on cell co-occupation, not geometric overlap.
+                let mut is_lex = true;
+                for d in 0..N {
+                    let (other_lower, _) = other.interval(d);
+                    let (hitbox_lower, _) = hitbox.interval(d);
+                    let lex = ((other_lower - origin[d]) / h)
+                        .floor()
+                        .max(((hitbox_lower - origin[d]) / h).floor())
+                        as i32;
+                    if lex != coord[d] {
+                        is_lex = false;
+                        break;
+                    }
+                }
+                if is_lex {
                     possible_collisions.push(other.clone());
                 }
             }
@@ -447,20 +502,17 @@ impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
             }
             let cell = &mut self.cells[idx];
 
-            // check existing other hitboxes in currently inspected cell
+            // Return all partition-mates (items in the same cell) without geometric
+            // filtering. Lex-smallest dedup avoids reporting the same pair twice when
+            // two items share multiple cells — it operates on cell co-occupation only.
             for other in cell.iter() {
-                if !hitbox.overlaps(other) {
-                    continue;
-                }
-                // Lex-smallest check is cheaper than hashset to avoid
-                // duplicate matches if objects overlap in multiple cells
                 let mut unique = true;
                 for d in 0..N {
                     let (other_lower_bound, _) = other.interval(d);
-                    let (other_upper_bound, _) = hitbox.interval(d);
+                    let (hitbox_lower_bound, _) = hitbox.interval(d);
                     let lex = ((other_lower_bound - origin[d]) / h)
                         .floor()
-                        .max(((other_upper_bound - origin[d]) / h).floor())
+                        .max(((hitbox_lower_bound - origin[d]) / h).floor())
                         as i32;
                     if lex != coord[d] {
                         unique = false;
@@ -504,7 +556,7 @@ impl<T: Hitbox + Clone, const N: usize> SparseHitGridND<T, N> {
             let (lower_bound, upper_bound) = hitbox.interval(d);
             ranges[d] = (
                 (lower_bound / h).floor() as i32,
-                (upper_bound / h).ceil() as i32,
+                (upper_bound / h).floor() as i32,
             );
         }
         ranges
@@ -525,11 +577,14 @@ fn lex_smallest_shared_cell<T: Hitbox, const N: usize>(cell_len: f32, a: &T, b: 
 impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, N> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
         let ranges = self.cell_ranges(&hitbox);
+        let cell_len = self.cell_len;
         let mut possible_collisions = vec![];
         for_each_cell(&ranges, |coord| {
             if let Some(cell) = self.cells.get(coord) {
                 for other in cell {
-                    if hitbox.overlaps(other) {
+                    // Lex-smallest dedup: report each pair only from the first
+                    // shared cell, without any geometric overlap check.
+                    if *coord == lex_smallest_shared_cell(cell_len, &hitbox, other) {
                         possible_collisions.push(other.clone());
                     }
                 }
@@ -546,9 +601,7 @@ impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, 
         for_each_cell(&ranges, |coord| {
             let cell = self.cells.entry(*coord).or_default();
             for other in cell.iter() {
-                if !hitbox.overlaps(other) {
-                    continue;
-                }
+                // Lex-smallest dedup only — no geometric overlap check.
                 if *coord == lex_smallest_shared_cell(cell_len, &hitbox, other) {
                     result.push(other.clone());
                 }
@@ -564,6 +617,44 @@ impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, 
             self.insert(hitbox);
         }
         possible_collisions
+    }
+}
+
+/// Brute-force O(n²) collision detection — checks every hitbox against every other.
+/// Useful as a reference implementation and for small scenes where setup overhead matters.
+pub struct BruteForce<T: Hitbox> {
+    hitboxes: Vec<T>,
+}
+
+impl<T: Hitbox + Clone> BruteForce<T> {
+    pub fn new() -> Self {
+        Self { hitboxes: vec![] }
+    }
+}
+
+impl<T: Hitbox + Clone> Default for BruteForce<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Hitbox + Clone> CollisionTest<T> for BruteForce<T> {
+    fn hit_candidates(&self, _hitbox: T) -> Vec<T> {
+        self.hitboxes.clone()
+    }
+
+    fn insert(&mut self, hitbox: T) -> Vec<T> {
+        let candidates = self.hit_candidates(hitbox.clone());
+        self.hitboxes.push(hitbox);
+        candidates
+    }
+
+    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T> {
+        let candidates = self.hit_candidates(hitbox.clone());
+        if candidates.is_empty() {
+            self.hitboxes.push(hitbox);
+        }
+        candidates
     }
 }
 
@@ -783,7 +874,9 @@ mod tests {
         let mut pairs = HashSet::new();
         for hb in boxes {
             for other in grid.insert(hb.clone()) {
-                pairs.insert(pair(&other, hb));
+                if other.overlaps(hb) {
+                    pairs.insert(pair(&other, hb));
+                }
             }
         }
         pairs
@@ -798,7 +891,9 @@ mod tests {
         let mut pairs = HashSet::new();
         for hb in boxes {
             for other in grid.insert(hb.clone()) {
-                pairs.insert(pair(&other, hb));
+                if other.overlaps(hb) {
+                    pairs.insert(pair(&other, hb));
+                }
             }
         }
         pairs
@@ -1328,13 +1423,13 @@ mod tests {
 
     // Consitency checks
     #[test]
-    fn hit_candidates_finds_all_inserted_overlaps() {
+    fn hit_candidates_returns_partition_mates() {
         let mut g: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(5.0);
         g.insert(tb(0, [(0.0, 10.0), (0.0, 10.0)]));
         g.insert(tb(1, [(20.0, 30.0), (20.0, 30.0)]));
         g.insert(tb(2, [(5.0, 8.0), (5.0, 8.0)]));
 
-        // Query a box that overlaps box 0 and box 2 but not box 1.
+        // Probe shares cells with box 0 and box 2, but not box 1.
         let probe = tb(99, [(6.0, 9.0), (6.0, 9.0)]);
         let hits: HashSet<u32> = g.hit_candidates(probe).iter().map(id_of).collect();
         assert_eq!(hits, HashSet::from([0, 2]));
@@ -1413,5 +1508,89 @@ mod tests {
 
         assert_eq!(dense, sparse, "5D dense and sparse disagree");
         assert_eq!(dense, expected, "5D dense vs brute force");
+    }
+
+    #[test]
+    fn broad_phase_returns_superset() {
+        let boxes = vec![
+            tb(0, [(0.0, 4.0), (0.0, 4.0)]),
+            tb(1, [(3.0, 7.0), (3.0, 7.0)]),
+            tb(2, [(20.0, 24.0), (20.0, 24.0)]),
+        ];
+        let probe = tb(99, [(2.0, 5.0), (2.0, 5.0)]);
+
+        let true_overlaps: HashSet<u32> = boxes
+            .iter()
+            .filter(|b| b.overlaps(&probe))
+            .map(id_of)
+            .collect();
+
+        let mut tree = SpatialTree::new(
+            2,
+            root_bounds([(0.0, 30.0), (0.0, 30.0)]),
+        );
+        let mut dense: HitGridND<TaggedNDimBounds, 2> =
+            HitGridND::new([0.0, 0.0], [30.0, 30.0], 5.0);
+        let mut sparse: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(5.0);
+        let mut brute = BruteForce::new();
+        for b in &boxes {
+            tree.insert(b.clone());
+            dense.insert(b.clone());
+            sparse.insert(b.clone());
+            brute.insert(b.clone());
+        }
+
+        for (name, candidates) in [
+            ("tree", tree.hit_candidates(probe.clone())),
+            ("dense", dense.hit_candidates(probe.clone())),
+            ("sparse", sparse.hit_candidates(probe.clone())),
+            ("brute", brute.hit_candidates(probe.clone())),
+        ] {
+            let ids: HashSet<u32> = candidates.iter().map(id_of).collect();
+            assert!(
+                true_overlaps.is_subset(&ids),
+                "{name}: broad phase must be superset of true overlaps. missing: {:?}",
+                true_overlaps.difference(&ids).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn broad_phase_returns_partition_mates() {
+        // Two non-overlapping boxes in the same grid cell.
+        // cell_size=10, both live in cell (0,0).
+        let a = tb(1, [(0.0, 3.0), (0.0, 3.0)]);
+        let b = tb(2, [(7.0, 9.0), (7.0, 9.0)]);
+        assert!(!a.overlaps(&b), "test precondition: a and b must not overlap");
+
+        let mut dense: HitGridND<TaggedNDimBounds, 2> =
+            HitGridND::new([0.0, 0.0], [10.0, 10.0], 10.0);
+        dense.insert(a.clone());
+        dense.insert(b.clone());
+        let hits: HashSet<u32> = dense.hit_candidates(a.clone()).iter().map(id_of).collect();
+        assert!(hits.contains(&2), "dense grid: non-overlapping cell-mate must appear");
+
+        let mut sparse: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(10.0);
+        sparse.insert(a.clone());
+        sparse.insert(b.clone());
+        let hits: HashSet<u32> = sparse.hit_candidates(a.clone()).iter().map(id_of).collect();
+        assert!(hits.contains(&2), "sparse grid: non-overlapping cell-mate must appear");
+    }
+
+    #[test]
+    fn tree_broad_phase_includes_non_overlapping_cohabitants() {
+        // Low threshold so both land in the same leaf.
+        let a = tb(1, [(0.0, 2.0)]);
+        let b = tb(2, [(8.0, 10.0)]);
+        assert!(!a.overlaps(&b), "test precondition: a and b must not overlap");
+
+        let mut tree = SpatialTree::new(4, root_bounds([(0.0, 20.0)]));
+        tree.insert(a.clone());
+        tree.insert(b.clone());
+        let hits: HashSet<u32> = tree.hit_candidates(a.clone()).iter().map(id_of).collect();
+        assert!(
+            hits.contains(&2),
+            "tree: non-overlapping node-mate must appear in broad phase"
+        );
     }
 }

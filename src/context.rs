@@ -73,6 +73,7 @@ pub enum MouseButtonState {
 #[derive(Debug)]
 pub struct MouseState {
     pub coords: PhysicalPosition<f64>,
+    pub prev_coords: PhysicalPosition<f64>,
     pub pressed: MouseButtonState,
     pub selection: Option<PickId>,
 }
@@ -344,6 +345,7 @@ impl Context {
         };
         let mouse = MouseState {
             coords: (0.0, 0.0).into(),
+            prev_coords: (0.0, 0.0).into(),
             pressed: MouseButtonState::None,
             selection: None,
         };
