@@ -1,5 +1,5 @@
 use flow_ngin::{
-    Deg, One, Point3, Quaternion, Rotation, Rotation3, Vector3, WindowEvent,
+    InnerSpace, One, Point3, Quaternion, Rad, Rotation, Rotation3, Vector3, WindowEvent,
     context::{Context, GPUResource, InitContext},
     data_structures::{block::BuildingBlocks, instance::Instance},
     flow::{GraphicsFlow, Out},
@@ -7,12 +7,22 @@ use flow_ngin::{
     render::Render,
 };
 use rand::Rng;
-use winit::event::MouseScrollDelta;
+use winit::{
+    event::MouseScrollDelta,
+    keyboard::{KeyCode, PhysicalKey},
+};
 
 const DRAG_PICK_ID: u32 = u32::MAX - 1;
+const ROTATE_STEP: f32 = 0.12;
+const HEIGHT_STEP: f32 = 0.25;
+const CUBE_SCALE: f32 = 0.5;
 
-use crate::{Event, ObjectShape, PlacedObject, State};
+use crate::{Event, ObjectShape, PlacedObject, State, effective_rotation_axis, world_axis};
 use crate::collision_backend::{HALF, PLANE_Y, WORLD_HALF};
+
+fn cube_center_offset(rotation: Quaternion<f32>) -> Vector3<f32> {
+    rotation.rotate_vector(Vector3::new(0.0, 0.5 * CUBE_SCALE, 0.0))
+}
 
 pub struct SceneFlow {
     drag_cube: BuildingBlocks,
@@ -22,6 +32,7 @@ pub struct SceneFlow {
     dirty: bool,
     cached_drag_pos: Vector3<f32>,
     cached_object_shape: ObjectShape,
+    cached_drag_rotation: Quaternion<f32>,
 }
 
 impl SceneFlow {
@@ -42,24 +53,12 @@ impl SceneFlow {
             dirty: false,
             cached_drag_pos: Vector3::new(f32::NAN, f32::NAN, f32::NAN),
             cached_object_shape: ObjectShape::Cube3D,
+            cached_drag_rotation: Quaternion::one(),
         }
     }
 
     fn rebuild_placed(&mut self, state: &State, ctx: &Context) {
-        // 45° rotation on all axes to visually separate the cube from its hitbox overlay
-        let cube_rot = Quaternion::from_axis_angle(Vector3::unit_x(), Deg(45.0))
-            * Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0))
-            * Quaternion::from_axis_angle(Vector3::unit_z(), Deg(45.0));
-        // Scale 0.5: after 45°-all-axes rotation the rotated AABB extends to ~±0.43,
-        // safely inside the ±0.5 hitbox. Instance transform is T*R*S*v, so the mesh
-        // center (0, 0.5*scale, 0) is displaced by R*(0, 0.25, 0) relative to
-        // inst.position — subtract that to keep the visual center at the hitbox center.
-        let cube_scale = 0.5_f32;
-        let cube_scale_vec = Vector3::new(cube_scale, cube_scale, cube_scale);
-        // Mesh center in model space after scaling
-        let scaled_center = Vector3::new(0.0, 0.5 * cube_scale, 0.0);
-        // Rotate the center offset so translation cancels it out
-        let center_offset = cube_rot.rotate_vector(scaled_center);
+        let cube_scale_vec = Vector3::new(CUBE_SCALE, CUBE_SCALE, CUBE_SCALE);
 
         let cubes: Vec<Instance> = state
             .placed
@@ -67,8 +66,8 @@ impl SceneFlow {
             .filter(|p| p.shape == ObjectShape::Cube3D)
             .map(|p| {
                 let mut inst = Instance::new();
-                inst.position = p.position - center_offset;
-                inst.rotation = cube_rot;
+                inst.position = p.position - cube_center_offset(p.rotation);
+                inst.rotation = p.rotation;
                 inst.scale = cube_scale_vec;
                 inst
             })
@@ -81,6 +80,7 @@ impl SceneFlow {
             .map(|p| {
                 let mut inst = Instance::new();
                 inst.position = Vector3::new(p.position.x, PLANE_Y, p.position.z);
+                inst.rotation = p.rotation;
                 inst
             })
             .collect();
@@ -122,28 +122,27 @@ impl GraphicsFlow<State, Event> for SceneFlow {
 
         if state.drag_pos != self.cached_drag_pos
             || state.object_shape != self.cached_object_shape
+            || state.drag_rotation != self.cached_drag_rotation
         {
             self.cached_drag_pos = state.drag_pos;
             self.cached_object_shape = state.object_shape;
+            self.cached_drag_rotation = state.drag_rotation;
 
             let dp = state.drag_pos;
             match state.object_shape {
                 ObjectShape::Cube3D => {
-                    let cube_rot = Quaternion::from_axis_angle(Vector3::unit_x(), Deg(45.0))
-                        * Quaternion::from_axis_angle(Vector3::unit_y(), Deg(45.0))
-                        * Quaternion::from_axis_angle(Vector3::unit_z(), Deg(45.0));
-                    let cube_scale = 0.5_f32;
-                    let center_offset = cube_rot.rotate_vector(Vector3::new(0.0, 0.5 * cube_scale, 0.0));
+                    let cube_rot = state.drag_rotation;
                     let inst = &mut self.drag_cube.instances_mut_size_unchanged()[0];
-                    inst.position = dp - center_offset;
+                    inst.position = dp - cube_center_offset(cube_rot);
                     inst.rotation = cube_rot;
-                    inst.scale = Vector3::new(cube_scale, cube_scale, cube_scale);
+                    inst.scale = Vector3::new(CUBE_SCALE, CUBE_SCALE, CUBE_SCALE);
                     let plane_inst = &mut self.drag_plane.instances_mut_size_unchanged()[0];
                     plane_inst.scale = Vector3::new(0.0, 0.0, 0.0);
                 }
                 ObjectShape::Plane2D => {
                     let inst = &mut self.drag_plane.instances_mut_size_unchanged()[0];
                     inst.position = Vector3::new(dp.x, PLANE_Y, dp.z);
+                    inst.rotation = state.drag_rotation;
                     inst.scale = Vector3::new(1.0, 1.0, 1.0);
                     let cube_inst = &mut self.drag_cube.instances_mut_size_unchanged()[0];
                     cube_inst.scale = Vector3::new(0.0, 0.0, 0.0);
@@ -173,6 +172,7 @@ impl GraphicsFlow<State, Event> for SceneFlow {
                 id: obj_id,
                 shape: state.object_shape,
                 position: actual_pos,
+                rotation: state.drag_rotation,
             });
             self.dirty = true;
         }
@@ -185,12 +185,30 @@ impl GraphicsFlow<State, Event> for SceneFlow {
         state: &mut State,
         event: &WindowEvent,
     ) -> Out<State, Event> {
-        if let WindowEvent::MouseWheel { delta, .. } = event {
-            let scroll = match delta {
-                MouseScrollDelta::LineDelta(_, y) => *y,
-                MouseScrollDelta::PixelDelta(p) => p.y as f32 * 0.05,
-            };
-            state.drag_pos.y += scroll * 0.5;
+        match event {
+            WindowEvent::MouseWheel { delta, .. } => {
+                let scroll = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => *y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 * 0.05,
+                };
+                let axis = world_axis(effective_rotation_axis(state.object_shape, state.rotation_axis));
+                let step = Quaternion::from_axis_angle(axis, Rad(scroll * ROTATE_STEP));
+                state.drag_rotation = (step * state.drag_rotation).normalize();
+            }
+            WindowEvent::KeyboardInput { event: key_event, .. } => {
+                if !key_event.state.is_pressed() {
+                    return Out::Empty;
+                }
+                match key_event.physical_key {
+                    PhysicalKey::Code(KeyCode::KeyU) => state.drag_pos.y += HEIGHT_STEP,
+                    PhysicalKey::Code(KeyCode::KeyL) => state.drag_pos.y -= HEIGHT_STEP,
+                    PhysicalKey::Code(KeyCode::KeyX) if !key_event.repeat => {
+                        state.rotation_axis = (state.rotation_axis + 1) % 3;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
         }
         Out::Empty
     }
@@ -206,6 +224,9 @@ impl GraphicsFlow<State, Event> for SceneFlow {
             Event::DetectionDimsChanged(_) => {
                 state.placed.clear();
                 self.dirty = true;
+            }
+            Event::ObjectShapeChanged(_) => {
+                state.drag_rotation = Quaternion::one();
             }
             Event::PlaceRandom(count) => {
                 let mut rng = rand::thread_rng();
@@ -226,10 +247,22 @@ impl GraphicsFlow<State, Event> for SceneFlow {
                         ObjectShape::Plane2D => Vector3::new(x, PLANE_Y, z),
                         ObjectShape::Cube3D => Vector3::new(x, y, z),
                     };
+                    let tau = std::f32::consts::TAU;
+                    let rotation = match state.object_shape {
+                        ObjectShape::Plane2D => {
+                            Quaternion::from_axis_angle(world_axis(1), Rad(rng.gen_range(0.0..tau)))
+                        }
+                        ObjectShape::Cube3D => {
+                            Quaternion::from_axis_angle(world_axis(0), Rad(rng.gen_range(0.0..tau)))
+                                * Quaternion::from_axis_angle(world_axis(1), Rad(rng.gen_range(0.0..tau)))
+                                * Quaternion::from_axis_angle(world_axis(2), Rad(rng.gen_range(0.0..tau)))
+                        }
+                    };
                     state.placed.push(PlacedObject {
                         id,
                         shape: state.object_shape,
                         position: pos,
+                        rotation,
                     });
                 }
                 self.dirty = true;

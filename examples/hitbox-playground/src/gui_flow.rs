@@ -142,7 +142,7 @@ impl GraphicsFlow<State, Event> for GuiFlow {
             .with_child(btn_h, strategy_buttons)
             .with_child(
                 28,
-                TextLabel::new("Move: mouse  Y: scroll  Place: LClick")
+                TextLabel::new("Move: mouse  Height: U/L  Rotate: scroll  Axis: X  Place: LClick")
                     .font_size(18.0)
                     .color([150, 150, 150]),
             )

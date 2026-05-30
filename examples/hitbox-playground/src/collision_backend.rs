@@ -1,3 +1,6 @@
+use cgmath::Matrix3;
+use flow_ngin::{
+    Quaternion, Vector3,
 use flow_ngin::{
     Vector3,
     data_structures::collision::{
@@ -14,10 +17,27 @@ pub const CELL_SIZE: f32 = 2.0;
 pub const PLANE_Y: f32 = 0.0;
 
 pub fn make_hitbox_for(p: &PlacedObject) -> TaggedNDimBounds {
-    make_hitbox(p.position, p.shape, p.id)
+    make_hitbox(p.position, p.shape, p.id, p.rotation)
 }
 
-pub fn make_hitbox(pos: Vector3<f32>, shape: ObjectShape, id: PickId) -> TaggedNDimBounds {
+fn world_to_hitbox_dim_rotation(world: Quaternion<f32>) -> Quaternion<f32> {
+    // S swaps the y and z basis vectors, mapping world (x,y,z) onto the hitbox's
+    // (x,z,y) dimension order. S is its own inverse.
+    let s = Matrix3::new(
+        1.0, 0.0, 0.0, // column 0 -> x
+        0.0, 0.0, 1.0, // column 1 -> z
+        0.0, 1.0, 0.0, // column 2 -> y
+    );
+    let m_dim = s * Matrix3::from(world) * s;
+    Quaternion::from(m_dim)
+}
+
+pub fn make_hitbox(
+    pos: Vector3<f32>,
+    shape: ObjectShape,
+    id: PickId,
+    rotation: Quaternion<f32>,
+) -> TaggedNDimBounds {
     let h = HALF;
     match shape {
         ObjectShape::Plane2D => TaggedNDimBounds::new(
@@ -26,7 +46,8 @@ pub fn make_hitbox(pos: Vector3<f32>, shape: ObjectShape, id: PickId) -> TaggedN
                 Bounds::new(pos.z - h, pos.z + h),
             ],
             id,
-        ),
+        )
+        .rotated(world_to_hitbox_dim_rotation(rotation)),
         ObjectShape::Cube3D => TaggedNDimBounds::new(
             vec![
                 Bounds::new(pos.x - h, pos.x + h),
@@ -34,7 +55,8 @@ pub fn make_hitbox(pos: Vector3<f32>, shape: ObjectShape, id: PickId) -> TaggedN
                 Bounds::new(pos.y - h, pos.y + h),
             ],
             id,
-        ),
+        )
+        .rotated(world_to_hitbox_dim_rotation(rotation)),
     }
 }
 
@@ -97,7 +119,7 @@ impl CollisionBackend {
     pub fn rebuild(strategy: Strategy, detection_dims: u8, placed: &[PlacedObject]) -> Self {
         let mut backend = Self::new(strategy, detection_dims);
         for p in placed {
-            backend.insert(make_hitbox(p.position, p.shape, p.id));
+            backend.insert(make_hitbox_for(p));
         }
         backend
     }

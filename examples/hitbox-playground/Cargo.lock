@@ -1203,6 +1203,7 @@ name = "hitbox-playground"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cgmath",
  "console_error_panic_hook",
  "flow-ngin",
  "getrandom 0.2.17",

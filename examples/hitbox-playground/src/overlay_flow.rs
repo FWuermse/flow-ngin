@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use flow_ngin::{
-    One, Quaternion, Vector3,
+    One, Quaternion, Rotation, Vector3,
     context::{Context, GPUResource, InitContext},
-    data_structures::{block::BuildingBlocks, collision::Hitbox, instance::Instance},
+    data_structures::{block::BuildingBlocks, collision::sat, instance::Instance},
     flow::{GraphicsFlow, Out},
     pick::PickId,
     render::Render,
@@ -34,6 +34,7 @@ pub struct OverlayFlow {
     cached_placed_count: usize,
     cached_drag_pos: Vector3<f32>,
     cached_object_shape: ObjectShape,
+    cached_drag_rotation: Quaternion<f32>,
 }
 
 impl OverlayFlow {
@@ -69,20 +70,24 @@ impl OverlayFlow {
             cached_placed_count: 0,
             cached_drag_pos: Vector3::new(f32::NAN, f32::NAN, f32::NAN),
             cached_object_shape: ObjectShape::Cube3D,
+            cached_drag_rotation: Quaternion::one(),
         }
     }
 }
 
-fn cube_overlay(pos: Vector3<f32>) -> Instance {
+fn cube_overlay(pos: Vector3<f32>, rotation: Quaternion<f32>) -> Instance {
     let mut inst = Instance::new();
-    inst.position = Vector3::new(pos.x, pos.y - 0.5 * OVERLAY_SCALE, pos.z);
+    let center_offset = rotation.rotate_vector(Vector3::new(0.0, 0.5 * OVERLAY_SCALE, 0.0));
+    inst.position = pos - center_offset;
+    inst.rotation = rotation;
     inst.scale = Vector3::new(OVERLAY_SCALE, OVERLAY_SCALE, OVERLAY_SCALE);
     inst
 }
 
-fn plane_overlay(pos: Vector3<f32>) -> Instance {
+fn plane_overlay(pos: Vector3<f32>, rotation: Quaternion<f32>) -> Instance {
     let mut inst = Instance::new();
     inst.position = Vector3::new(pos.x, PLANE_Y, pos.z);
+    inst.rotation = rotation;
     inst.scale = Vector3::new(OVERLAY_SCALE, PLANE_OVERLAY_Y_SCALE, OVERLAY_SCALE);
     inst
 }
@@ -114,14 +119,20 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
             self.cached_placed_count = state.placed.len();
         } else if state.placed.len() > self.cached_placed_count {
             for placed in &state.placed[self.cached_placed_count..] {
-                self.backend.insert(make_hitbox(placed.position, placed.shape, placed.id));
+                self.backend.insert(make_hitbox(
+                    placed.position,
+                    placed.shape,
+                    placed.id,
+                    placed.rotation,
+                ));
             }
             self.cached_placed_count = state.placed.len();
             objects_changed = true;
         }
 
         let drag_moved = state.drag_pos != self.cached_drag_pos
-            || state.object_shape != self.cached_object_shape;
+            || state.object_shape != self.cached_object_shape
+            || state.drag_rotation != self.cached_drag_rotation;
 
         if !drag_moved && !objects_changed {
             return Out::Empty;
@@ -129,16 +140,17 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
 
         self.cached_drag_pos = state.drag_pos;
         self.cached_object_shape = state.object_shape;
+        self.cached_drag_rotation = state.drag_rotation;
 
         let drag_id = PickId(0);
-        let drag_hb = make_hitbox(state.drag_pos, state.object_shape, drag_id);
+        let drag_hb = make_hitbox(state.drag_pos, state.object_shape, drag_id, state.drag_rotation);
 
         let candidates = self.backend.hit_candidates(drag_hb.clone());
         let broad_ids: HashSet<u32> = candidates.iter().map(|c| c.tag().0).collect();
 
         let overlap_ids: HashSet<u32> = candidates
             .iter()
-            .filter(|c| drag_hb.overlaps(c))
+            .filter(|c| sat(&drag_hb, *c))
             .map(|c| c.tag().0)
             .collect();
 
@@ -158,20 +170,20 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
             match placed.shape {
                 ObjectShape::Cube3D => {
                     if is_overlap {
-                        cr.push(cube_overlay(placed.position));
+                        cr.push(cube_overlay(placed.position, placed.rotation));
                     } else if is_broad {
-                        cy.push(cube_overlay(placed.position));
+                        cy.push(cube_overlay(placed.position, placed.rotation));
                     } else {
-                        cw.push(cube_overlay(placed.position));
+                        cw.push(cube_overlay(placed.position, placed.rotation));
                     }
                 }
                 ObjectShape::Plane2D => {
                     if is_overlap {
-                        pr.push(plane_overlay(placed.position));
+                        pr.push(plane_overlay(placed.position, placed.rotation));
                     } else if is_broad {
-                        py.push(plane_overlay(placed.position));
+                        py.push(plane_overlay(placed.position, placed.rotation));
                     } else {
-                        pw.push(plane_overlay(placed.position));
+                        pw.push(plane_overlay(placed.position, placed.rotation));
                     }
                 }
             }
@@ -197,22 +209,14 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
         let dp = state.drag_pos;
         match state.object_shape {
             ObjectShape::Cube3D => {
-                self.drag_overlay_cube.instances_mut_size_unchanged()[0] = {
-                    let mut inst = Instance::new();
-                    inst.position = Vector3::new(dp.x, dp.y - 0.5 * OVERLAY_SCALE, dp.z);
-                    inst.scale = Vector3::new(OVERLAY_SCALE, OVERLAY_SCALE, OVERLAY_SCALE);
-                    inst
-                };
+                self.drag_overlay_cube.instances_mut_size_unchanged()[0] =
+                    cube_overlay(dp, state.drag_rotation);
                 self.drag_overlay_plane.instances_mut_size_unchanged()[0].scale =
                     Vector3::new(0.0, 0.0, 0.0);
             }
             ObjectShape::Plane2D => {
-                self.drag_overlay_plane.instances_mut_size_unchanged()[0] = {
-                    let mut inst = Instance::new();
-                    inst.position = Vector3::new(dp.x, PLANE_Y, dp.z);
-                    inst.scale = Vector3::new(OVERLAY_SCALE, PLANE_OVERLAY_Y_SCALE, OVERLAY_SCALE);
-                    inst
-                };
+                self.drag_overlay_plane.instances_mut_size_unchanged()[0] =
+                    plane_overlay(dp, state.drag_rotation);
                 self.drag_overlay_cube.instances_mut_size_unchanged()[0].scale =
                     Vector3::new(0.0, 0.0, 0.0);
             }
