@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use flow_ngin::{
+    Vector3,
     context::{Context, InitContext},
     data_structures::texture::Texture,
     flow::{GraphicsFlow, Out},
@@ -7,8 +8,10 @@ use flow_ngin::{
 };
 use wgpu::util::DeviceExt;
 
-use crate::{Event, State, Strategy};
+use crate::{Event, State, Strategy, effective_rotation_axis, world_axis};
 use crate::collision_backend::{CollisionBackend, make_hitbox_for};
+
+const AXIS_LINE_HALF: f32 = 2.5;
 
 const LINE_SHADER: &str = r#"
 struct Camera {
@@ -67,6 +70,8 @@ pub struct PartitionVizFlow {
     cached_strategy: Strategy,
     cached_dims: u8,
     cached_placed_count: usize,
+    cached_drag_pos: Vector3<f32>,
+    cached_rotation_axis: u8,
 }
 
 impl PartitionVizFlow {
@@ -80,6 +85,8 @@ impl PartitionVizFlow {
             cached_strategy: Strategy::SparseGrid,
             cached_dims: 2,
             cached_placed_count: 0,
+            cached_drag_pos: Vector3::new(f32::NAN, f32::NAN, f32::NAN),
+            cached_rotation_axis: 1,
         }
     }
 
@@ -182,7 +189,11 @@ impl PartitionVizFlow {
     }
 
     fn update_lines(&mut self, state: &State, device: &wgpu::Device) {
-        let lines = self.backend.partition_lines(state.detection_dims);
+        let mut lines = self.backend.partition_lines(state.detection_dims);
+        let axis = effective_rotation_axis(state.object_shape, state.rotation_axis);
+        let dir = world_axis(axis);
+        let c = state.drag_pos;
+        lines.push([c - dir * AXIS_LINE_HALF, c + dir * AXIS_LINE_HALF]);
 
         let vertices: Vec<LineVertex> = lines
             .iter()
@@ -231,7 +242,13 @@ impl GraphicsFlow<State, Event> for PartitionVizFlow {
         state: &mut State,
         _dt: std::time::Duration,
     ) -> Out<State, Event> {
-        if self.sync_backend(state) {
+        let backend_changed = self.sync_backend(state);
+        let eff_axis = effective_rotation_axis(state.object_shape, state.rotation_axis);
+        let drag_changed = state.drag_pos != self.cached_drag_pos
+            || eff_axis != self.cached_rotation_axis;
+        if backend_changed || drag_changed {
+            self.cached_drag_pos = state.drag_pos;
+            self.cached_rotation_axis = eff_axis;
             self.update_lines(state, &ctx.device);
         }
         Out::Empty

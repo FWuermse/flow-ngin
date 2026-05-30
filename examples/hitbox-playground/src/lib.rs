@@ -7,7 +7,7 @@ mod scene_flow;
 use std::collections::HashSet;
 
 use flow_ngin::{
-    Vector3,
+    One, Quaternion, Vector3,
     flow::{FlowConstructor, GraphicsFlow},
     pick::PickId,
 };
@@ -25,6 +25,8 @@ pub struct State {
     pub object_shape: ObjectShape,
     pub strategy: Strategy,
     pub drag_pos: Vector3<f32>,
+    pub drag_rotation: Quaternion<f32>,
+    pub rotation_axis: u8,
     pub placed: Vec<PlacedObject>,
     pub next_id: u32,
     pub broad_ids: HashSet<u32>,
@@ -38,11 +40,29 @@ impl Default for State {
             object_shape: ObjectShape::Cube3D,
             strategy: Strategy::SparseGrid,
             drag_pos: Vector3::new(0.0, 0.0, 0.0),
+            drag_rotation: Quaternion::one(),
+            rotation_axis: 1,
             placed: Vec::new(),
             next_id: 1,
             broad_ids: HashSet::new(),
             overlap_ids: HashSet::new(),
         }
+    }
+}
+
+/// The three world axes the block can rotate around, indexed by `rotation_axis`.
+pub fn world_axis(index: u8) -> Vector3<f32> {
+    match index % 3 {
+        0 => Vector3::new(1.0, 0.0, 0.0),
+        1 => Vector3::new(0.0, 1.0, 0.0),
+        _ => Vector3::new(0.0, 0.0, 1.0),
+    }
+}
+
+pub fn effective_rotation_axis(shape: ObjectShape, rotation_axis: u8) -> u8 {
+    match shape {
+        ObjectShape::Plane2D => 1,
+        ObjectShape::Cube3D => rotation_axis,
     }
 }
 
@@ -65,6 +85,7 @@ pub struct PlacedObject {
     pub id: PickId,
     pub shape: ObjectShape,
     pub position: Vector3<f32>,
+    pub rotation: Quaternion<f32>,
 }
 
 #[derive(Clone)]
