@@ -14,8 +14,6 @@ path = "src/main.rs"
 [dependencies]
 flow-ngin = { path = "../../", features = ["ui"] }
 bytemuck = { version = "1", features = ["derive"] }
-# Direct dependency so `cgmath::Matrix3` can be named unambiguously: flow-ngin
-# re-exports both `cgmath::*` and `wgpu::*`, and both define a `Matrix3`.
 cgmath = "0.18"
 wgpu = "29"
 winit = "0.30"

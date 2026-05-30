@@ -1,6 +1,8 @@
 use cgmath::Matrix3;
 use flow_ngin::{
     Quaternion, Vector3,
+use flow_ngin::{
+    Vector3,
     data_structures::collision::{
         BruteForce, Bounds, CollisionTest, Hitbox, HitGridND, SparseHitGridND, SpatialTree,
         TaggedNDimBounds,

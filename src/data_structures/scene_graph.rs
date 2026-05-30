@@ -699,7 +699,7 @@ impl ModelNode {
     ) -> Self {
         let obj_model = load_model_obj(obj_file, &device, &queue).await;
         if let Err(e) = obj_model {
-            panic!("Error failed to load model: {}, at {}", e, obj_file);
+            panic!("Error failed to load model {}: {}", obj_file, e);
         }
         let obj_model = obj_model.unwrap();
 
