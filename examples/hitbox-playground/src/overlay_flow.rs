@@ -110,7 +110,6 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
         let needs_full_rebuild = state.strategy != self.cached_strategy
             || state.detection_dims != self.cached_dims
             || state.placed.len() < self.cached_placed_count;
-        let mut objects_changed = needs_full_rebuild;
 
         if needs_full_rebuild {
             self.backend = CollisionBackend::rebuild(state.strategy, state.detection_dims, &state.placed);
@@ -127,15 +126,6 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
                 ));
             }
             self.cached_placed_count = state.placed.len();
-            objects_changed = true;
-        }
-
-        let drag_moved = state.drag_pos != self.cached_drag_pos
-            || state.object_shape != self.cached_object_shape
-            || state.drag_rotation != self.cached_drag_rotation;
-
-        if !drag_moved && !objects_changed {
-            return Out::Empty;
         }
 
         self.cached_drag_pos = state.drag_pos;
@@ -150,7 +140,7 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
 
         let overlap_ids: HashSet<u32> = candidates
             .iter()
-            .filter(|c| sat(&drag_hb, *c))
+            .filter(|c| sat(&drag_hb, *c).hit())
             .map(|c| c.tag().0)
             .collect();
 

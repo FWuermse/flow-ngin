@@ -29,18 +29,7 @@ pub trait Hitbox {
     fn interval(&self, dimension: usize) -> (f32, f32);
 }
 
-/// Convex geometry for narrow-phase collision via the Separating Axis Theorem.
-///
-/// Independent of [`Hitbox`]: a type may implement either, both, or neither.
-/// [`Hitbox`] describes a shape for the broad phase (per-dimension intervals);
-/// `Sat` describes the same (or a different) shape precisely enough for an exact
-/// overlap test. A box, plane, or any convex polytope can implement both.
-pub trait Sat {
-    /// Returns this shape's corner points and its candidate separating axes.
-    ///
-    /// Both are n-dimensional: each point and each axis is a `Vec<f32>` whose
-    /// length is the shape's dimension. Axes need not be unit length and need not
-    /// be unique. For a box these are the 2ⁿ corners and the n face normals.
+pub trait Convex {
     fn points_and_axes(&self) -> (Vec<Vec<f32>>, Vec<Vec<f32>>);
 }
 
@@ -55,12 +44,12 @@ pub struct CollisionDetection<C: CollisionTest<H>, H: Hitbox> {
     collision_test: C,
     _pd: PhantomData<H>,
 }
-impl<C: CollisionTest<H>, H: Hitbox + Sat + Clone> CollisionDetection<C, H> {
+impl<C: CollisionTest<H>, H: Hitbox + Convex + Clone> CollisionDetection<C, H> {
     fn insert(&mut self, hitbox: H) -> Vec<H> {
         let possible_collisison = self.collision_test.insert(hitbox.clone());
         let collisions: Vec<_> = possible_collisison
             .into_iter()
-            .filter(|hb| sat(&hitbox, hb))
+            .filter(|hb| sat(&hitbox, hb).hit())
             .collect();
         return collisions;
     }
@@ -69,111 +58,35 @@ impl<C: CollisionTest<H>, H: Hitbox + Sat + Clone> CollisionDetection<C, H> {
         let possible_collisison = self.collision_test.hit_candidates(hitbox.clone());
         let collisions: Vec<_> = possible_collisison
             .into_iter()
-            .filter(|hb| sat(hitbox, hb))
+            .filter(|hb| sat(hitbox, hb).hit())
             .collect();
         return collisions;
     }
 }
+impl CollisionDetection<HitGridND<TaggedNDimBounds, 2>, TaggedNDimBounds> {
+
+}
 
 /// Result of a Separating Axis Theorem test between two convex point sets.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SatResult<const N: usize> {
-    Overlap { normal: [f32; N], depth: f32 },
-    Separated { axis: [f32; N], gap: f32 },
+#[derive(Clone, Debug, PartialEq)]
+pub enum SatResult {
+    Overlap { normal: Vec<f32>, depth: f32 },
+    Separated { axis: Vec<f32>, gap: f32 },
+}
+impl SatResult {
+    pub fn hit(&self) -> bool {
+        match self {
+            SatResult::Overlap {
+                normal: _,
+                depth: _,
+            } => true,
+            SatResult::Separated { axis: _, gap: _ } => false,
+        }
+    }
 }
 
 /// Axes shorter than this are treated as degenerate and skipped.
 const SAT_EPSILON: f32 = 1e-6;
-
-/// Narrow-phase Separating Axis Theorem overlap test between two convex shapes.
-///
-/// Returns `true` if the shapes overlap (no separating axis exists among either
-/// shape's candidate axes), `false` otherwise. This is the boolean counterpart to
-/// [`sat_check`]: it works on the runtime-dimensional [`Sat`] geometry rather than
-/// a compile-time `[f32; N]`, and skips the minimum-translation bookkeeping since
-/// only a yes/no answer is needed.
-///
-/// Both shapes must report points and axes of the same dimension. Degenerate
-/// (near-zero-length) axes are skipped. If neither shape supplies any usable axis
-/// the shapes are reported as overlapping.
-pub fn sat<A: Sat + ?Sized, B: Sat + ?Sized>(a: &A, b: &B) -> bool {
-    let (points_a, axes_a) = a.points_and_axes();
-    let (points_b, axes_b) = b.points_and_axes();
-
-    for axis in axes_a.iter().chain(axes_b.iter()) {
-        // Boolean SAT does not need normalized axes (only the sign of the gap
-        // matters), but skip near-zero axes that cannot separate anything.
-        if dot_dyn(axis, axis) < SAT_EPSILON * SAT_EPSILON {
-            continue;
-        }
-        let (min_a, max_a) = project_dyn(&points_a, axis);
-        let (min_b, max_b) = project_dyn(&points_b, axis);
-        if max_a < min_b || max_b < min_a {
-            // A separating axis: the shapes cannot overlap.
-            return false;
-        }
-    }
-    true
-}
-
-/// Dot product of two runtime-dimensional vectors (shorter length wins).
-fn dot_dyn(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
-}
-
-/// Projects a runtime-dimensional point set onto `axis`, returning `(min, max)`.
-fn project_dyn(points: &[Vec<f32>], axis: &[f32]) -> (f32, f32) {
-    let mut min = f32::INFINITY;
-    let mut max = f32::NEG_INFINITY;
-    for p in points {
-        let d = dot_dyn(p, axis);
-        if d < min {
-            min = d;
-        }
-        if d > max {
-            max = d;
-        }
-    }
-    (min, max)
-}
-
-/// Dot product of two N-dimensional vectors.
-fn dot<const N: usize>(a: &[f32; N], b: &[f32; N]) -> f32 {
-    let mut sum = 0.0;
-    for i in 0..N {
-        sum += a[i] * b[i];
-    }
-    sum
-}
-
-/// Returns `v` scaled to unit length, or `None` if `v` is near-zero length.
-fn normalize<const N: usize>(v: &[f32; N]) -> Option<[f32; N]> {
-    let len = dot(v, v).sqrt();
-    if len < SAT_EPSILON {
-        return None;
-    }
-    let mut out = [0.0; N];
-    for i in 0..N {
-        out[i] = v[i] / len;
-    }
-    Some(out)
-}
-
-/// Projects a point set onto `axis`, returning the `(min, max)` of the dot products.
-fn project<const N: usize>(points: &[[f32; N]], axis: &[f32; N]) -> (f32, f32) {
-    let mut min = f32::INFINITY;
-    let mut max = f32::NEG_INFINITY;
-    for p in points {
-        let d = dot(p, axis);
-        if d < min {
-            min = d;
-        }
-        if d > max {
-            max = d;
-        }
-    }
-    (min, max)
-}
 
 /// Tests two convex shapes for overlap using the Separating Axis Theorem.
 ///
@@ -185,51 +98,45 @@ fn project<const N: usize>(points: &[[f32; N]], axis: &[f32; N]) -> (f32, f32) {
 /// Returns [`SatResult::Separated`] as soon as any axis separates the shapes (one
 /// separating axis is sufficient proof of no collision), otherwise
 /// [`SatResult::Overlap`] with the minimum-translation vector.
-///
-/// # Preconditions
-/// Both `a` and `b` must be non-empty. If `axes` is empty (or every axis is
-/// degenerate) no separating axis can be found, so the result is
-/// `Overlap { normal: [0.0; N], depth: 0.0 }.
-pub fn sat_check<const N: usize>(
-    a: &[[f32; N]],
-    b: &[[f32; N]],
-    axes: &[[f32; N]],
-) -> SatResult<N> {
-    let mut min_overlap = f32::INFINITY;
-    let mut mtv_axis = [0.0; N];
+pub fn sat<A: Convex + ?Sized, B: Convex + ?Sized>(a: &A, b: &B) -> SatResult {
+    let (points_a, axes_a) = a.points_and_axes();
+    let (points_b, axes_b) = b.points_and_axes();
+    let dim = points_a.len().min(points_b.len());
 
-    for raw in axes {
+    let mut min_overlap = f32::INFINITY;
+    let mut mtv_axis = (0..dim).map(|_| 0.0).collect();
+
+    for raw in axes_a.into_iter().chain(axes_b.into_iter()) {
         let axis = match normalize(raw) {
             Some(axis) => axis,
             None => continue,
         };
-
-        let (min_a, max_a) = project(a, &axis);
-        let (min_b, max_b) = project(b, &axis);
-
+        if dot_dyn(&axis, &axis) < SAT_EPSILON * SAT_EPSILON {
+            continue;
+        }
+        let (min_a, max_a) = project(&points_a, &axis);
+        let (min_b, max_b) = project(&points_b, &axis);
         let overlap = max_a.min(max_b) - min_a.max(min_b);
-
         if overlap < 0.0 {
-            // A separating axis exists: the shapes cannot be colliding.
             return SatResult::Separated {
-                axis,
+                axis: axis.to_vec(),
                 gap: -overlap,
             };
         }
 
         if overlap < min_overlap {
             min_overlap = overlap;
-            // Orient the MTV so it points from `a` toward `b` (pushes `b` out of `a`).
             let center_a = (min_a + max_a) * 0.5;
             let center_b = (min_b + max_b) * 0.5;
             mtv_axis = if center_b < center_a {
-                let mut flipped = [0.0; N];
-                for i in 0..N {
+                let dim = axis.len();
+                let mut flipped: Vec<f32> = (0..dim).map(|_| 0.0).collect();
+                for i in 0..dim {
                     flipped[i] = -axis[i];
                 }
                 flipped
             } else {
-                axis
+                axis.to_vec()
             };
         }
     }
@@ -244,29 +151,39 @@ pub fn sat_check<const N: usize>(
     }
 }
 
-pub struct CornerPoint {
-    top_left: cgmath::Point2<f32>,
-    axis_lens: Vec<f32>,
+/// Returns `v` scaled to unit length, or `None` if `v` is near-zero length.
+fn normalize(v: Vec<f32>) -> Option<Vec<f32>> {
+    let dim = v.len();
+    let len = dot_dyn(&v, &v).sqrt();
+    if len < SAT_EPSILON {
+        return None;
+    }
+    let mut out: Vec<f32> = (0..dim).map(|_| 0.0).collect();
+    for i in 0..dim {
+        out[i] = v[i] / len;
+    }
+    Some(out)
 }
-impl Hitbox for CornerPoint {
-    fn submerges(&self, other: &Self) -> bool {
-        todo!()
-    }
 
-    fn split(&self) -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        todo!()
-    }
+/// Dot product of two runtime-dimensional vectors (shorter length wins).
+fn dot_dyn(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
+}
 
-    fn overlaps(&self, other: &Self) -> bool {
-        todo!()
+/// Projects a runtime-dimensional point set onto `axis`, returning `(min, max)`.
+fn project(points: &[Vec<f32>], axis: &[f32]) -> (f32, f32) {
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+    for p in points {
+        let d = dot_dyn(p, axis);
+        if d < min {
+            min = d;
+        }
+        if d > max {
+            max = d;
+        }
     }
-
-    fn interval(&self, dimension: usize) -> (f32, f32) {
-        todo!()
-    }
+    (min, max)
 }
 
 #[derive(Clone)]
@@ -399,7 +316,7 @@ impl TaggedNDimBounds {
     }
 }
 
-impl Sat for TaggedNDimBounds {
+impl Convex for TaggedNDimBounds {
     fn points_and_axes(&self) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
         let dims = self.bounds.len();
         // Candidate axes: the rotated unit basis vectors (the box's face normals).
@@ -1772,10 +1689,7 @@ mod tests {
             .map(id_of)
             .collect();
 
-        let mut tree = SpatialTree::new(
-            2,
-            root_bounds([(0.0, 30.0), (0.0, 30.0)]),
-        );
+        let mut tree = SpatialTree::new(2, root_bounds([(0.0, 30.0), (0.0, 30.0)]));
         let mut dense: HitGridND<TaggedNDimBounds, 2> =
             HitGridND::new([0.0, 0.0], [30.0, 30.0], 5.0);
         let mut sparse: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(5.0);
@@ -1808,20 +1722,29 @@ mod tests {
         // cell_size=10, both live in cell (0,0).
         let a = tb(1, [(0.0, 3.0), (0.0, 3.0)]);
         let b = tb(2, [(7.0, 9.0), (7.0, 9.0)]);
-        assert!(!a.overlaps(&b), "test precondition: a and b must not overlap");
+        assert!(
+            !a.overlaps(&b),
+            "test precondition: a and b must not overlap"
+        );
 
         let mut dense: HitGridND<TaggedNDimBounds, 2> =
             HitGridND::new([0.0, 0.0], [10.0, 10.0], 10.0);
         dense.insert(a.clone());
         dense.insert(b.clone());
         let hits: HashSet<u32> = dense.hit_candidates(a.clone()).iter().map(id_of).collect();
-        assert!(hits.contains(&2), "dense grid: non-overlapping cell-mate must appear");
+        assert!(
+            hits.contains(&2),
+            "dense grid: non-overlapping cell-mate must appear"
+        );
 
         let mut sparse: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(10.0);
         sparse.insert(a.clone());
         sparse.insert(b.clone());
         let hits: HashSet<u32> = sparse.hit_candidates(a.clone()).iter().map(id_of).collect();
-        assert!(hits.contains(&2), "sparse grid: non-overlapping cell-mate must appear");
+        assert!(
+            hits.contains(&2),
+            "sparse grid: non-overlapping cell-mate must appear"
+        );
     }
 
     #[test]
@@ -1829,7 +1752,10 @@ mod tests {
         // Low threshold so both land in the same leaf.
         let a = tb(1, [(0.0, 2.0)]);
         let b = tb(2, [(8.0, 10.0)]);
-        assert!(!a.overlaps(&b), "test precondition: a and b must not overlap");
+        assert!(
+            !a.overlaps(&b),
+            "test precondition: a and b must not overlap"
+        );
 
         let mut tree = SpatialTree::new(4, root_bounds([(0.0, 20.0)]));
         tree.insert(a.clone());
@@ -1864,15 +1790,46 @@ mod sat_tests {
     const AXES_2D: [[f32; 2]; 2] = [[1.0, 0.0], [0.0, 1.0]];
     const AXES_3D: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
+    struct AxesCorners2D {
+        axes: Vec<[f32; 2]>,
+        corners: Vec<[f32; 2]>,
+    }
+    impl Convex for AxesCorners2D {
+        fn points_and_axes(&self) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+            (
+                self.corners.iter().map(|c| c.to_vec()).collect(),
+                self.axes.iter().map(|a| a.to_vec()).collect(),
+            )
+        }
+    }
+
+    struct AxesCorners3D {
+        axes: [[f32; 3]; 3],
+        corners: Vec<[f32; 3]>,
+    }
+    impl Convex for AxesCorners3D {
+        fn points_and_axes(&self) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+            (
+                self.corners.iter().map(|c| c.to_vec()).collect(),
+                self.axes.map(|a| a.to_vec()).into_iter().collect(),
+            )
+        }
+    }
+
     #[test]
     fn overlap_2d_known_depth() {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.5, 0.0], [1.5, 1.0]);
-        match sat_check(&a, &b, &AXES_2D) {
+        let a = AxesCorners2D{axes: AXES_2D.to_vec(), corners: a };
+        let b = AxesCorners2D{axes: AXES_2D.to_vec(), corners: b };
+        match sat(&a, &b) {
             SatResult::Overlap { normal, depth } => {
                 assert!(approx(depth, 0.5), "depth was {depth}");
                 // Least-overlap axis is x; b is to the right of a → normal points +x.
-                assert!(approx(normal[0], 1.0) && approx(normal[1], 0.0), "normal {normal:?}");
+                assert!(
+                    approx(normal[0], 1.0) && approx(normal[1], 0.0),
+                    "normal {normal:?}"
+                );
             }
             other => panic!("expected overlap, got {other:?}"),
         }
@@ -1882,10 +1839,15 @@ mod sat_tests {
     fn separated_2d_known_gap() {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([2.0, 0.0], [3.0, 1.0]);
-        match sat_check(&a, &b, &AXES_2D) {
+        let a = AxesCorners2D{axes: AXES_2D.to_vec(), corners: a };
+        let b = AxesCorners2D{axes: AXES_2D.to_vec(), corners: b };
+        match sat(&a, &b) {
             SatResult::Separated { axis, gap } => {
                 assert!(approx(gap, 1.0), "gap was {gap}");
-                assert!(approx(axis[0], 1.0) && approx(axis[1], 0.0), "axis {axis:?}");
+                assert!(
+                    approx(axis[0], 1.0) && approx(axis[1], 0.0),
+                    "axis {axis:?}"
+                );
             }
             other => panic!("expected separated, got {other:?}"),
         }
@@ -1895,7 +1857,9 @@ mod sat_tests {
     fn touching_2d_is_zero_depth_overlap() {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([1.0, 0.0], [2.0, 1.0]);
-        match sat_check(&a, &b, &AXES_2D) {
+        let a = AxesCorners2D{axes: AXES_2D.to_vec(), corners: a };
+        let b = AxesCorners2D{axes: AXES_2D.to_vec(), corners: b };
+        match sat(&a, &b) {
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.0), "depth {depth}"),
             other => panic!("expected overlap, got {other:?}"),
         }
@@ -1905,7 +1869,9 @@ mod sat_tests {
     fn overlap_3d() {
         let a = aabb_corners([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let b = aabb_corners([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
-        match sat_check(&a, &b, &AXES_3D) {
+        let a = AxesCorners3D{axes: AXES_3D, corners: a };
+        let b = AxesCorners3D{axes: AXES_3D, corners: b };
+        match sat(&a, &b) {
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.5), "depth {depth}"),
             other => panic!("expected overlap, got {other:?}"),
         }
@@ -1915,7 +1881,9 @@ mod sat_tests {
     fn separated_3d() {
         let a = aabb_corners([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let b = aabb_corners([0.0, 2.0, 0.0], [1.0, 3.0, 1.0]);
-        match sat_check(&a, &b, &AXES_3D) {
+        let a = AxesCorners3D{axes: AXES_3D, corners: a };
+        let b = AxesCorners3D{axes: AXES_3D, corners: b };
+        match sat(&a, &b) {
             SatResult::Separated { axis, gap } => {
                 assert!(approx(gap, 1.0), "gap {gap}");
                 assert!(approx(axis[1], 1.0), "axis {axis:?}");
@@ -1930,7 +1898,9 @@ mod sat_tests {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.5, 0.0], [1.5, 1.0]);
         let axes = [[5.0_f32, 0.0]];
-        match sat_check(&a, &b, &axes) {
+        let a = AxesCorners2D{axes: axes.to_vec(), corners: a };
+        let b = AxesCorners2D{axes: vec![], corners: b };
+        match sat(&a, &b) {
             // Depth must be in world units (0.5), not scaled by the axis length.
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.5), "depth {depth}"),
             other => panic!("expected overlap, got {other:?}"),
@@ -1943,11 +1913,14 @@ mod sat_tests {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.5, 0.5], [1.5, 1.5]);
         let axes = [[1.0_f32, 1.0]];
-        match sat_check(&a, &b, &axes) {
+        let a = AxesCorners2D{axes: axes.to_vec(), corners: a };
+        let b = AxesCorners2D{axes: axes.to_vec(), corners: b };
+        match sat(&a, &b) {
             SatResult::Overlap { normal, depth } => {
-                // a:[0,√2], b:[√2/2, 3√2/2] → overlap = √2 - √2/2 = √2/2 ≈ 0.7071.
-                assert!(approx(depth, std::f32::consts::FRAC_1_SQRT_2), "depth {depth}");
-                // b is up-right of a → normal points +x,+y.
+                assert!(
+                    approx(depth, std::f32::consts::FRAC_1_SQRT_2),
+                    "depth {depth}"
+                );
                 assert!(normal[0] > 0.0 && normal[1] > 0.0, "normal {normal:?}");
             }
             other => panic!("expected overlap, got {other:?}"),
@@ -1959,13 +1932,13 @@ mod sat_tests {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let axes: [[f32; 2]; 0] = [];
-        match sat_check(&a, &b, &axes) {
+        let a = AxesCorners2D{axes: axes.to_vec(), corners: a };
+        let b = AxesCorners2D{axes: axes.to_vec(), corners: b };
+        match sat(&a, &b) {
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.0)),
             other => panic!("expected overlap, got {other:?}"),
         }
     }
-
-    // --- Trait-based narrow phase: `sat` over `TaggedNDimBounds` (`Sat` impl) ---
 
     /// Axis-aligned 2D box centered at `(cx, cz)` with half-extent `h`.
     fn boxd(cx: f32, cz: f32, h: f32) -> TaggedNDimBounds {
@@ -1986,8 +1959,8 @@ mod sat_tests {
     #[test]
     fn sat_aabb_overlap_and_separation() {
         let a = boxd(0.0, 0.0, 0.5);
-        assert!(sat(&a, &boxd(0.5, 0.0, 0.5)), "overlapping boxes must hit");
-        assert!(!sat(&a, &boxd(2.0, 0.0, 0.5)), "gapped boxes must not hit");
+        assert!(sat(&a, &boxd(0.5, 0.0, 0.5)).hit(), "overlapping boxes must hit");
+        assert!(!sat(&a, &boxd(2.0, 0.0, 0.5)).hit(), "gapped boxes must not hit");
     }
 
     #[test]
@@ -1999,8 +1972,8 @@ mod sat_tests {
         // Axis-aligned, its thin side faces `still` along dim1 with a clear gap.
         let bar = boxd2(0.0, 1.0, 2.0, 0.2);
         assert!(
-            !sat(&still, &bar),
-            "thin side faces the square — should be separated"
+            !sat(&still, &bar).hit(),
+            "thin side faces the square: should be separated"
         );
 
         // Rotate the bar 90° in-plane (about z): its long side now faces `still`,
@@ -2008,7 +1981,7 @@ mod sat_tests {
         // changes because the narrow phase uses the true oriented geometry.
         let bar_rot = bar.rotated(Quaternion::from_axis_angle(Vector3::unit_z(), Deg(90.0)));
         assert!(
-            sat(&still, &bar_rot),
+            sat(&still, &bar_rot).hit(),
             "rotated long side reaches the square — should overlap"
         );
     }
@@ -2019,10 +1992,8 @@ mod sat_tests {
         // A unit square rotated 45° in-plane (about z) has an enclosing AABB whose
         // half-width grows from 0.5 to ~0.5·√2 ≈ 0.707. `interval()` (broad phase)
         // must report that wider box so it never misses a real collision.
-        let b = boxd(0.0, 0.0, 0.5).rotated(Quaternion::from_axis_angle(
-            Vector3::unit_z(),
-            Deg(45.0),
-        ));
+        let b =
+            boxd(0.0, 0.0, 0.5).rotated(Quaternion::from_axis_angle(Vector3::unit_z(), Deg(45.0)));
         let (lo, hi) = b.interval(0);
         let half = (hi - lo) * 0.5;
         assert!(

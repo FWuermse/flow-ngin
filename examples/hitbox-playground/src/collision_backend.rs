@@ -1,8 +1,6 @@
 use cgmath::Matrix3;
 use flow_ngin::{
     Quaternion, Vector3,
-use flow_ngin::{
-    Vector3,
     data_structures::collision::{
         BruteForce, Bounds, CollisionTest, Hitbox, HitGridND, SparseHitGridND, SpatialTree,
         TaggedNDimBounds,
@@ -21,12 +19,10 @@ pub fn make_hitbox_for(p: &PlacedObject) -> TaggedNDimBounds {
 }
 
 fn world_to_hitbox_dim_rotation(world: Quaternion<f32>) -> Quaternion<f32> {
-    // S swaps the y and z basis vectors, mapping world (x,y,z) onto the hitbox's
-    // (x,z,y) dimension order. S is its own inverse.
     let s = Matrix3::new(
-        1.0, 0.0, 0.0, // column 0 -> x
-        0.0, 0.0, 1.0, // column 1 -> z
-        0.0, 1.0, 0.0, // column 2 -> y
+        1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0,
+        0.0, 1.0, 0.0,
     );
     let m_dim = s * Matrix3::from(world) * s;
     Quaternion::from(m_dim)
@@ -150,10 +146,6 @@ impl CollisionBackend {
         }
     }
 
-    /// Returns line segment pairs `[start, end]` for visualising the partition structure.
-    /// For grids: regular cell-boundary lines.
-    /// For SpatialTree: node AABB edges.
-    /// For BruteForce: world bounding box.
     pub fn partition_lines(&self, detection_dims: u8) -> Vec<[Vector3<f32>; 2]> {
         let wh = WORLD_HALF;
         let cl = CELL_SIZE;

@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "flow-ngin"
-version = "0.1.14"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -1073,7 +1073,8 @@ dependencies = [
 [[package]]
 name = "glyphon"
 version = "0.11.0"
-source = "git+https://github.com/grovesNL/glyphon.git#5ac022456ad16ae3ddb60c4f1db1f0f63e412571"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68dde9640ec6f986f59a265b4c0a5177f61e87e3ba71983b2195dab119cda0fa"
 dependencies = [
  "cosmic-text",
  "etagere",
