@@ -2,7 +2,7 @@ use cgmath::Matrix3;
 use flow_ngin::{
     Quaternion, Vector3,
     data_structures::collision::{
-        BruteForce, Bounds, CollisionTest, Hitbox, HitGridND, SparseHitGridND, SpatialTree,
+        BruteForce, Bounded, Bounds, CollisionTest, HitGridND, SparseHitGridND, SpatialTree,
         TaggedNDimBounds,
     },
     pick::PickId,
@@ -63,7 +63,7 @@ pub enum CollisionBackend {
     SparseGrid1D(SparseHitGridND<TaggedNDimBounds, 1>),
     SparseGrid2D(SparseHitGridND<TaggedNDimBounds, 2>),
     SparseGrid3D(SparseHitGridND<TaggedNDimBounds, 3>),
-    Tree(SpatialTree<TaggedNDimBounds>),
+    Tree(SpatialTree<TaggedNDimBounds, TaggedNDimBounds>),
     BruteForce(BruteForce<TaggedNDimBounds>),
 }
 
@@ -233,7 +233,7 @@ fn grid_lines_3d(wh: f32, cl: f32) -> Vec<[Vector3<f32>; 2]> {
 }
 
 fn tree_lines(
-    tree: &SpatialTree<TaggedNDimBounds>,
+    tree: &SpatialTree<TaggedNDimBounds, TaggedNDimBounds>,
     detection_dims: u8,
 ) -> Vec<[Vector3<f32>; 2]> {
     let mut lines = Vec::new();

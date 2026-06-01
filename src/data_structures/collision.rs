@@ -20,13 +20,25 @@ use cgmath::{One, Quaternion, Rotation, Vector3};
 
 use crate::pick::PickId;
 
-pub trait Hitbox {
-    fn submerges(&self, other: &Self) -> bool;
-    fn overlaps(&self, other: &Self) -> bool;
+/// A shape that lives *inside* a detection space: it exposes its enclosing
+/// axis-aligned interval per dimension, which the broad phase uses for bucketing.
+///
+/// This is the *object* side of detection. The *space* side (grid cells, tree
+/// nodes, world bounds) is described by [`Region`]. A type may be only `Bounded`
+/// (a plain object), only a [`Region`], or both (as [`TaggedNDimBounds`] is).
+pub trait Bounded {
+    fn interval(&self, dimension: usize) -> (f32, f32);
+}
+
+/// A spatial-partition region that stores and routes [`Bounded`] objects of
+/// type `T`. A region can report whether it contains or touches an object and
+/// can subdivide itself; this is what a [`SpatialTree`] node is built from.
+pub trait Region<T: Bounded> {
+    fn submerges(&self, other: &T) -> bool;
+    fn overlaps(&self, other: &T) -> bool;
     fn split(&self) -> Vec<Self>
     where
         Self: Sized;
-    fn interval(&self, dimension: usize) -> (f32, f32);
 }
 
 pub trait Convex {
@@ -34,37 +46,10 @@ pub trait Convex {
 }
 
 /// Bloom filter like hit testing using hitbox intervals
-pub trait CollisionTest<T: Hitbox> {
+pub trait CollisionTest<T: Bounded> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T>;
     fn insert(&mut self, hitbox: T) -> Vec<T>;
     fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T>;
-}
-
-pub struct CollisionDetection<C: CollisionTest<H>, H: Hitbox> {
-    collision_test: C,
-    _pd: PhantomData<H>,
-}
-impl<C: CollisionTest<H>, H: Hitbox + Convex + Clone> CollisionDetection<C, H> {
-    fn insert(&mut self, hitbox: H) -> Vec<H> {
-        let possible_collisison = self.collision_test.insert(hitbox.clone());
-        let collisions: Vec<_> = possible_collisison
-            .into_iter()
-            .filter(|hb| sat(&hitbox, hb).hit())
-            .collect();
-        return collisions;
-    }
-
-    fn hits(&self, hitbox: &H) -> Vec<H> {
-        let possible_collisison = self.collision_test.hit_candidates(hitbox.clone());
-        let collisions: Vec<_> = possible_collisison
-            .into_iter()
-            .filter(|hb| sat(hitbox, hb).hit())
-            .collect();
-        return collisions;
-    }
-}
-impl CollisionDetection<HitGridND<TaggedNDimBounds, 2>, TaggedNDimBounds> {
-
 }
 
 /// Result of a Separating Axis Theorem test between two convex point sets.
@@ -199,9 +184,18 @@ impl Bounds {
         }
     }
 }
-impl Hitbox for Bounds {
+impl Bounded for Bounds {
+    fn interval(&self, _: usize) -> (f32, f32) {
+        (self.lower_bound, self.upper_bound)
+    }
+}
+impl Region<Bounds> for Bounds {
     fn submerges(&self, other: &Self) -> bool {
         self.lower_bound < other.lower_bound && self.upper_bound > other.upper_bound
+    }
+
+    fn overlaps(&self, other: &Self) -> bool {
+        self.lower_bound <= other.upper_bound && self.upper_bound >= other.lower_bound
     }
 
     fn split(&self) -> Vec<Self> {
@@ -219,21 +213,13 @@ impl Hitbox for Bounds {
         };
         return vec![left, right];
     }
-
-    fn overlaps(&self, other: &Self) -> bool {
-        self.lower_bound <= other.upper_bound && self.upper_bound >= other.lower_bound
-    }
-
-    fn interval(&self, _: usize) -> (f32, f32) {
-        (self.lower_bound, self.upper_bound)
-    }
 }
 
 /// Represents a hitbox as n-dimensional lower and upper bound tagged with a PickId to backtrack hit objects
 ///
 /// The `bounds` describe the box in its *local* (un-rotated) frame; `rotation`
-/// orients it about its center. The broad phase (via [`Hitbox::interval`]) always
-/// sees the enclosing axis-aligned box, while the narrow phase (via [`Sat`]) sees
+/// orients it about its center. The broad phase (via [`Bounded::interval`]) always
+/// sees the enclosing axis-aligned box, while the narrow phase (via [`Convex`]) sees
 /// the true oriented corners and face normals. `rotation` only affects the first
 /// up to three dimensions (it maps `dim0,dim1,dim2` to `x,y,z`); higher dimensions
 /// are left axis-aligned. The default rotation is the identity, in which case the
@@ -331,7 +317,7 @@ impl Convex for TaggedNDimBounds {
     }
 }
 
-impl Hitbox for TaggedNDimBounds {
+impl Region<TaggedNDimBounds> for TaggedNDimBounds {
     fn submerges(&self, other: &Self) -> bool {
         let self_dim = self.bounds.len();
         let other_dim = other.bounds.len();
@@ -394,6 +380,9 @@ impl Hitbox for TaggedNDimBounds {
             })
     }
 
+}
+
+impl Bounded for TaggedNDimBounds {
     fn interval(&self, dimension: usize) -> (f32, f32) {
         let Some(bounds) = self.bounds.get(dimension) else {
             return (0.0, 0.0);
@@ -416,15 +405,15 @@ impl Hitbox for TaggedNDimBounds {
     }
 }
 
-pub struct SpatialTree<T> {
+pub struct SpatialTree<R, T> {
     threshold: usize,
-    bounds: T,
-    children: Option<Vec<SpatialTree<T>>>,
+    bounds: R,
+    children: Option<Vec<SpatialTree<R, T>>>,
     hitboxes: Vec<T>,
 }
 
-impl<T: Hitbox + Clone> SpatialTree<T> {
-    pub fn new(threshold: usize, bounds: T) -> Self {
+impl<R: Region<T>, T: Bounded + Clone> SpatialTree<R, T> {
+    pub fn new(threshold: usize, bounds: R) -> Self {
         Self {
             threshold,
             bounds,
@@ -433,11 +422,11 @@ impl<T: Hitbox + Clone> SpatialTree<T> {
         }
     }
 
-    pub fn visit_bounds(&self, f: &mut impl FnMut(&T, usize)) {
+    pub fn visit_bounds(&self, f: &mut impl FnMut(&R, usize)) {
         self.visit_bounds_inner(f, 0);
     }
 
-    fn visit_bounds_inner(&self, f: &mut impl FnMut(&T, usize), depth: usize) {
+    fn visit_bounds_inner(&self, f: &mut impl FnMut(&R, usize), depth: usize) {
         f(&self.bounds, depth);
         if let Some(children) = &self.children {
             for child in children {
@@ -463,7 +452,7 @@ pub fn cartesian<T: Clone>(arrs: &[Vec<T>]) -> Vec<Vec<T>> {
     return results;
 }
 
-impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
+impl<R: Region<T>, T: Bounded + Clone> CollisionTest<T> for SpatialTree<R, T> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
         let mut result = vec![];
         // All items at this node are partition-mates — include without geometric filter.
@@ -506,7 +495,7 @@ impl<T: Hitbox + Clone> CollisionTest<T> for SpatialTree<T> {
                     return possible_collisions;
                 } else {
                     let sub_bounds: Vec<_> = self.bounds.split();
-                    let mut sub_trees: Vec<SpatialTree<T>> = sub_bounds
+                    let mut sub_trees: Vec<SpatialTree<R, T>> = sub_bounds
                         .into_iter()
                         .map(|sb| SpatialTree {
                             threshold: self.threshold,
@@ -572,7 +561,7 @@ pub struct HitGridND<T, const N: usize> {
     cells: Vec<Vec<T>>,
 }
 
-impl<T: Hitbox + Clone, const N: usize> HitGridND<T, N> {
+impl<T: Bounded + Clone, const N: usize> HitGridND<T, N> {
     pub fn new(origin: [f32; N], grid_dims: [f32; N], cell_len: f32) -> Self {
         let dims: [usize; N] = std::array::from_fn(|i| (grid_dims[i] / cell_len).ceil() as usize);
 
@@ -643,7 +632,7 @@ fn for_each_cell<const N: usize>(ranges: &[(i32, i32); N], mut f: impl FnMut(&[i
     }
 }
 
-impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
+impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
         let Some(ranges) = self.cell_ranges(&hitbox) else {
             return vec![];
@@ -732,7 +721,7 @@ pub struct SparseHitGridND<T, const N: usize> {
     cells: HashMap<[i32; N], Vec<T>>,
 }
 
-impl<T: Hitbox + Clone, const N: usize> SparseHitGridND<T, N> {
+impl<T: Bounded + Clone, const N: usize> SparseHitGridND<T, N> {
     pub fn new(cell_len: f32) -> Self {
         Self {
             cell_len,
@@ -757,7 +746,7 @@ impl<T: Hitbox + Clone, const N: usize> SparseHitGridND<T, N> {
     }
 }
 
-fn lex_smallest_shared_cell<T: Hitbox, const N: usize>(cell_len: f32, a: &T, b: &T) -> [i32; N] {
+fn lex_smallest_shared_cell<T: Bounded, const N: usize>(cell_len: f32, a: &T, b: &T) -> [i32; N] {
     let mut result = [0i32; N];
     for d in 0..N {
         let (lower_bound_a, _) = a.interval(d);
@@ -768,7 +757,7 @@ fn lex_smallest_shared_cell<T: Hitbox, const N: usize>(cell_len: f32, a: &T, b: 
     result
 }
 
-impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, N> {
+impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, N> {
     fn hit_candidates(&self, hitbox: T) -> Vec<T> {
         let ranges = self.cell_ranges(&hitbox);
         let cell_len = self.cell_len;
@@ -816,23 +805,23 @@ impl<T: Hitbox + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, 
 
 /// Brute-force O(n²) collision detection — checks every hitbox against every other.
 /// Useful as a reference implementation and for small scenes where setup overhead matters.
-pub struct BruteForce<T: Hitbox> {
+pub struct BruteForce<T: Bounded> {
     hitboxes: Vec<T>,
 }
 
-impl<T: Hitbox + Clone> BruteForce<T> {
+impl<T: Bounded + Clone> BruteForce<T> {
     pub fn new() -> Self {
         Self { hitboxes: vec![] }
     }
 }
 
-impl<T: Hitbox + Clone> Default for BruteForce<T> {
+impl<T: Bounded + Clone> Default for BruteForce<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Hitbox + Clone> CollisionTest<T> for BruteForce<T> {
+impl<T: Bounded + Clone> CollisionTest<T> for BruteForce<T> {
     fn hit_candidates(&self, _hitbox: T) -> Vec<T> {
         self.hitboxes.clone()
     }
@@ -895,7 +884,7 @@ mod tests {
 
     #[test]
     fn should_split_area_if_threshold_exceeded() {
-        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+        let mut tree: SpatialTree<TaggedNDimBounds, TaggedNDimBounds> = SpatialTree {
             threshold: 4,
             bounds: TaggedNDimBounds::new(
                 vec![Bounds::new(-2.0, 8.0), Bounds::new(4.0, 5.0)],
@@ -951,7 +940,7 @@ mod tests {
 
     #[test]
     fn should_split_area_if_threshold_exceeded_insert_order_changed() {
-        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+        let mut tree: SpatialTree<TaggedNDimBounds, TaggedNDimBounds> = SpatialTree {
             threshold: 4,
             bounds: TaggedNDimBounds::new(
                 vec![Bounds::new(-2.0, 8.0), Bounds::new(4.0, 5.0)],
@@ -1088,7 +1077,7 @@ mod tests {
         tree_bounds: TaggedNDimBounds,
         threshold: usize,
     ) -> HashSet<(u32, u32)> {
-        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+        let mut tree: SpatialTree<TaggedNDimBounds, TaggedNDimBounds> = SpatialTree {
             threshold,
             bounds: tree_bounds,
             children: None,
@@ -1234,7 +1223,7 @@ mod tests {
     fn tree_broad_phase_returns_superset_of_true_overlaps() {
         // Even without filtering by overlaps(), the tree must return at
         // least every box that actually overlaps the inserted one.
-        let mut tree: SpatialTree<TaggedNDimBounds> = SpatialTree {
+        let mut tree: SpatialTree<TaggedNDimBounds, TaggedNDimBounds> = SpatialTree {
             threshold: 3,
             bounds: root_bounds([(0.0, 100.0), (0.0, 100.0)]),
             children: None,
