@@ -30,7 +30,7 @@ When the window is resized, the wgpu surface, depth texture, and 3D camera proje
 
 ## Options Considered
 
-### Option A — Re-resolve the layout tree on resize
+### Option A: Re-resolve the layout tree on resize
 
 After `state.resize()` updates `ctx.config`, walk every top-level `GraphicsFlow` that is also a `UIElement` and call `resolve(0, 0, new_w, new_h, &queue)`. Each component's `resolve()` already updates its vertex buffer via `queue.write_buffer`; it just needs the stored `screen_width/screen_height` refreshed first.
 
@@ -45,13 +45,13 @@ After `state.resize()` updates `ctx.config`, walk every top-level `GraphicsFlow`
 
 | Dimension | Assessment |
 |---|---|
-| Scope of change | Small — add one method per component, one call site in `resize()` |
-| Correctness | Full — re-resolves the entire layout tree with correct dimensions |
+| Scope of change | Small: add one method per component, one call site in `resize()` |
+| Correctness | Full: re-resolves the entire layout tree with correct dimensions |
 | Performance | Re-uploads vertex buffers for every UI quad on each resize event; negligible for typical UI sizes (O(10–100) elements) |
 | Existing API compatibility | `Layout::resolve()` signature unchanged; new method is additive |
-| Handles nested layouts | Yes — `Container::resolve()` already recurses into children |
+| Handles nested layouts | Yes: `Container::resolve()` already recurses into children |
 
-### Option B — Use a GPU uniform for screen dimensions instead of baking NDC into vertices
+### Option B: Use a GPU uniform for screen dimensions instead of baking NDC into vertices
 
 Replace the per-vertex NDC bake with a uniform buffer containing `(screen_width, screen_height)`. The vertex shader divides pixel coordinates by the uniform to produce clip-space positions. On resize, only the single uniform buffer needs updating.
 
@@ -60,17 +60,17 @@ Replace the per-vertex NDC bake with a uniform buffer containing `(screen_width,
 1. Add a `screen_size: Buffer` uniform to the GUI pipeline bind group layout.
 2. Change `vertices_from_coords` to emit pixel coordinates instead of NDC.
 3. Modify the vertex shader to: `clip_x = -1.0 + 2.0 * pixel_x / screen_w` (and analogous for y).
-4. On resize, `queue.write_buffer(&screen_size_uniform, ...)` — one write, all quads correct.
+4. On resize, `queue.write_buffer(&screen_size_uniform, ...)`.
 
 | Dimension | Assessment |
 |---|---|
-| Scope of change | Medium — shader change, pipeline layout change, vertex format change, all components that create vertices |
-| Correctness | Full — all quads automatically correct after one uniform update |
-| Performance | Best — single 8-byte buffer write per resize; no per-element vertex re-upload |
-| Existing API compatibility | Breaking — vertex data format changes, shader changes, bind group layout changes |
+| Scope of change | Medium: shader change, pipeline layout change, vertex format change, all components that create vertices |
+| Correctness | Full: all quads automatically correct after one uniform update |
+| Performance | Best: single 8-byte buffer write per resize; no per-element vertex re-upload |
+| Existing API compatibility | Breaking: vertex data format changes, shader changes, bind group layout changes |
 | Handles nested layouts | Position resolution still needed, but NDC conversion moves to GPU |
 
-### Option C — Handle `WindowEvent::Resized` in `on_window_events` per component
+### Option C: Handle `WindowEvent::Resized` in `on_window_events` per component
 
 Each component that caches screen dimensions listens for `WindowEvent::Resized` in its existing `on_window_events` hook, updates its cached values, and re-resolves itself.
 
@@ -82,10 +82,10 @@ Each component that caches screen dimensions listens for `WindowEvent::Resized` 
 | Dimension | Assessment |
 |---|---|
 | Scope of change | Small per component, but scattered across every UI type |
-| Correctness | Fragile — each component must independently handle resize correctly; easy to miss one |
+| Correctness | Fragile: each component must independently handle resize correctly; easy to miss one |
 | Performance | Same as Option A (per-element vertex re-upload) |
 | Existing API compatibility | No trait changes; uses existing `on_window_events` hook |
-| Handles nested layouts | Partially — each component re-resolves independently, but parent→child dimension propagation requires the parent to re-resolve children too |
+| Handles nested layouts | Partially: each component re-resolves independently, but parent→child dimension propagation requires the parent to re-resolve children too |
 | Event ordering issue | Currently `on_window_events` is dispatched **before** `state.resize()` updates `ctx.config` (flow.rs:811–826), so `ctx.config.width/height` would still be stale when the component handles the event. This requires reordering the event dispatch or extracting size from the event directly. |
 
 ## Recommendation

@@ -18,7 +18,7 @@ use std::{collections::HashMap, marker::PhantomData};
 
 use cgmath::{One, Quaternion, Rotation, Vector3};
 
-use crate::pick::PickId;
+use crate::{data_structures::instance::Instance, pick::PickId};
 
 /// A shape that lives *inside* a detection space: it exposes its enclosing
 /// axis-aligned interval per dimension, which the broad phase uses for bucketing.
@@ -379,7 +379,6 @@ impl Region<TaggedNDimBounds> for TaggedNDimBounds {
                 prev_sub && self_i.overlaps(other_i)
             })
     }
-
 }
 
 impl Bounded for TaggedNDimBounds {
@@ -402,6 +401,147 @@ impl Bounded for TaggedNDimBounds {
             }
         }
         (min, max)
+    }
+}
+
+struct PlaneHitbox {
+    center: [f32; 2],
+    half: [f32; 2],
+    rotation: Quaternion<f32>,
+    id: PickId,
+}
+
+impl PlaneHitbox {
+    pub fn new(instance: &Instance, width: f32, depth: f32, id: impl Into<PickId>) -> Self {
+        Self {
+            center: [instance.position.x, instance.position.z],
+            half: [width * 0.5, depth * 0.5],
+            rotation: instance.rotation,
+            id: id.into(),
+        }
+    }
+
+    pub fn id(&self) -> PickId {
+        self.id
+    }
+
+    fn rotate_xz(&self, dx: f32, dz: f32) -> [f32; 2] {
+        let r = self.rotation.rotate_vector(Vector3::new(dx, 0.0, dz));
+        [r.x, r.z]
+    }
+
+    fn corners(&self) -> Vec<Vec<f32>> {
+        let (hx, hz) = (self.half[0], self.half[1]);
+        [(-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz)]
+            .iter()
+            .map(|&(dx, dz)| {
+                let [ox, oz] = self.rotate_xz(dx, dz);
+                vec![self.center[0] + ox, self.center[1] + oz]
+            })
+            .collect()
+    }
+}
+
+impl Bounded for PlaneHitbox {
+    fn interval(&self, dimension: usize) -> (f32, f32) {
+        let d = dimension.min(1);
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        for corner in self.corners() {
+            min = min.min(corner[d]);
+            max = max.max(corner[d]);
+        }
+        (min, max)
+    }
+}
+
+impl Convex for PlaneHitbox {
+    fn points_and_axes(&self) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+        let x_axis = self.rotate_xz(1.0, 0.0);
+        let z_axis = self.rotate_xz(0.0, 1.0);
+        let axes = vec![x_axis.to_vec(), z_axis.to_vec()];
+        (self.corners(), axes)
+    }
+}
+
+pub struct CubeHitbox {
+    center: [f32; 3],
+    half: [f32; 3],
+    rotation: Quaternion<f32>,
+    id: PickId,
+}
+
+impl CubeHitbox {
+    pub fn new(
+        instance: &Instance,
+        width: f32,
+        height: f32,
+        depth: f32,
+        id: impl Into<PickId>,
+    ) -> Self {
+        Self {
+            center: [
+                instance.position.x,
+                instance.position.y,
+                instance.position.z,
+            ],
+            half: [width * 0.5, height * 0.5, depth * 0.5],
+            rotation: instance.rotation,
+            id: id.into(),
+        }
+    }
+
+    pub fn id(&self) -> PickId {
+        self.id
+    }
+
+    /// Rotate a local offset by the instance quaternion.
+    fn rotate(&self, dx: f32, dy: f32, dz: f32) -> [f32; 3] {
+        let r = self.rotation.rotate_vector(Vector3::new(dx, dy, dz));
+        [r.x, r.y, r.z]
+    }
+
+    /// The eight oriented world-space corners as (x, y, z) points.
+    fn corners(&self) -> Vec<Vec<f32>> {
+        let (hx, hy, hz) = (self.half[0], self.half[1], self.half[2]);
+        let mut out = Vec::with_capacity(8);
+        for &sx in &[-1.0, 1.0] {
+            for &sy in &[-1.0, 1.0] {
+                for &sz in &[-1.0, 1.0] {
+                    let [ox, oy, oz] = self.rotate(sx * hx, sy * hy, sz * hz);
+                    out.push(vec![
+                        self.center[0] + ox,
+                        self.center[1] + oy,
+                        self.center[2] + oz,
+                    ]);
+                }
+            }
+        }
+        out
+    }
+}
+
+impl Bounded for CubeHitbox {
+    fn interval(&self, dimension: usize) -> (f32, f32) {
+        let d = dimension.min(2); // dim0=x, dim1=y, dim2=z
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        for corner in self.corners() {
+            min = min.min(corner[d]);
+            max = max.max(corner[d]);
+        }
+        (min, max)
+    }
+}
+
+impl Convex for CubeHitbox {
+    fn points_and_axes(&self) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
+        let axes = vec![
+            self.rotate(1.0, 0.0, 0.0).to_vec(), // local +x
+            self.rotate(0.0, 1.0, 0.0).to_vec(), // local +y
+            self.rotate(0.0, 0.0, 1.0).to_vec(), // local +z
+        ];
+        (self.corners(), axes)
     }
 }
 
@@ -1809,8 +1949,14 @@ mod sat_tests {
     fn overlap_2d_known_depth() {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.5, 0.0], [1.5, 1.0]);
-        let a = AxesCorners2D{axes: AXES_2D.to_vec(), corners: a };
-        let b = AxesCorners2D{axes: AXES_2D.to_vec(), corners: b };
+        let a = AxesCorners2D {
+            axes: AXES_2D.to_vec(),
+            corners: a,
+        };
+        let b = AxesCorners2D {
+            axes: AXES_2D.to_vec(),
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Overlap { normal, depth } => {
                 assert!(approx(depth, 0.5), "depth was {depth}");
@@ -1828,8 +1974,14 @@ mod sat_tests {
     fn separated_2d_known_gap() {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([2.0, 0.0], [3.0, 1.0]);
-        let a = AxesCorners2D{axes: AXES_2D.to_vec(), corners: a };
-        let b = AxesCorners2D{axes: AXES_2D.to_vec(), corners: b };
+        let a = AxesCorners2D {
+            axes: AXES_2D.to_vec(),
+            corners: a,
+        };
+        let b = AxesCorners2D {
+            axes: AXES_2D.to_vec(),
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Separated { axis, gap } => {
                 assert!(approx(gap, 1.0), "gap was {gap}");
@@ -1846,8 +1998,14 @@ mod sat_tests {
     fn touching_2d_is_zero_depth_overlap() {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([1.0, 0.0], [2.0, 1.0]);
-        let a = AxesCorners2D{axes: AXES_2D.to_vec(), corners: a };
-        let b = AxesCorners2D{axes: AXES_2D.to_vec(), corners: b };
+        let a = AxesCorners2D {
+            axes: AXES_2D.to_vec(),
+            corners: a,
+        };
+        let b = AxesCorners2D {
+            axes: AXES_2D.to_vec(),
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.0), "depth {depth}"),
             other => panic!("expected overlap, got {other:?}"),
@@ -1858,8 +2016,14 @@ mod sat_tests {
     fn overlap_3d() {
         let a = aabb_corners([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let b = aabb_corners([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
-        let a = AxesCorners3D{axes: AXES_3D, corners: a };
-        let b = AxesCorners3D{axes: AXES_3D, corners: b };
+        let a = AxesCorners3D {
+            axes: AXES_3D,
+            corners: a,
+        };
+        let b = AxesCorners3D {
+            axes: AXES_3D,
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.5), "depth {depth}"),
             other => panic!("expected overlap, got {other:?}"),
@@ -1870,8 +2034,14 @@ mod sat_tests {
     fn separated_3d() {
         let a = aabb_corners([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let b = aabb_corners([0.0, 2.0, 0.0], [1.0, 3.0, 1.0]);
-        let a = AxesCorners3D{axes: AXES_3D, corners: a };
-        let b = AxesCorners3D{axes: AXES_3D, corners: b };
+        let a = AxesCorners3D {
+            axes: AXES_3D,
+            corners: a,
+        };
+        let b = AxesCorners3D {
+            axes: AXES_3D,
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Separated { axis, gap } => {
                 assert!(approx(gap, 1.0), "gap {gap}");
@@ -1887,8 +2057,14 @@ mod sat_tests {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.5, 0.0], [1.5, 1.0]);
         let axes = [[5.0_f32, 0.0]];
-        let a = AxesCorners2D{axes: axes.to_vec(), corners: a };
-        let b = AxesCorners2D{axes: vec![], corners: b };
+        let a = AxesCorners2D {
+            axes: axes.to_vec(),
+            corners: a,
+        };
+        let b = AxesCorners2D {
+            axes: vec![],
+            corners: b,
+        };
         match sat(&a, &b) {
             // Depth must be in world units (0.5), not scaled by the axis length.
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.5), "depth {depth}"),
@@ -1902,8 +2078,14 @@ mod sat_tests {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.5, 0.5], [1.5, 1.5]);
         let axes = [[1.0_f32, 1.0]];
-        let a = AxesCorners2D{axes: axes.to_vec(), corners: a };
-        let b = AxesCorners2D{axes: axes.to_vec(), corners: b };
+        let a = AxesCorners2D {
+            axes: axes.to_vec(),
+            corners: a,
+        };
+        let b = AxesCorners2D {
+            axes: axes.to_vec(),
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Overlap { normal, depth } => {
                 assert!(
@@ -1921,8 +2103,14 @@ mod sat_tests {
         let a = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let b = aabb_corners([0.0, 0.0], [1.0, 1.0]);
         let axes: [[f32; 2]; 0] = [];
-        let a = AxesCorners2D{axes: axes.to_vec(), corners: a };
-        let b = AxesCorners2D{axes: axes.to_vec(), corners: b };
+        let a = AxesCorners2D {
+            axes: axes.to_vec(),
+            corners: a,
+        };
+        let b = AxesCorners2D {
+            axes: axes.to_vec(),
+            corners: b,
+        };
         match sat(&a, &b) {
             SatResult::Overlap { depth, .. } => assert!(approx(depth, 0.0)),
             other => panic!("expected overlap, got {other:?}"),
@@ -1948,8 +2136,14 @@ mod sat_tests {
     #[test]
     fn sat_aabb_overlap_and_separation() {
         let a = boxd(0.0, 0.0, 0.5);
-        assert!(sat(&a, &boxd(0.5, 0.0, 0.5)).hit(), "overlapping boxes must hit");
-        assert!(!sat(&a, &boxd(2.0, 0.0, 0.5)).hit(), "gapped boxes must not hit");
+        assert!(
+            sat(&a, &boxd(0.5, 0.0, 0.5)).hit(),
+            "overlapping boxes must hit"
+        );
+        assert!(
+            !sat(&a, &boxd(2.0, 0.0, 0.5)).hit(),
+            "gapped boxes must not hit"
+        );
     }
 
     #[test]

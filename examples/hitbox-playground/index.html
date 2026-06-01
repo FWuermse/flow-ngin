@@ -1,26 +1,68 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8">
+    <meta charset="utf-8" />
     <title>Hitbox Playground</title>
-    <style>
-      body {
-        margin: 0;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        background: #1e1e1e;
-      }
-      canvas { display: block; }
-    </style>
+    <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
     <canvas id="canvas" width="1280" height="800"></canvas>
+    <div id="loader" role="status" aria-label="Loading">
+      <div class="scene">
+        <div class="cube-shadow">
+          <div class="face face-bottom"></div>
+        </div>
+        <div class="cube-shadow">
+          <div class="face face-bottom"></div>
+        </div>
+        <div class="blur">
+          <div class="cube-inner">
+            <div class="face face-front bg-color-in"></div>
+            <div class="face face-back bg-color-in"></div>
+            <div class="face face-right bg-color-in"></div>
+            <div class="face face-left bg-color-in"></div>
+            <div class="face face-top bg-color-in"></div>
+            <div class="face face-bottom bg-color-in"></div>
+          </div>
+        </div>
+        <div class="cube-outer">
+          <div class="face face-front bg-color-out">flow</div>
+          <div class="face face-back bg-color-out">Loading</div>
+          <div class="face face-right bg-color-out">NGIN</div>
+          <div class="face face-left bg-color-out">assets</div>
+          <div class="face face-top bg-color-out"></div>
+          <div class="face face-bottom bg-color-out"></div>
+        </div>
+        <div class="light"></div>
+        <div class="shadow"></div>
+      </div>
+    </div>
     <script type="module">
       import init, { run_web } from "./pkg/hitbox_playground.js";
-      await init();
-      run_web();
+ 
+      const loader = document.getElementById("loader");
+ 
+      function reveal() {
+        loader.classList.add("ready");
+        loader.addEventListener(
+          () => loader.remove(),
+          { once: true }
+        );
+      }
+ 
+      async function main() {
+        await init();
+        requestAnimationFrame(() => requestAnimationFrame(reveal));
+        try {
+          run_web();
+        } catch (err) {
+          console.debug("run_web unwound (expected on web):", err);
+        }
+      }
+ 
+      main().catch((err) => {
+        console.error("Hitbox Playground failed to load:", err);
+      });
     </script>
   </body>
 </html>

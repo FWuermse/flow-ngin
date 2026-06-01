@@ -1,0 +1,255 @@
+body {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #1e1e1e;
+}
+canvas {
+  display: block;
+}
+
+#loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #1e1e1e;
+  z-index: 10;
+  transition: opacity 0.45s ease;
+}
+#loader.ready {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.scene {
+  --cube-size: 120px;
+  --inner-multiplier: 0.5;
+  --color-inner: hsla(85, 100%, 50%, 0.85);
+  --color-outer: hsla(170, 70%, 50%, 0.2);
+  --blur: 2px;
+  --angle: -10deg;
+  --duration: 7s;
+
+  position: relative;
+  width: var(--cube-size);
+  height: var(--cube-size);
+  perspective: 750px;
+}
+
+.cube-outer,
+.cube-inner {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform-style: preserve-3d;
+}
+
+.cube-inner {
+  --inner-scale: clamp(0.1, var(--inner-multiplier), 0.6);
+  scale: var(--inner-scale);
+  top: 0;
+}
+
+.face {
+  user-select: none;
+  display: grid;
+  place-items: center;
+  position: absolute;
+  width: var(--cube-size);
+  height: var(--cube-size);
+  box-shadow:
+    inset 0 0 2px 0 #fff5,
+    inset 0 0 12px -8px #fff1,
+    inset 0 0 32px -10px #fff1,
+    inset 0 0 64px -8px #fff1,
+    inset 0 0 32px 16px #00000015;
+  overflow: clip;
+
+  font:
+    500 1em "Inter",
+    sans-serif;
+  letter-spacing: -0.01em;
+  color: #1247768b;
+  text-shadow:
+    0 3px 4px #0008,
+    0 -6px 6px #0005;
+  animation: blur var(--duration, 10s) linear infinite reverse;
+
+  &.face-front {
+    transform: rotateY(0deg) translateZ(calc(var(--cube-size) / 2));
+    animation-delay: 0s;
+  }
+
+  &.face-right {
+    transform: rotateY(90deg) translateZ(calc(var(--cube-size) / 2));
+    animation-delay: calc(var(--duration, 10s) * -0.75);
+  }
+
+  &.face-back {
+    transform: rotateY(180deg) translateZ(calc(var(--cube-size) / 2));
+    animation-delay: calc(var(--duration, 10s) * -0.5);
+  }
+
+  &.face-left {
+    transform: rotateY(-90deg) translateZ(calc(var(--cube-size) / 2));
+    animation-delay: calc(var(--duration, 10s) * -0.25);
+  }
+
+  &.face-top {
+    transform: rotateX(90deg) translateZ(calc(var(--cube-size) / 2));
+    animation: none;
+  }
+
+  &.face-bottom {
+    transform: rotateX(-90deg) translateZ(calc(var(--cube-size) / 2));
+    filter: blur(20px);
+    animation: none;
+  }
+}
+
+.cube-inner .face {
+  animation: none;
+  box-shadow:
+    inset 0 0 1px 0px #000e,
+    inset 0 0 12px -2px #0005,
+    inset 0 0 32px 0px #0001,
+    inset 0 0 64px 8px #0001;
+}
+
+@keyframes blur {
+  0%,
+  9% {
+    filter: blur(0px);
+  }
+
+  10%,
+  64% {
+    filter: blur(10px);
+  }
+
+  65%,
+  100% {
+    filter: blur(0px);
+  }
+}
+
+.bg-color-in {
+  background: var(--color-inner);
+}
+
+.bg-color-out {
+  background-color: var(--color-outer);
+  background: linear-gradient(to bottom, #fff5, #0000),
+    radial-gradient(
+      circle at 50% -50%,
+      var(--color-inner) -20%,
+      #fff0 30%,
+      var(--color-outer)
+    );
+}
+
+.cube-outer,
+.cube-inner {
+  transform: rotateX(-20deg) rotateY(45deg);
+}
+
+.cube-inner {
+  position: absolute;
+  transform-origin: calc(var(--cube-size) / 2) calc(var(--cube-size) / 2);
+  scale: clamp(0.1, var(--inner-multiplier), 0.6);
+  animation: rotate-inner calc(var(--duration, 10s) * 2) linear infinite;
+}
+
+.cube-outer {
+  animation: rotate var(--duration, 10s) linear infinite reverse;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotateX(clamp(-40deg, var(--angle), 40deg)) rotateY(45deg);
+  }
+
+  to {
+    transform: rotateX(clamp(-40deg, var(--angle), 40deg)) rotateY(405deg);
+  }
+}
+
+@keyframes rotate-inner {
+  from {
+    transform: rotateX(0deg) rotateY(45deg) rotateZ(0deg);
+  }
+
+  to {
+    transform: rotateX(360deg) rotateY(765deg) rotateZ(-360deg);
+  }
+}
+
+.blur {
+  filter: blur(clamp(1px, var(--blur, 7px), 20px));
+}
+
+.cube-shadow {
+  inset: 25%;
+  transform-style: preserve-3d;
+  position: absolute;
+  background-color: #00000015;
+  filter: blur(5px);
+  animation: rotate-shadow var(--duration, 10s) linear infinite;
+  z-index: 1;
+  mix-blend-mode: multiply;
+}
+
+.cube-shadow:nth-child(2) {
+  inset: 0%;
+  transform-style: preserve-3d;
+  position: absolute;
+  background-color: #00000015;
+  filter: blur(5px);
+  animation: rotate-shadow var(--duration, 10s) linear infinite reverse;
+  z-index: 0;
+}
+
+@keyframes rotate-shadow {
+  from {
+    transform: rotateX(calc(-100deg + clamp(-40deg, var(--angle), 40deg)))
+      rotateZ(45deg) translateZ(calc(var(--cube-size) / 1.5));
+  }
+
+  to {
+    transform: rotateX(calc(-100deg + clamp(-40deg, var(--angle), 40deg)))
+      rotateZ(405deg) translateZ(calc(var(--cube-size) / 1.5));
+  }
+}
+
+.scene .shadow {
+  position: absolute;
+  top: 45%;
+  left: 35%;
+  width: 50%;
+  aspect-ratio: 1 / 1.5;
+  background-color: #999;
+  border-radius: 50%;
+  transform: rotate(45deg);
+  filter: blur(24px);
+  mix-blend-mode: color-burn;
+}
+
+.scene .light {
+  position: absolute;
+  background-color: #555b;
+  filter: blur(30px);
+  mix-blend-mode: color-dodge;
+  inset: 22%;
+}
+
+.scene::before {
+  content: "";
+  position: absolute;
+  inset: -100%;
+  top: 50%;
+  background-color: #0002;
+  filter: blur(70px);
+}

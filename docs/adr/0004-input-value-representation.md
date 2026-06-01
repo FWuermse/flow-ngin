@@ -8,7 +8,7 @@
 
 - **ADR-0003** is a hard dependency: its adopted Option E (hybrid `Value<T>` + callbacks) influences but does not settle this ADR. If ADR-0003 had chosen Option C (shared value refs) instead, this ADR would need revisiting.
 - **Input Widgets Plan** implements this: `TextInput` callbacks take `&str`, `Checkbox` takes `bool`, `Slider` takes `f32` (exactly the typed-widget pattern).
-- If a **Form** component is added later (mentioned in ADR-0003 consequences and Option C here), it could be built on top of typed widgets without requiring a value enum — see Dynamic UI Plan Phase 1 for the runtime child management that a Form would also need.
+- If a **Form** component is added later (mentioned in ADR-0003 consequences and Option C here), it could be built on top of typed widgets without requiring a value enum (see Dynamic UI Plan Phase 1 for the runtime child management).
 
 ## Context
 
@@ -22,7 +22,7 @@ This decision interacts with ADR-0003 (input data flow). If callbacks (Option D)
 
 ## Options Considered
 
-### Option A — Universal value enum (`InputValue`)
+### Option A: Universal value enum (`InputValue`)
 
 ```rust
 pub enum InputValue {
@@ -38,14 +38,14 @@ Widgets produce `InputValue` variants. Consumers downcast via pattern matching.
 
 | Dimension | Assessment |
 |---|---|
-| Type safety | Weak — consumer must match and unwrap; wrong variant is a runtime error |
+| Type safety | Weak: consumer must match and unwrap; wrong variant is a runtime error |
 | Ergonomics | Easy to construct; tedious to consume (match + unwrap on every read) |
 | Generality | Handles any shape; extensible via `Composed` |
-| Compile-time checks | None — a text field could return `Bool` and compile fine |
+| Compile-time checks | None: a text field could return `Bool` and compile fine |
 | Trait requirements | Widgets implement a common `fn value() -> InputValue` |
 | Rust idiom | Uncommon; Rust prefers static typing over dynamic value bags |
 
-### Option B — Generic type parameter on input widgets
+### Option B: Generic type parameter on input widgets
 
 Each widget is parameterized by its value type:
 
@@ -59,14 +59,14 @@ The value type is implicit in the callback signature. No shared value enum is ne
 
 | Dimension | Assessment |
 |---|---|
-| Type safety | Strong — callback parameter type matches widget output at compile time |
+| Type safety | Strong: callback parameter type matches widget output at compile time |
 | Ergonomics | Clean; no matching/unwrapping |
 | Generality | Each widget type has a fixed value type; no dynamic composition |
-| Compile-time checks | Full — wrong callback signature is a compile error |
+| Compile-time checks | Full: wrong callback signature is a compile error |
 | Trait requirements | None beyond existing `UIElement<S, E>` |
 | Rust idiom | Standard; follows `Button`'s existing callback pattern |
 
-### Option C — Hybrid: typed widgets + optional value enum for forms
+### Option C: Hybrid: typed widgets + optional value enum for forms
 
 Widgets are typed (Option B). For form-level collection, a `Form` component gathers values into a user-defined struct via typed accessors or builder closures. No runtime value enum unless the user explicitly opts into one.
 
@@ -83,7 +83,7 @@ let form = Form::new()
 
 | Dimension | Assessment |
 |---|---|
-| Type safety | Strong — each field setter is typed |
+| Type safety | Strong: each field setter is typed |
 | Ergonomics | Good for common cases; form struct is user-defined |
 | Generality | User can define any struct shape; no engine-imposed schema |
 | Compile-time checks | Full |

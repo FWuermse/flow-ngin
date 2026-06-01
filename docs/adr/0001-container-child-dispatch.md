@@ -29,13 +29,13 @@ The container holds `Vec<UIChild>` and dispatches via `match`.
 | Dimension | Assessment |
 |---|---|
 | Runtime perf | Zero-cost: branch prediction, no heap alloc per child |
-| User creates UI | Simple — typed `with_icon` / `with_label` methods |
+| User creates UI | Typed `with_icon` / `with_label` methods |
 | User adds custom widget | **Not possible** without forking the library |
-| Lib adds new type | Edit enum + every match arm — touches multiple files |
+| Lib adds new type | Edit enum + every match arm: touches multiple files |
 | Boilerplate per new lib type | ~5 lines (variant + match arms) |
 | Boilerplate per new user type | N/A |
 
-### Option B — Open supertrait (`UIElement<S, E>`)
+### Option B: Open supertrait (`UIElement<S, E>`)
 
 ```rust
 pub trait UIElement<S, E>: GraphicsFlow<S, E> + Layout {}
@@ -47,9 +47,9 @@ The container holds `Vec<Box<dyn UIElement<S, E>>>` and dispatches via vtable.
 | Dimension | Assessment |
 |---|---|
 | Runtime perf | Vtable dispatch + one `Box` alloc per child (negligible for UI) |
-| User creates UI | Simple — single `with_child` method, accepts any `UIElement` |
-| User adds custom widget | **Yes** — implement `GraphicsFlow<S,E>` + `Layout`, blanket impl does the rest |
-| Lib adds new type | Just implement the two traits — no central file to edit |
+| User creates UI | Simple: single `with_child` method, accepts any `UIElement` |
+| User adds custom widget | **Yes** implement `GraphicsFlow<S,E>` + `Layout`, blanket impl does the rest |
+| Lib adds new type | Just implement the two traits |
 | Boilerplate per new lib type | ~1 line (blanket impl covers it automatically) |
 | Boilerplate per new user type | ~15–20 lines (two trait impls) |
 
@@ -57,7 +57,7 @@ The container holds `Vec<Box<dyn UIElement<S, E>>>` and dispatches via vtable.
 
 **Option B (supertrait) is adopted.**
 
-The performance difference is negligible: UI containers hold O(10–100) elements and render once per frame. A vtable call per child is not measurable. In exchange, the library becomes open for extension without modification — any type that implements `GraphicsFlow<S, E>` and `Layout` is automatically a valid container child via the blanket impl. This scales correctly as the widget set grows and enables user-defined widgets.
+The performance difference is negligible: UI containers hold O(10–100) elements and render once per frame. A vtable call per child is not measurable. In exchange, the library becomes open for extension without modification (any type that implements `GraphicsFlow<S, E>` and `Layout` is automatically a valid container child via the blanket impl). This scales correctly as the widget set grows and enables user-defined widgets.
 
 The `UIChild` enum is removed. `Container<S, E>` holds `Vec<Box<dyn UIElement<S, E>>>` and exposes a single `with_child` builder method.
 
