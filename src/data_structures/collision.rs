@@ -46,10 +46,51 @@ pub trait Convex {
 }
 
 /// Bloom filter like hit testing using hitbox intervals
-pub trait CollisionTest<T: Bounded> {
-    fn hit_candidates(&self, hitbox: T) -> Vec<T>;
-    fn insert(&mut self, hitbox: T) -> Vec<T>;
-    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T>;
+pub trait CollisionTest {
+    type Hitbox: Bounded + PartialEq + Clone;
+
+    fn hit_candidates(&self, hitbox: &Self::Hitbox) -> Vec<Self::Hitbox>;
+    fn insert(&mut self, hitbox: Self::Hitbox) -> Vec<Self::Hitbox>;
+    fn remove(&mut self, hitbox: &Self::Hitbox);
+}
+
+pub struct Collision<S>
+where
+    S: CollisionTest,
+{
+    space: S,
+}
+impl<S> Collision<S>
+where
+    S: CollisionTest,
+{
+    pub fn hit(&self, hitbox: S::Hitbox) -> Vec<S::Hitbox>
+    where
+        <S as CollisionTest>::Hitbox: Convex,
+    {
+        let candidates = self.space.hit_candidates(&hitbox);
+        let hits = candidates.into_iter().filter(|b| sat(&hitbox, b).hit());
+        hits.collect()
+    }
+
+    pub fn insert(&mut self, hitbox: S::Hitbox) {
+        self.space.insert(hitbox);
+    }
+
+    pub fn delete(&mut self, hitbox: S::Hitbox) {
+        self.space.remove(&hitbox);
+    }
+}
+
+impl Collision<SparseHitGridND<PlaneHitbox, 2>> {
+    pub fn new(cell_len: f32) -> Self {
+        Self {
+            space: SparseHitGridND {
+                cell_len,
+                cells: HashMap::new(),
+            },
+        }
+    }
 }
 
 /// Result of a Separating Axis Theorem test between two convex point sets.
@@ -171,7 +212,7 @@ fn project(points: &[Vec<f32>], axis: &[f32]) -> (f32, f32) {
     (min, max)
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Bounds {
     lower_bound: f32,
     upper_bound: f32,
@@ -224,7 +265,7 @@ impl Region<Bounds> for Bounds {
 /// up to three dimensions (it maps `dim0,dim1,dim2` to `x,y,z`); higher dimensions
 /// are left axis-aligned. The default rotation is the identity, in which case the
 /// box behaves exactly as a plain AABB.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct TaggedNDimBounds {
     bounds: Vec<Bounds>,
     rotation: Quaternion<f32>,
@@ -404,21 +445,30 @@ impl Bounded for TaggedNDimBounds {
     }
 }
 
-struct PlaneHitbox {
+#[derive(Clone, PartialEq)]
+pub struct PlaneHitbox {
     center: [f32; 2],
     half: [f32; 2],
     rotation: Quaternion<f32>,
     id: PickId,
+    idx: usize,
 }
 
 impl PlaneHitbox {
-    pub fn new(instance: &Instance, width: f32, depth: f32, id: impl Into<PickId>) -> Self {
-        Self {
+    pub fn new(
+        instance: &Instance,
+        width: f32,
+        depth: f32,
+        id: impl TryInto<PickId>,
+        idx: usize,
+    ) -> Option<Self> {
+        Some(Self {
             center: [instance.position.x, instance.position.z],
             half: [width * 0.5, depth * 0.5],
             rotation: instance.rotation,
-            id: id.into(),
-        }
+            id: id.try_into().ok()?,
+            idx,
+        })
     }
 
     pub fn id(&self) -> PickId {
@@ -464,11 +514,13 @@ impl Convex for PlaneHitbox {
     }
 }
 
+#[derive(Clone, PartialEq)]
 pub struct CubeHitbox {
     center: [f32; 3],
     half: [f32; 3],
     rotation: Quaternion<f32>,
     id: PickId,
+    idx: usize,
 }
 
 impl CubeHitbox {
@@ -477,9 +529,10 @@ impl CubeHitbox {
         width: f32,
         height: f32,
         depth: f32,
-        id: impl Into<PickId>,
-    ) -> Self {
-        Self {
+        id: impl TryInto<PickId>,
+        idx: usize,
+    ) -> Option<Self> {
+        Some(Self {
             center: [
                 instance.position.x,
                 instance.position.y,
@@ -487,8 +540,9 @@ impl CubeHitbox {
             ],
             half: [width * 0.5, height * 0.5, depth * 0.5],
             rotation: instance.rotation,
-            id: id.into(),
-        }
+            id: id.try_into().ok()?,
+            idx,
+        })
     }
 
     pub fn id(&self) -> PickId {
@@ -592,17 +646,16 @@ pub fn cartesian<T: Clone>(arrs: &[Vec<T>]) -> Vec<Vec<T>> {
     return results;
 }
 
-impl<R: Region<T>, T: Bounded + Clone> CollisionTest<T> for SpatialTree<R, T> {
-    fn hit_candidates(&self, hitbox: T) -> Vec<T> {
+impl<R: Region<T>, T: Bounded + Clone + PartialEq> CollisionTest for SpatialTree<R, T> {
+    fn hit_candidates(&self, hitbox: &T) -> Vec<T> {
         let mut result = vec![];
-        // All items at this node are partition-mates — include without geometric filter.
         result.extend(self.hitboxes.iter().cloned());
         if let Some(children) = &self.children {
             for child in children {
-                // Traverse only subtrees whose bounds overlap — this is spatial navigation,
+                // Traverse only subtrees whose bounds overlap,
                 // not a geometric overlap check on the stored items.
-                if child.bounds.overlaps(&hitbox) {
-                    result.extend(child.hit_candidates(hitbox.clone()));
+                if child.bounds.overlaps(hitbox) {
+                    result.extend(child.hit_candidates(hitbox));
                 }
             }
         }
@@ -624,7 +677,7 @@ impl<R: Region<T>, T: Bounded + Clone> CollisionTest<T> for SpatialTree<R, T> {
                 // anyway. This is just deferring it.
                 self.hitboxes.push(hitbox.clone());
                 for bisection in sub_trees {
-                    possible_collisions.append(&mut bisection.hit_candidates(hitbox.clone()));
+                    possible_collisions.append(&mut bisection.hit_candidates(&hitbox));
                 }
                 return possible_collisions;
             }
@@ -682,9 +735,18 @@ impl<R: Region<T>, T: Bounded + Clone> CollisionTest<T> for SpatialTree<R, T> {
         }
     }
 
-    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T> {
-        todo!()
+    fn remove(&mut self, hitbox: &T) {
+        self.hitboxes.retain(|h| h == hitbox);
+        if let Some(children) = &mut self.children {
+            for child in children {
+                if child.bounds.overlaps(hitbox) {
+                    child.remove(hitbox);
+                }
+            }
+        }
     }
+
+    type Hitbox = T;
 }
 
 /// An `N`-dimensional grid for collision detection.
@@ -772,8 +834,8 @@ fn for_each_cell<const N: usize>(ranges: &[(i32, i32); N], mut f: impl FnMut(&[i
     }
 }
 
-impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
-    fn hit_candidates(&self, hitbox: T) -> Vec<T> {
+impl<T: Bounded + Clone + PartialEq, const N: usize> CollisionTest for HitGridND<T, N> {
+    fn hit_candidates(&self, hitbox: &T) -> Vec<T> {
         let Some(ranges) = self.cell_ranges(&hitbox) else {
             return vec![];
         };
@@ -827,7 +889,7 @@ impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
 
             // Return all partition-mates (items in the same cell) without geometric
             // filtering. Lex-smallest dedup avoids reporting the same pair twice when
-            // two items share multiple cells — it operates on cell co-occupation only.
+            // if two items share multiple cells we operate on cell co-occupation only.
             for other in cell.iter() {
                 let mut unique = true;
                 for d in 0..N {
@@ -851,9 +913,17 @@ impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for HitGridND<T, N> {
         result
     }
 
-    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T> {
-        todo!()
+    fn remove(&mut self, hitbox: &T) {
+        let Some(ranges) = self.cell_ranges(&hitbox) else {
+            return;
+        };
+        for_each_cell(&ranges, |coord| {
+            let idx = self.flat_index(coord);
+            self.cells[idx].retain(|h| h == hitbox);
+        });
     }
+
+    type Hitbox = T;
 }
 
 pub struct SparseHitGridND<T, const N: usize> {
@@ -897,8 +967,8 @@ fn lex_smallest_shared_cell<T: Bounded, const N: usize>(cell_len: f32, a: &T, b:
     result
 }
 
-impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T, N> {
-    fn hit_candidates(&self, hitbox: T) -> Vec<T> {
+impl<T: Bounded + Clone + PartialEq, const N: usize> CollisionTest for SparseHitGridND<T, N> {
+    fn hit_candidates(&self, hitbox: &T) -> Vec<T> {
         let ranges = self.cell_ranges(&hitbox);
         let cell_len = self.cell_len;
         let mut possible_collisions = vec![];
@@ -907,7 +977,7 @@ impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T,
                 for other in cell {
                     // Lex-smallest dedup: report each pair only from the first
                     // shared cell, without any geometric overlap check.
-                    if *coord == lex_smallest_shared_cell(cell_len, &hitbox, other) {
+                    if *coord == lex_smallest_shared_cell(cell_len, hitbox, other) {
                         possible_collisions.push(other.clone());
                     }
                 }
@@ -924,7 +994,7 @@ impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T,
         for_each_cell(&ranges, |coord| {
             let cell = self.cells.entry(*coord).or_default();
             for other in cell.iter() {
-                // Lex-smallest dedup only — no geometric overlap check.
+                // Lex-smallest dedup only.
                 if *coord == lex_smallest_shared_cell(cell_len, &hitbox, other) {
                     result.push(other.clone());
                 }
@@ -934,16 +1004,19 @@ impl<T: Bounded + Clone, const N: usize> CollisionTest<T> for SparseHitGridND<T,
         result
     }
 
-    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T> {
-        let possible_collisions = self.hit_candidates(hitbox.clone());
-        if possible_collisions.is_empty() {
-            self.insert(hitbox);
-        }
-        possible_collisions
+    fn remove(&mut self, hitbox: &T) {
+        let ranges = self.cell_ranges(&hitbox);
+        for_each_cell(&ranges, |coord| {
+            if let Some(cell) = self.cells.get_mut(coord) {
+                cell.retain(|h| h == hitbox);
+            }
+        });
     }
+
+    type Hitbox = T;
 }
 
-/// Brute-force O(n²) collision detection — checks every hitbox against every other.
+/// Brute-force O(n²) collision detection.
 /// Useful as a reference implementation and for small scenes where setup overhead matters.
 pub struct BruteForce<T: Bounded> {
     hitboxes: Vec<T>,
@@ -961,24 +1034,22 @@ impl<T: Bounded + Clone> Default for BruteForce<T> {
     }
 }
 
-impl<T: Bounded + Clone> CollisionTest<T> for BruteForce<T> {
-    fn hit_candidates(&self, _hitbox: T) -> Vec<T> {
+impl<T: Bounded + Clone + PartialEq> CollisionTest for BruteForce<T> {
+    fn hit_candidates(&self, _hitbox: &T) -> Vec<T> {
         self.hitboxes.clone()
     }
 
     fn insert(&mut self, hitbox: T) -> Vec<T> {
-        let candidates = self.hit_candidates(hitbox.clone());
+        let candidates = self.hit_candidates(&hitbox);
         self.hitboxes.push(hitbox);
         candidates
     }
 
-    fn insert_if_no_hit(&mut self, hitbox: T) -> Vec<T> {
-        let candidates = self.hit_candidates(hitbox.clone());
-        if candidates.is_empty() {
-            self.hitboxes.push(hitbox);
-        }
-        candidates
+    fn remove(&mut self, hitbox: &T) {
+        self.hitboxes.retain(|h| h == hitbox);
     }
+
+    type Hitbox = T;
 }
 
 #[cfg(test)]
@@ -1404,10 +1475,10 @@ mod tests {
     #[test]
     fn one_d_empty_grid_no_candidates() {
         let g: HitGridND<TaggedNDimBounds, 1> = HitGridND::new([0.0], [100.0], 10.0);
-        assert!(g.hit_candidates(tb(0, [(5.0, 15.0)])).is_empty());
+        assert!(g.hit_candidates(&tb(0, [(5.0, 15.0)])).is_empty());
 
         let s: SparseHitGridND<TaggedNDimBounds, 1> = SparseHitGridND::new(10.0);
-        assert!(s.hit_candidates(tb(0, [(5.0, 15.0)])).is_empty());
+        assert!(s.hit_candidates(&tb(0, [(5.0, 15.0)])).is_empty());
     }
 
     #[test]
@@ -1452,7 +1523,7 @@ mod tests {
     fn two_d_empty_grid_no_candidates() {
         let g: HitGridND<TaggedNDimBounds, 2> = HitGridND::new([0.0, 0.0], [100.0, 100.0], 10.0);
         assert!(
-            g.hit_candidates(tb(0, [(5.0, 15.0), (5.0, 15.0)]))
+            g.hit_candidates(&tb(0, [(5.0, 15.0), (5.0, 15.0)]))
                 .is_empty()
         );
     }
@@ -1474,7 +1545,6 @@ mod tests {
 
     #[test]
     fn two_d_dedup_large_boxes() {
-        // Each box spans a 5x5 cell region — many shared cells.
         let boxes = vec![
             tb(0, [(0.0, 25.0), (0.0, 25.0)]),
             tb(1, [(5.0, 20.0), (5.0, 20.0)]),
@@ -1504,7 +1574,6 @@ mod tests {
 
     #[test]
     fn two_d_separated_in_one_dim() {
-        // Overlap in x but separated in y — must not collide.
         let boxes = vec![
             tb(0, [(0.0, 10.0), (0.0, 5.0)]),
             tb(1, [(0.0, 10.0), (10.0, 15.0)]),
@@ -1724,7 +1793,7 @@ mod tests {
 
         // Probe shares cells with box 0 and box 2, but not box 1.
         let probe = tb(99, [(6.0, 9.0), (6.0, 9.0)]);
-        let hits: HashSet<u32> = g.hit_candidates(probe).iter().map(id_of).collect();
+        let hits: HashSet<u32> = g.hit_candidates(&probe).iter().map(id_of).collect();
         assert_eq!(hits, HashSet::from([0, 2]));
     }
 
@@ -1831,10 +1900,10 @@ mod tests {
         }
 
         for (name, candidates) in [
-            ("tree", tree.hit_candidates(probe.clone())),
-            ("dense", dense.hit_candidates(probe.clone())),
-            ("sparse", sparse.hit_candidates(probe.clone())),
-            ("brute", brute.hit_candidates(probe.clone())),
+            ("tree", tree.hit_candidates(&probe)),
+            ("dense", dense.hit_candidates(&probe)),
+            ("sparse", sparse.hit_candidates(&probe)),
+            ("brute", brute.hit_candidates(&probe)),
         ] {
             let ids: HashSet<u32> = candidates.iter().map(id_of).collect();
             assert!(
@@ -1860,7 +1929,7 @@ mod tests {
             HitGridND::new([0.0, 0.0], [10.0, 10.0], 10.0);
         dense.insert(a.clone());
         dense.insert(b.clone());
-        let hits: HashSet<u32> = dense.hit_candidates(a.clone()).iter().map(id_of).collect();
+        let hits: HashSet<u32> = dense.hit_candidates(&a).iter().map(id_of).collect();
         assert!(
             hits.contains(&2),
             "dense grid: non-overlapping cell-mate must appear"
@@ -1869,7 +1938,7 @@ mod tests {
         let mut sparse: SparseHitGridND<TaggedNDimBounds, 2> = SparseHitGridND::new(10.0);
         sparse.insert(a.clone());
         sparse.insert(b.clone());
-        let hits: HashSet<u32> = sparse.hit_candidates(a.clone()).iter().map(id_of).collect();
+        let hits: HashSet<u32> = sparse.hit_candidates(&a).iter().map(id_of).collect();
         assert!(
             hits.contains(&2),
             "sparse grid: non-overlapping cell-mate must appear"
@@ -1889,7 +1958,7 @@ mod tests {
         let mut tree = SpatialTree::new(4, root_bounds([(0.0, 20.0)]));
         tree.insert(a.clone());
         tree.insert(b.clone());
-        let hits: HashSet<u32> = tree.hit_candidates(a.clone()).iter().map(id_of).collect();
+        let hits: HashSet<u32> = tree.hit_candidates(&a).iter().map(id_of).collect();
         assert!(
             hits.contains(&2),
             "tree: non-overlapping node-mate must appear in broad phase"
@@ -2165,7 +2234,7 @@ mod sat_tests {
         let bar_rot = bar.rotated(Quaternion::from_axis_angle(Vector3::unit_z(), Deg(90.0)));
         assert!(
             sat(&still, &bar_rot).hit(),
-            "rotated long side reaches the square — should overlap"
+            "rotated long side reaches the square— should overlap"
         );
     }
 
