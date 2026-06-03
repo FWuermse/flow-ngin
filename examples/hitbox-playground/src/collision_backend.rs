@@ -135,14 +135,14 @@ impl CollisionBackend {
 
     pub fn hit_candidates(&self, hb: TaggedNDimBounds) -> Vec<TaggedNDimBounds> {
         match self {
-            Self::Grid1D(g) => g.hit_candidates(hb),
-            Self::Grid2D(g) => g.hit_candidates(hb),
-            Self::Grid3D(g) => g.hit_candidates(hb),
-            Self::SparseGrid1D(g) => g.hit_candidates(hb),
-            Self::SparseGrid2D(g) => g.hit_candidates(hb),
-            Self::SparseGrid3D(g) => g.hit_candidates(hb),
-            Self::Tree(t) => t.hit_candidates(hb),
-            Self::BruteForce(b) => b.hit_candidates(hb),
+            Self::Grid1D(g) => g.hit_candidates(&hb),
+            Self::Grid2D(g) => g.hit_candidates(&hb),
+            Self::Grid3D(g) => g.hit_candidates(&hb),
+            Self::SparseGrid1D(g) => g.hit_candidates(&hb),
+            Self::SparseGrid2D(g) => g.hit_candidates(&hb),
+            Self::SparseGrid3D(g) => g.hit_candidates(&hb),
+            Self::Tree(t) => t.hit_candidates(&hb),
+            Self::BruteForce(b) => b.hit_candidates(&hb),
         }
     }
 

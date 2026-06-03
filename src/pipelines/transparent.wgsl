@@ -88,6 +88,9 @@ var t_normal: texture_2d<f32>;
 @group(0) @binding(3)
 var s_normal: sampler;
 
+@group(3) @binding(0)
+var<uniform> transparency: vec4<f32>;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
@@ -109,8 +112,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
     let specular_color = specular_strength * light.color;
 
-    // vec3:
-    let result = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
+    // Replace/mix tint: the texture hue is overridden by the tint (`rgb`),
+    // while lighting (ambient + diffuse + specular) is preserved.
+    let lighting = ambient_color + diffuse_color + specular_color;
+    let result = lighting * transparency.rgb;
 
-    return vec4<f32>(result, 0.4);
+    return vec4<f32>(result, transparency.a);
 }

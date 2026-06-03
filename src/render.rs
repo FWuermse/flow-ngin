@@ -19,6 +19,7 @@ use wgpu::RenderPass;
 use crate::{
     context::{Context, GPUResource},
     data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode}, pick::PickId,
+    pipelines::transparent::TransparencyUniform,
 };
 
 /// Data for instanced object rendering: a model, instance buffer, and pick ID.
@@ -89,8 +90,8 @@ where
     None,
     Default(Instanced<'a>),
     Defaults(Vec<Instanced<'a>>),
-    Transparent(Instanced<'a>),
-    Transparents(Vec<Instanced<'a>>),
+    Transparent(Instanced<'a>, TransparencyUniform),
+    Transparents(Vec<Instanced<'a>>, TransparencyUniform),
     GUI(Flat<'a>),
     Terrain(Geometry<'a>),
     Composed(Vec<Render<'a, 'pass>>),
@@ -125,11 +126,11 @@ impl<'a, 'pass> Render<'a, 'pass> {
                 let ids: Vec<PickId> = vec.iter().map(|i| i.id).collect();
                 map_id_list(&ids, flow_id, map);
             }
-            Render::Transparents(vec) => {
+            Render::Transparents(vec, _) => {
                 let ids: Vec<PickId> = vec.iter().map(|i| i.id).collect();
                 map_id_list(&ids, flow_id, map);
             }
-            Render::Transparent(instanced) => map_id_list(&[instanced.id], flow_id, map),
+            Render::Transparent(instanced, _) => map_id_list(&[instanced.id], flow_id, map),
             Render::GUI(flat) => map_id_list(&[flat.id], flow_id, map),
             Render::Terrain(flat) => map_id_list(&[flat.id], flow_id, map),
             Render::Composed(renders) => renders
@@ -144,7 +145,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
         ctx: &Context,
         render_pass: &mut RenderPass<'pass>,
         basics: &mut Vec<Instanced<'a>>,
-        trans: &mut Vec<Instanced<'a>>,
+        trans: &mut Vec<(Instanced<'a>, TransparencyUniform)>,
         guis: &mut Vec<Flat<'a>>,
         terrain: &mut Vec<Geometry<'a>>,
         customs: &mut Vec<Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>>,
@@ -154,8 +155,10 @@ impl<'a, 'pass> Render<'a, 'pass> {
                 basics.push(instanced);
             }
             Render::Defaults(mut vec) => basics.append(&mut vec),
-            Render::Transparent(instanced) => trans.push(instanced),
-            Render::Transparents(mut vec) => trans.append(&mut vec),
+            Render::Transparent(instanced, transparency) => trans.push((instanced, transparency)),
+            Render::Transparents(vec, transparency) => {
+                trans.extend(vec.into_iter().map(|i| (i, transparency)))
+            }
             Render::GUI(flat) => guis.push(flat),
             Render::Terrain(flat) => terrain.push(flat),
             Render::Composed(renders) => renders
@@ -180,8 +183,8 @@ impl<'a, 'pass> Render<'a, 'pass> {
                 basics.push(instanced);
             }
             Render::Defaults(mut vec) => basics.append(&mut vec),
-            Render::Transparent(instanced) => basics.push(instanced),
-            Render::Transparents(mut vec) => basics.append(&mut vec),
+            Render::Transparent(instanced, _) => basics.push(instanced),
+            Render::Transparents(mut vec, _) => basics.append(&mut vec),
             Render::GUI(flat) => flats.push(flat),
             Render::Terrain(flat) => geoms.push(flat),
             Render::Composed(renders) => renders

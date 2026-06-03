@@ -6,6 +6,7 @@ use flow_ngin::{
     data_structures::{block::BuildingBlocks, collision::sat, instance::Instance},
     flow::{GraphicsFlow, Out},
     pick::PickId,
+    pipelines::transparent::TransparencyUniform,
     render::Render,
 };
 
@@ -16,17 +17,10 @@ const OVERLAY_SCALE: f32 = 1.07;
 const PLANE_OVERLAY_Y_SCALE: f32 = 0.05;
 
 pub struct OverlayFlow {
-    // 3D cube overlays (3 colors)
-    cube_white: BuildingBlocks,
-    cube_yellow: BuildingBlocks,
-    cube_red: BuildingBlocks,
-    // 2D plane overlays (3 colors)
-    plane_white: BuildingBlocks,
-    plane_yellow: BuildingBlocks,
-    plane_red: BuildingBlocks,
-    // Drag-cursor overlay (white)
-    drag_overlay_cube: BuildingBlocks,
-    drag_overlay_plane: BuildingBlocks,
+    overlay_clear: BuildingBlocks,
+    overlay_broad: BuildingBlocks,
+    overlay_overlap: BuildingBlocks,
+    drag_overlay: BuildingBlocks,
     // Persistent collision backend
     backend: CollisionBackend,
     cached_strategy: Strategy,
@@ -42,28 +36,19 @@ impl OverlayFlow {
         let o = Vector3::new(0.0, 0.0, 0.0);
         let r = Quaternion::one();
 
-        let cube_white  = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-white.obj").await;
-        let cube_yellow = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-yellow.obj").await;
-        let cube_red    = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-red.obj").await;
+        let overlay_clear   = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-white.obj").await;
+        let overlay_broad   = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-white.obj").await;
+        let overlay_overlap = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-white.obj").await;
 
-        let plane_white  = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-white.obj").await;
-        let plane_yellow = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-yellow.obj").await;
-        let plane_red    = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 0, "overlay-red.obj").await;
-
-        let drag_overlay_cube  = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 1, "overlay-white.obj").await;
-        let drag_overlay_plane = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 1, "overlay-white.obj").await;
+        let drag_overlay = BuildingBlocks::new(0u32, &ctx.queue, &ctx.device, o, r, 1, "overlay-white.obj").await;
 
         let backend = CollisionBackend::new(Strategy::SparseGrid, 2);
 
         Self {
-            cube_white,
-            cube_yellow,
-            cube_red,
-            plane_white,
-            plane_yellow,
-            plane_red,
-            drag_overlay_cube,
-            drag_overlay_plane,
+            overlay_clear,
+            overlay_broad,
+            overlay_overlap,
+            drag_overlay,
             backend,
             cached_strategy: Strategy::SparseGrid,
             cached_dims: 2,
@@ -145,74 +130,43 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
             .collect();
 
         let n = state.placed.len();
-        let mut cw = Vec::with_capacity(n);
-        let mut cy = Vec::with_capacity(n);
-        let mut cr = Vec::with_capacity(n);
-        let mut pw = Vec::with_capacity(n);
-        let mut py = Vec::with_capacity(n);
-        let mut pr = Vec::with_capacity(n);
+        let mut clear = Vec::with_capacity(n);
+        let mut broad = Vec::with_capacity(n);
+        let mut overlap = Vec::with_capacity(n);
 
         for placed in &state.placed {
             let id = placed.id.0;
-            let is_overlap = overlap_ids.contains(&id);
-            let is_broad = broad_ids.contains(&id);
+            let inst = match placed.shape {
+                ObjectShape::Cube3D => cube_overlay(placed.position, placed.rotation),
+                ObjectShape::Plane2D => plane_overlay(placed.position, placed.rotation),
+            };
 
-            match placed.shape {
-                ObjectShape::Cube3D => {
-                    if is_overlap {
-                        cr.push(cube_overlay(placed.position, placed.rotation));
-                    } else if is_broad {
-                        cy.push(cube_overlay(placed.position, placed.rotation));
-                    } else {
-                        cw.push(cube_overlay(placed.position, placed.rotation));
-                    }
-                }
-                ObjectShape::Plane2D => {
-                    if is_overlap {
-                        pr.push(plane_overlay(placed.position, placed.rotation));
-                    } else if is_broad {
-                        py.push(plane_overlay(placed.position, placed.rotation));
-                    } else {
-                        pw.push(plane_overlay(placed.position, placed.rotation));
-                    }
-                }
+            if overlap_ids.contains(&id) {
+                overlap.push(inst);
+            } else if broad_ids.contains(&id) {
+                broad.push(inst);
+            } else {
+                clear.push(inst);
             }
         }
 
         state.broad_ids = broad_ids;
         state.overlap_ids = overlap_ids;
 
-        *self.cube_white.instances_mut()  = cw;
-        *self.cube_yellow.instances_mut() = cy;
-        *self.cube_red.instances_mut()    = cr;
-        *self.plane_white.instances_mut()  = pw;
-        *self.plane_yellow.instances_mut() = py;
-        *self.plane_red.instances_mut()    = pr;
+        *self.overlay_clear.instances_mut()   = clear;
+        *self.overlay_broad.instances_mut()   = broad;
+        *self.overlay_overlap.instances_mut() = overlap;
 
-        self.cube_white.write_to_buffer(&ctx.queue, &ctx.device);
-        self.cube_yellow.write_to_buffer(&ctx.queue, &ctx.device);
-        self.cube_red.write_to_buffer(&ctx.queue, &ctx.device);
-        self.plane_white.write_to_buffer(&ctx.queue, &ctx.device);
-        self.plane_yellow.write_to_buffer(&ctx.queue, &ctx.device);
-        self.plane_red.write_to_buffer(&ctx.queue, &ctx.device);
+        self.overlay_clear.write_to_buffer(&ctx.queue, &ctx.device);
+        self.overlay_broad.write_to_buffer(&ctx.queue, &ctx.device);
+        self.overlay_overlap.write_to_buffer(&ctx.queue, &ctx.device);
 
         let dp = state.drag_pos;
-        match state.object_shape {
-            ObjectShape::Cube3D => {
-                self.drag_overlay_cube.instances_mut_size_unchanged()[0] =
-                    cube_overlay(dp, state.drag_rotation);
-                self.drag_overlay_plane.instances_mut_size_unchanged()[0].scale =
-                    Vector3::new(0.0, 0.0, 0.0);
-            }
-            ObjectShape::Plane2D => {
-                self.drag_overlay_plane.instances_mut_size_unchanged()[0] =
-                    plane_overlay(dp, state.drag_rotation);
-                self.drag_overlay_cube.instances_mut_size_unchanged()[0].scale =
-                    Vector3::new(0.0, 0.0, 0.0);
-            }
-        }
-        self.drag_overlay_cube.write_to_buffer(&ctx.queue, &ctx.device);
-        self.drag_overlay_plane.write_to_buffer(&ctx.queue, &ctx.device);
+        self.drag_overlay.instances_mut_size_unchanged()[0] = match state.object_shape {
+            ObjectShape::Cube3D => cube_overlay(dp, state.drag_rotation),
+            ObjectShape::Plane2D => plane_overlay(dp, state.drag_rotation),
+        };
+        self.drag_overlay.write_to_buffer(&ctx.queue, &ctx.device);
 
         Out::Empty
     }
@@ -227,25 +181,27 @@ impl GraphicsFlow<State, Event> for OverlayFlow {
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        let mut renders: Vec<Render<'_, 'pass>> = Vec::with_capacity(8);
+        let mut renders: Vec<Render<'_, 'pass>> = Vec::with_capacity(4);
+
+        const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+        const YELLOW: [f32; 3] = [1.0, 1.0, 0.0];
+        const RED: [f32; 3] = [1.0, 0.0, 0.0];
 
         macro_rules! push_transparent {
-            ($bb:expr) => {
+            ($bb:expr, $tint:expr) => {
                 if !$bb.instances().is_empty() {
-                    let inst = $bb.to_instanced();
-                    renders.push(Render::Transparent(inst));
+                    renders.push(Render::Transparent(
+                        $bb.to_instanced(),
+                        TransparencyUniform { tint: $tint, alpha: 0.4 },
+                    ));
                 }
             };
         }
 
-        push_transparent!(self.cube_white);
-        push_transparent!(self.cube_yellow);
-        push_transparent!(self.cube_red);
-        push_transparent!(self.plane_white);
-        push_transparent!(self.plane_yellow);
-        push_transparent!(self.plane_red);
-        renders.push(Render::Transparent(self.drag_overlay_cube.to_instanced()));
-        renders.push(Render::Transparent(self.drag_overlay_plane.to_instanced()));
+        push_transparent!(self.overlay_clear, WHITE);
+        push_transparent!(self.overlay_broad, YELLOW);
+        push_transparent!(self.overlay_overlap, RED);
+        push_transparent!(self.drag_overlay, WHITE);
 
         Render::Composed(renders)
     }

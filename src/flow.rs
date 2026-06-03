@@ -42,8 +42,12 @@ use crate::{
         texture::Texture,
     },
     pick::{PickId, draw_to_pick_buffer},
+    pipelines::transparent::{
+        mk_transparency_bind_group, mk_transparency_bind_group_layout, TransparencyUniform,
+    },
     render::{Flat, Geometry, Instanced, Render},
 };
+use wgpu::util::DeviceExt;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -457,7 +461,7 @@ impl<'a, State: Default> AppState<State> {
                 );
             }
             let mut basics: Vec<Instanced> = Vec::new();
-            let mut trans: Vec<Instanced> = Vec::new();
+            let mut trans: Vec<(Instanced, TransparencyUniform)> = Vec::new();
             let mut guis: Vec<Flat> = Vec::new();
             let mut terrain: Vec<Geometry> = Vec::new();
             let mut customs = Vec::new();
@@ -520,7 +524,8 @@ impl<'a, State: Default> AppState<State> {
             }
 
             render_pass.set_pipeline(&self.ctx.pipelines.transparent);
-            for instanced in trans {
+            let transparency_layout = mk_transparency_bind_group_layout(&self.ctx.device);
+            for (instanced, transparency) in trans {
                 if instanced.amount == 0 {
                     log::debug!("you attemted to render instances, nothing drawn to screen.");
                     continue;
@@ -531,6 +536,20 @@ impl<'a, State: Default> AppState<State> {
                     );
                     continue;
                 }
+                let transparency_buffer =
+                    self.ctx
+                        .device
+                        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Transparency Buffer"),
+                            contents: bytemuck::bytes_of(&transparency),
+                            usage: wgpu::BufferUsages::UNIFORM,
+                        });
+                let transparency_bind_group = mk_transparency_bind_group(
+                    &self.ctx.device,
+                    &transparency_buffer,
+                    &transparency_layout,
+                );
+                render_pass.set_bind_group(3, &transparency_bind_group, &[]);
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
                 render_pass.draw_model_instanced(
                     &instanced.model,
