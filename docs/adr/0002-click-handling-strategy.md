@@ -85,7 +85,7 @@ UI elements keep coordinate-based detection. A `Container` rendered with a non-z
 Rationale:
 - It matches the existing implementation most closely, requiring minimal changes.
 - Coordinate-based UI detection is simpler and already working for hover + click in `Button`.
-- The only gap in the current system — 3D objects receiving clicks through UI overlays — is solved by giving the outermost `Container` a non-zero pick ID.
+- The only gap in the current system is 3D objects receiving clicks through UI overlays which is solved by giving the outermost `Container` a non-zero pick ID.
 - GPU picking remains the correct tool for 3D scenes where geometry is complex and overlapping.
 - Avoids the ID allocation and propagation complexity of Option A.
 - Avoids the silent-failure risk of `on_click` default implementations being forgotten.

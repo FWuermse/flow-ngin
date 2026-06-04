@@ -131,7 +131,7 @@ Rationale:
 - Widgets own their display state via `Value<T>`, so they can render the current value without round-tripping through application state.
 - The optional `on_change` callback follows the pattern established by `Button::on_click`, keeping the API consistent.
 - No changes to the `GraphicsFlow` or `UIElement` traits are required.
-- `Value<T>` is a simple `Rc<RefCell<T>>` — lightweight, no trait bloat, no value enum.
+- `Value<T>` is a simple `Rc<RefCell<T>>`.
 - Forms can read `Value<T>` cells directly on submit, avoiding the event-variant explosion of Option A and the event-stream assembly problem.
 - The callback is optional: simple use cases only need `.bind()`, while reactive use cases add `.on_change()`.
 

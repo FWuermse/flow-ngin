@@ -14,11 +14,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use wgpu::RenderPass;
+use wgpu::{FrontFace, RenderPass};
 
 use crate::{
     context::{Context, GPUResource},
-    data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode}, pick::PickId,
+    data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode},
+    pick::PickId,
     pipelines::transparent::TransparencyUniform,
 };
 
@@ -98,7 +99,11 @@ where
     Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
 }
 
-pub(crate) fn map_id_list(ids: &[PickId], flow_id: usize, map: &mut HashMap<PickId, HashSet<usize>>) {
+pub(crate) fn map_id_list(
+    ids: &[PickId],
+    flow_id: usize,
+    map: &mut HashMap<PickId, HashSet<usize>>,
+) {
     for &id in ids {
         map.entry(id)
             .and_modify(|flows| {
@@ -163,7 +168,9 @@ impl<'a, 'pass> Render<'a, 'pass> {
             Render::Terrain(flat) => terrain.push(flat),
             Render::Composed(renders) => renders
                 .into_iter()
-                .map(|render| render.set_pipelines(ctx, render_pass, basics, trans, guis, terrain, customs))
+                .map(|render| {
+                    render.set_pipelines(ctx, render_pass, basics, trans, guis, terrain, customs)
+                })
                 .collect(),
             Render::Custom(f) => customs.push(f),
             Render::None => (),
@@ -194,6 +201,36 @@ impl<'a, 'pass> Render<'a, 'pass> {
             // Picking is not supported for custom renders
             Render::Custom(_) => (),
             Render::None => (),
+        }
+    }
+
+    /// Transforms renders of type `Default` or `Defaults` to Transparent
+    pub fn transparent(self, tu: TransparencyUniform) -> Self {
+        match self {
+            Render::Default(instanced) => Render::Transparent(
+                Instanced {
+                    instance: instanced.instance,
+                    model: instanced.model,
+                    amount: instanced.amount,
+                    front_face: instanced.front_face,
+                    id: instanced.id,
+                },
+                tu,
+            ),
+            Render::Defaults(instanceds) => Render::Transparents(
+                instanceds
+                    .into_iter()
+                    .map(|instanced| Instanced {
+                        instance: instanced.instance,
+                        model: instanced.model,
+                        amount: instanced.amount,
+                        front_face: instanced.front_face,
+                        id: instanced.id,
+                    })
+                    .collect(),
+                tu,
+            ),
+            other => other,
         }
     }
 }
@@ -289,5 +326,4 @@ mod tests {
         Render::<'_, '_>::Composed(vec![]).map_ids(0, &mut map);
         assert!(map.is_empty());
     }
-
 }

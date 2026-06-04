@@ -98,7 +98,7 @@ Both **A** and **B** are correct. The performance difference is irrelevant since
 
 **Option B (GPU uniform) is adopted.**
 
-A `ScreenSize` uniform buffer containing `(width, height)` is added at bind group 1 for both the GUI and GUI-pick pipelines. The vertex shader performs the pixel→NDC conversion. On resize, a single `queue.write_buffer` call updates the uniform — all quads are immediately correct with no per-element work.
+A `ScreenSize` uniform buffer containing `(width, height)` is added at bind group 1 for both the GUI and GUI-pick pipelines. The vertex shader performs the pixel→NDC conversion. On resize, a single `queue.write_buffer` call updates the uniform. All quads are immediately correct with no per-element work.
 
 ## Consequences
 
@@ -108,6 +108,6 @@ A `ScreenSize` uniform buffer containing `(width, height)` is added at bind grou
 - `icon.wgsl` and `pick_gui.wgsl` vertex shaders read a `ScreenSize` uniform (group 1, binding 0) and compute NDC in the shader.
 - `mk_gui_pipeline` and `mk_gui_pick_pipelin` accept a `&BindGroupLayout` for the screen size uniform.
 - `Context` gains a `ScreenSizeResources` struct (buffer + bind group + layout).
-- `AppState::resize()` writes the new dimensions to the uniform buffer — no TODO remains.
+- `AppState::resize()` writes the new dimensions to the uniform buffer .
 - The render pass sets `bind_group(1, screen_size, &[])` once before iterating GUI elements.
 - New UI components no longer need to cache or propagate screen dimensions as they work purely in pixel space.

@@ -490,6 +490,15 @@ impl PlaneHitbox {
             })
             .collect()
     }
+
+    /// Reconstruct the near original instance for visualization
+    pub fn to_instance(&self, y: f32, thickness: f32) -> Instance {
+        Instance {
+            position: Vector3::new(self.center[0], y, self.center[1]),
+            rotation: self.rotation,
+            scale: Vector3::new(self.half[0] * 2.0, thickness, self.half[1] * 2.0),
+        }
+    }
 }
 
 impl Bounded for PlaneHitbox {
