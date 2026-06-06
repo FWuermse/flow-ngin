@@ -5,10 +5,14 @@
 //! hidden blocks are not culled, so this may not be optimal for large voxel worlds.
 
 use crate::{
-    context::{Context, GPUResource}, data_structures::{
+    context::{Context, GPUResource},
+    data_structures::{
         instance::Instance,
         model::{self},
-    }, pick::PickId, render::{Instanced, Render}, resources::{self, pick::load_pick_model}
+    },
+    pick::PickId,
+    render::{Instanced, Render},
+    resources::{self, pick::load_pick_model},
 };
 use cgmath::{One, Rotation3, Zero};
 use wgpu::{Device, util::DeviceExt};
@@ -67,7 +71,7 @@ impl BuildingBlocks {
     ) -> Self {
         let obj_model = resources::load_model_obj(obj_file, &device, &queue).await;
         if let Err(e) = obj_model {
-            panic!("Error failed to load model {}: {}",obj_file, e);
+            panic!("Error failed to load model {}: {}", obj_file, e);
         }
         let obj_model = obj_model.unwrap();
 
@@ -105,6 +109,15 @@ impl BuildingBlocks {
 
     pub fn instances_mut_size_unchanged(&mut self) -> &mut [Instance] {
         self.instances.as_mut_slice()
+    }
+
+    pub fn set_instances(&mut self, instances: Vec<Instance>) {
+        self.instances = instances;
+        self.buffer_size_needs_change = true;
+    }
+
+    pub fn set_instance(&mut self, idx: usize, instance: Instance) {
+        self.instances[idx] = instance;
     }
 
     pub fn add_instance(&mut self, instance: Instance) {
@@ -176,18 +189,16 @@ impl BuildingBlocks {
         }
     }
 
-    pub fn clear_first(&mut self, amount: usize, ctx: &Context) {
+    pub fn clear_first(&mut self, amount: usize) {
         self.buffer_size_needs_change = true;
         self.instances.drain(0..amount);
-        self.write_to_buffer(&ctx.queue, &ctx.device);
     }
 
-    pub fn clear_at(&mut self, from: usize, to: usize, ctx: &Context) {
+    pub fn clear_at(&mut self, from: usize, to: usize) {
         self.buffer_size_needs_change = true;
         self.instances.drain(from..to);
-        self.write_to_buffer(&ctx.queue, &ctx.device);
     }
-    
+
     /// Returns the inner instanced of the `Default` render for possible optimizations with `Defaults`
     pub fn to_instanced(&self) -> Instanced<'_> {
         Instanced {
@@ -208,29 +219,49 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
             .map(Instance::to_raw)
             .collect::<Vec<_>>();
         if self.buffer_size_needs_change {
-            self.instance_buffer =
-                device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Instance Buffer"),
-                        contents: bytemuck::cast_slice(&raws),
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    });
+            self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&raws),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
             self.buffer_size_needs_change = false;
         } else {
-            queue
-                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
+            queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
         }
     }
 
     fn get_render(&'a self) -> Render<'a, 'pass> {
         Render::Default(self.to_instanced())
     }
+
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        let raws = self
+            .instances
+            .iter()
+            .map(|local| (offset * local).to_raw())
+            .collect::<Vec<_>>();
+        if self.buffer_size_needs_change {
+            self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Offset Instance Buffer"),
+                contents: bytemuck::cast_slice(&raws),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+            self.buffer_size_needs_change = false;
+        } else {
+            queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&raws));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::{assert_relative_eq, Deg, Quaternion, Rotation3, Vector3};
+    use cgmath::{Deg, Quaternion, Rotation3, Vector3, assert_relative_eq};
 
     #[test]
     fn uniform_instances_correct_count() {

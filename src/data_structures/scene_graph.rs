@@ -330,6 +330,8 @@ pub trait SceneNode: Send {
 
     fn set_local_transform(&mut self, idx: usize, instance: Instance);
 
+    fn set_local_transforms(&mut self, range: Range<usize>, instances: Vec<Instance>);
+
     fn set_local_transform_all(&mut self, mutation: &mut dyn FnMut(&mut Instance));
 
     fn get_children_mut(&mut self) -> &mut Vec<Box<dyn SceneNode>>;
@@ -360,7 +362,7 @@ pub trait SceneNode: Send {
 
     fn get_animation(&self) -> &Vec<ModelAnimation>;
 
-    fn get_render(&self) -> Vec<Instanced<'_>>;
+    fn get_renders(&self) -> Vec<Instanced<'_>>;
 
     fn get_render_dir(&self) -> wgpu::FrontFace {
         wgpu::FrontFace::Ccw
@@ -412,23 +414,44 @@ pub(crate) fn instance_from_gltf(
     }
 }
 
-#[cfg(feature = "integration-tests")]
 impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         (*self).write_to_buffers(queue, device);
     }
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        Render::Defaults((**self).get_render())
+        Render::Defaults((**self).get_renders())
+    }
+
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        let count = self.get_world_transforms().len();
+        self.update_world_transforms(0..count, &vec![offset.clone(); count]);
+        self.write_to_buffers(queue, device);
+        self.update_world_transforms(0..count, &vec![Instance::default(); count]);
     }
 }
 
-#[cfg(feature = "integration-tests")]
 impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode + Send> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         (*self).write_to_buffers(queue, device);
     }
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        Render::Defaults((**self).get_render())
+        Render::Defaults((**self).get_renders())
+    }
+
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        let count = self.get_world_transforms().len();
+        self.update_world_transforms(0..count, &vec![offset.clone(); count]);
+        self.write_to_buffers(queue, device);
     }
 }
 
@@ -441,7 +464,18 @@ where
     }
 
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        Render::Defaults(self.get_render())
+        Render::Defaults(self.get_renders())
+    }
+
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        let count = self.get_world_transforms().len();
+        self.update_world_transforms(0..count, &vec![offset.clone(); count]);
+        self.write_to_buffers(queue, device);
     }
 }
 
@@ -636,10 +670,10 @@ impl SceneNode for ContainerNode {
         &self.animations
     }
 
-    fn get_render(&self) -> Vec<Instanced<'_>> {
+    fn get_renders(&self) -> Vec<Instanced<'_>> {
         self.children
             .iter()
-            .flat_map(|child| (**child).get_render())
+            .flat_map(|child| (**child).get_renders())
             .collect()
     }
 
@@ -675,6 +709,13 @@ impl SceneNode for ContainerNode {
     }
 
     fn render_inverted(&mut self) {}
+
+    fn set_local_transforms(&mut self, range: Range<usize>, instances: Vec<Instance>) {
+        range
+            .into_iter()
+            .zip(instances.into_iter())
+            .for_each(|(idx, inst)| self.instances[idx].0 = inst);
+    }
 }
 
 pub struct ModelNode {
@@ -923,13 +964,13 @@ impl SceneNode for ModelNode {
         &self.animations
     }
 
-    fn get_render(&self) -> Vec<Instanced<'_>> {
+    fn get_renders(&self) -> Vec<Instanced<'_>> {
         if self.hidden {
             return Vec::new();
         }
         self.children
             .iter()
-            .flat_map(|child| (**child).get_render())
+            .flat_map(|child| (**child).get_renders())
             .chain([Instanced {
                 instance: &self.instance_buffer,
                 model: &self.model,
@@ -1007,6 +1048,13 @@ impl SceneNode for ModelNode {
 
     fn render_inverted(&mut self) {
         self.front_face = wgpu::FrontFace::Cw;
+    }
+
+    fn set_local_transforms(&mut self, range: Range<usize>, instances: Vec<Instance>) {
+        range
+            .into_iter()
+            .zip(instances.into_iter())
+            .for_each(|(idx, inst)| self.instances[idx].0 = inst);
     }
 }
 
@@ -1342,12 +1390,15 @@ mod tests {
         let device = test_device();
         let mut node = test_model_node(&device, 1);
 
-        assert!(!SceneNode::get_render(&node).is_empty(), "visible before hiding");
+        assert!(
+            !SceneNode::get_renders(&node).is_empty(),
+            "visible before hiding"
+        );
 
         node.remove_instance(0);
         assert!(node.hidden);
         assert!(
-            SceneNode::get_render(&node).is_empty(),
+            SceneNode::get_renders(&node).is_empty(),
             "hidden node must return empty render list"
         );
     }

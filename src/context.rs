@@ -5,7 +5,10 @@ use wgpu::{ExperimentalFeatures, util::DeviceExt};
 use winit::{dpi::PhysicalPosition, window::Window};
 
 use crate::{
-    camera::{self, CameraResources, CameraUniform, Projection}, data_structures::texture, pick::PickId, pipelines::{
+    camera::{self, CameraResources, CameraUniform, Projection},
+    data_structures::{instance::Instance, texture},
+    pick::PickId,
+    pipelines::{
         basic::mk_basic_pipeline,
         gui::{mk_gui_pipeline, mk_screen_size_bind_group, mk_screen_size_bind_group_layout},
         light::{LightResources, LightUniform, mk_light_pipeline},
@@ -13,11 +16,20 @@ use crate::{
         pick_gui::mk_gui_pick_pipeline,
         terrain::mk_terrain_pipeline,
         transparent::mk_transparent_pipeline,
-    }, render::Render
+    },
+    render::Render,
 };
 
 pub trait GPUResource<'a, 'pass> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device);
+    /// Can be used for chunk based lazy loading of open world applications
+    /// to keep floats small in scene calculations.
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    );
     fn get_render(&'a self) -> Render<'a, 'pass>;
 }
 #[cfg(feature = "integration-tests")]
@@ -255,7 +267,11 @@ impl Context {
         );
 
         let msaa_view = if sample_count > 1 {
-            Some(texture::Texture::create_msaa_texture(&device, &config, sample_count))
+            Some(texture::Texture::create_msaa_texture(
+                &device,
+                &config,
+                sample_count,
+            ))
         } else {
             None
         };
@@ -285,7 +301,8 @@ impl Context {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let screen_size_bind_group_layout = mk_screen_size_bind_group_layout(&device);
-        let screen_size_bind_group = mk_screen_size_bind_group(&device, &screen_size_buffer, &screen_size_bind_group_layout);
+        let screen_size_bind_group =
+            mk_screen_size_bind_group(&device, &screen_size_buffer, &screen_size_bind_group_layout);
         let screen_size = ScreenSizeResources {
             buffer: screen_size_buffer,
             bind_group: screen_size_bind_group,
@@ -317,7 +334,12 @@ impl Context {
             sample_count,
         );
         let pick_pipeline = mk_pick_pipeline(&device, &camera.bind_group_layout);
-        let gui_pipeline = mk_gui_pipeline(&device, &config, &screen_size.bind_group_layout, sample_count);
+        let gui_pipeline = mk_gui_pipeline(
+            &device,
+            &config,
+            &screen_size.bind_group_layout,
+            sample_count,
+        );
         let gui_pick_pipeline = mk_gui_pick_pipeline(&device, &screen_size.bind_group_layout);
         let transparent_pipeline = mk_transparent_pipeline(
             &device,
@@ -443,12 +465,15 @@ impl Context {
     }
 
     pub fn ray_to_floor(&self) -> Option<cgmath::Point2<f32>> {
-        self.camera.camera.cast_ray_from_mouse(
-            self.mouse.coords,
-            self.config.width.to_f32()?,
-            self.config.height.to_f32()?,
-            &self.projection,
-        ).intersect_with_floor()
+        self.camera
+            .camera
+            .cast_ray_from_mouse(
+                self.mouse.coords,
+                self.config.width.to_f32()?,
+                self.config.height.to_f32()?,
+                &self.projection,
+            )
+            .intersect_with_floor()
     }
 }
 
