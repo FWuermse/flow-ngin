@@ -338,6 +338,13 @@ pub trait SceneNode: Send {
 
     fn write_to_buffers(&mut self, queue: &wgpu::Queue, device: &wgpu::Device);
 
+    fn write_to_buffers_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    );
+
     /// Multiple instances of a parent can be passed down to multiple instances of multiple children.
     /// The argument `parents_world_transform` with a matching `range` size provides control over which instances are transformed.
     fn update_world_transforms(
@@ -416,10 +423,10 @@ pub(crate) fn instance_from_gltf(
 
 impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
-        (*self).write_to_buffers(queue, device);
+        self.write_to_buffers(queue, device);
     }
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        Render::Defaults((**self).get_renders())
+        Render::Defaults(self.get_renders())
     }
 
     fn write_to_buffer_offset(
@@ -428,10 +435,7 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode> {
         device: &wgpu::Device,
         offset: &Instance,
     ) {
-        let count = self.get_world_transforms().len();
-        self.update_world_transforms(0..count, &vec![offset.clone(); count]);
-        self.write_to_buffers(queue, device);
-        self.update_world_transforms(0..count, &vec![Instance::default(); count]);
+        self.write_to_buffers_offset(queue, device, offset);
     }
 }
 
@@ -440,7 +444,7 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode + Send> {
         (*self).write_to_buffers(queue, device);
     }
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        Render::Defaults((**self).get_renders())
+        Render::Defaults(self.get_renders())
     }
 
     fn write_to_buffer_offset(
@@ -449,9 +453,7 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode + Send> {
         device: &wgpu::Device,
         offset: &Instance,
     ) {
-        let count = self.get_world_transforms().len();
-        self.update_world_transforms(0..count, &vec![offset.clone(); count]);
-        self.write_to_buffers(queue, device);
+        self.write_to_buffers_offset(queue, device, offset);
     }
 }
 
@@ -473,9 +475,7 @@ where
         device: &wgpu::Device,
         offset: &Instance,
     ) {
-        let count = self.get_world_transforms().len();
-        self.update_world_transforms(0..count, &vec![offset.clone(); count]);
-        self.write_to_buffers(queue, device);
+        self.write_to_buffers_offset(queue, device, offset);
     }
 }
 
@@ -716,6 +716,17 @@ impl SceneNode for ContainerNode {
             .zip(instances.into_iter())
             .for_each(|(idx, inst)| self.instances[idx].0 = inst);
     }
+    
+    fn write_to_buffers_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        self.get_children_mut()
+            .iter_mut()
+            .for_each(|child| child.write_to_buffers_offset(queue, device, offset));
+    }
 }
 
 pub struct ModelNode {
@@ -862,7 +873,6 @@ impl SceneNode for ModelNode {
     }
 
     fn write_to_buffers(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
-        // If the underlying model is inverted then so are all instances (TODO: confirm)
         if let Some((_, world)) = self.instances.first() {
             let det = world.to_matrix().determinant().signum();
             if det < 0.0 {
@@ -1055,6 +1065,45 @@ impl SceneNode for ModelNode {
             .into_iter()
             .zip(instances.into_iter())
             .for_each(|(idx, inst)| self.instances[idx].0 = inst);
+    }
+
+    fn write_to_buffers_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        if let Some((_, world)) = self.instances.first() {
+            let det = (offset * world).to_matrix().determinant().signum();
+            if det < 0.0 {
+                self.front_face = wgpu::FrontFace::Cw;
+            } else {
+                self.front_face = wgpu::FrontFace::Ccw;
+            }
+        }
+        let raw_instances: Vec<InstanceRaw> = self
+            .instances
+            .iter()
+            .map(|(_, world)| (offset * world).to_raw())
+            .collect();
+        if self.buffer_size_needs_change {
+            self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&raw_instances),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+            self.buffer_size_needs_change = false;
+        } else {
+            queue.write_buffer(
+                &self.instance_buffer,
+                0,
+                bytemuck::cast_slice(&raw_instances),
+            );
+        }
+        self.get_children_mut()
+            .iter_mut()
+            .for_each(|child| child.write_to_buffers_offset(queue, device, offset));
+
     }
 }
 
