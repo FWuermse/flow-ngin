@@ -1,5 +1,4 @@
 // Vertex shader
-
 struct Camera {
     view_pos: vec4<f32>,
     view_proj: mat4x4<f32>,
@@ -82,7 +81,6 @@ fn vs_main(
 }
 
 // Fragment shader
-
 struct PathPoint {
     point: vec4<f32>,
 }
@@ -110,35 +108,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let grass_height = 2.0;
     let rock_height = 6.0;
     let transition_y_range = 2.0;
-    
+
     let rock_slope_start = 0.4;
     let rock_slope_end = 0.7;
-    
+
     let grass_color = textureSample(t_diffuse_grass, s_sampler, in.tex_coords);
     let grass_normal_map = textureSample(t_normal_grass, s_sampler, in.tex_coords).xyz;
-    
+
     let rock_color = textureSample(t_diffuse_rock, s_sampler, in.tex_coords);
     let rock_normal_map = textureSample(t_normal_rock, s_sampler, in.tex_coords).xyz;
-    
+
     let sand_color = textureSample(t_diffuse_sand, s_sampler, in.tex_coords);
     let sand_normal_map = textureSample(t_normal_sand, s_sampler, in.tex_coords).xyz;
 
     let path_color = textureSample(t_diffuse_path, s_sampler, in.tex_coords);
     let path_normal_map = textureSample(t_normal_path, s_sampler, in.tex_coords).xyz;
-    
+
     let world_y = in.world_pos.z;
-    
+
     let world_normal = normalize(in.world_normal);
     let slope = 1.0 - world_normal.y;
-    
+
     let sand_grass_blend = smoothstep(sand_height, sand_height + transition_y_range, world_y);
     let grass_rock_blend_by_height = smoothstep(grass_height, grass_height + transition_y_range, world_y);
     let grass_rock_blend_by_slope = smoothstep(rock_slope_start, rock_slope_end, slope);
     let rock_blend = max(grass_rock_blend_by_height, grass_rock_blend_by_slope);
-    
+
     var final_color = blend(sand_color, grass_color, sand_grass_blend);
     var final_normal_map = blend(vec4(sand_normal_map, 0.0), vec4(grass_normal_map, 0.0), sand_grass_blend).xyz;
-    
+
     final_color = blend(final_color, rock_color, rock_blend);
     final_normal_map = blend(vec4(final_normal_map, 0.0), vec4(rock_normal_map, 0.0), rock_blend).xyz;
 

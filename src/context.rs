@@ -354,6 +354,7 @@ impl Context {
             &camera.bind_group_layout,
             &light.bind_group_layout,
             sample_count,
+            8
         );
         let pipelines = Pipelines {
             basic: basic_pipeline,
@@ -459,6 +460,7 @@ impl Context {
                 &self.camera.bind_group_layout,
                 &self.light.bind_group_layout,
                 sample_count,
+                8
             ),
             flat_pick: mk_gui_pick_pipeline(&self.device, &self.screen_size.bind_group_layout),
         };

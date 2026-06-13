@@ -1,18 +1,15 @@
 use wgpu::BindGroupLayout;
 
-use crate::
-    data_structures::{
-        instance::InstanceRaw,
-        model::{ModelVertex, Vertex},
-        texture::{self, Texture},
-    }
-;
+use crate::data_structures::{
+    instance::InstanceRaw,
+    model::{ModelVertex, Vertex},
+    texture
+};
 
-pub fn mk_bind_group_layout(device: &wgpu::Device, textures: &[Texture]) -> wgpu::BindGroupLayout {
-    let mut entries: Vec<wgpu::BindGroupLayoutEntry> = textures
-        .iter()
-        .enumerate()
-        .map(|(i, _): (usize, _)| wgpu::BindGroupLayoutEntry {
+pub fn mk_bind_group_layout(device: &wgpu::Device, amount: usize) -> wgpu::BindGroupLayout {
+    let mut entries: Vec<wgpu::BindGroupLayoutEntry> = (0..amount)
+        .into_iter()
+        .map(|i| wgpu::BindGroupLayoutEntry {
             binding: i as u32,
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
@@ -70,13 +67,13 @@ pub fn mk_terrain_pipeline(
     camera_bind_group_layout: &BindGroupLayout,
     light_bind_group_layout: &BindGroupLayout,
     sample_count: u32,
+    amount: usize
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Normal Shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("terrain.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(include_str!("terrain8t.wgsl").into()),
     });
-
-    let bind_group_layout = mk_bind_group_layout(device);
+    let bind_group_layout = mk_bind_group_layout(device, amount);
 
     let render_pipeline_layout = mk_render_pipeline_layout(
         device,
