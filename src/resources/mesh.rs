@@ -61,7 +61,8 @@ pub fn load_meshes(
         .collect::<Vec<_>>()
 }
 
-pub(crate) fn compute_tangents(vertices: &mut Vec<model::ModelVertex>, indices: &[u32]) {
+// TODO: make private once terrain generation is public
+pub fn compute_tangents(vertices: &mut Vec<model::ModelVertex>, indices: &[u32]) {
     let mut tan1 = vec![cgmath::Vector3::zero(); vertices.len()];
     let mut tan2 = vec![cgmath::Vector3::zero(); vertices.len()];
 
