@@ -144,8 +144,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     for (var i: u32 = 0u; i < max_points - 1u;  i = i + 1u) {
         // todo: support 3d paths
-        let p1 = vec2<f32>(path_pos[i].point.x, -path_pos[i].point.y);
-        let p2 = vec2<f32>(path_pos[i].point.z, -path_pos[i].point.a);
+        let p1 = vec2<f32>(path_pos[i].point.x, path_pos[i].point.y);
+        let p2 = vec2<f32>(path_pos[i].point.z, path_pos[i].point.a);
         if (p1.x == 0.0 && p1.y == 0.0 && p2.x == 0.0 && p2.y == 0.0) {
             continue;
         }

@@ -1,6 +1,6 @@
 [package]
 name = "flow-ngin"
-version = "0.1.20"
+version = "0.1.21"
 edition = "2024"
 authors = ["wuermseer.florian@gmail.com"]
 description = "A simple cross-plattform instancing-oriented game engine with focus on full WASM-compatibility."
