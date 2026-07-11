@@ -59,6 +59,32 @@ impl AsRef<BuildingBlocks> for BuildingBlocks {
     }
 }
 
+pub trait WorldCoordMesh {
+    /// Returns an immutable reference to instances
+    fn instances(&self) -> &Vec<Instance>;
+
+    /// Returns a mutable reference to instances, assumes the instance size changes and recalculates buffers.
+    /// If you only mutate some values but don't intend to change buffer sizes use `instances_mut_size_unchanged`
+    fn instances_mut(&mut self) -> &mut Vec<Instance>;
+
+    fn instances_mut_size_unchanged(&mut self) -> &mut [Instance];
+
+    fn set_instances(&mut self, instances: Vec<Instance>);
+
+    fn set_instance(&mut self, idx: usize, instance: Instance);
+
+    fn add_instance(&mut self, instance: Instance);
+
+    fn add_instances(&mut self, instances: Vec<Instance>);
+
+    fn clear_first(&mut self, amount: usize);
+
+    fn clear_at(&mut self, from: usize, to: usize);
+
+    /// Returns the inner instanced of the `Default` render for possible optimizations with `Defaults`
+    fn to_instanced(&self) -> Instanced<'_>;
+}
+
 impl BuildingBlocks {
     pub async fn new(
         id: impl Into<PickId>,
@@ -95,46 +121,6 @@ impl BuildingBlocks {
         }
     }
 
-    /// Returns an immutable reference to instances
-    pub fn instances(&self) -> &Vec<Instance> {
-        &self.instances
-    }
-
-    /// Returns a mutable reference to instances, assumes the instance size changes and recalculates buffers.
-    /// If you only mutate some values but don't intend to change buffer sizes use `instances_mut_size_unchanged`
-    pub fn instances_mut(&mut self) -> &mut Vec<Instance> {
-        self.buffer_size_needs_change = true;
-        &mut self.instances
-    }
-
-    pub fn instances_mut_size_unchanged(&mut self) -> &mut [Instance] {
-        self.instances.as_mut_slice()
-    }
-
-    pub fn set_instances(&mut self, instances: Vec<Instance>) {
-        self.instances = instances;
-        self.buffer_size_needs_change = true;
-    }
-
-    pub fn set_instance(&mut self, idx: usize, instance: Instance) {
-        self.instances[idx] = instance;
-    }
-
-    pub fn add_instance(&mut self, instance: Instance) {
-        self.instances.push(instance);
-        self.buffer_size_needs_change = true;
-    }
-
-    pub fn add_instances(&mut self, mut instances: Vec<Instance>) {
-        self.instances.append(&mut instances);
-        self.buffer_size_needs_change = true;
-    }
-
-    /**
-     * This constructor creates `amount` instances all located at (0.0, 0.0, 0.0).
-     *
-     * TODO: pass iter fn to choose the transformation
-     */
     pub async fn mk_multiple(
         queue: &wgpu::Queue,
         device: &wgpu::Device,
@@ -188,19 +174,52 @@ impl BuildingBlocks {
             buffer_size_needs_change: false,
         }
     }
+}
 
-    pub fn clear_first(&mut self, amount: usize) {
+impl WorldCoordMesh for BuildingBlocks {
+    fn instances(&self) -> &Vec<Instance> {
+        &self.instances
+    }
+
+    fn instances_mut(&mut self) -> &mut Vec<Instance> {
+        self.buffer_size_needs_change = true;
+        &mut self.instances
+    }
+
+    fn instances_mut_size_unchanged(&mut self) -> &mut [Instance] {
+        self.instances.as_mut_slice()
+    }
+
+    fn set_instances(&mut self, instances: Vec<Instance>) {
+        self.instances = instances;
+        self.buffer_size_needs_change = true;
+    }
+
+    fn set_instance(&mut self, idx: usize, instance: Instance) {
+        self.instances[idx] = instance;
+    }
+
+    fn add_instance(&mut self, instance: Instance) {
+        self.instances.push(instance);
+        self.buffer_size_needs_change = true;
+    }
+
+    fn add_instances(&mut self, mut instances: Vec<Instance>) {
+        self.instances.append(&mut instances);
+        self.buffer_size_needs_change = true;
+    }
+
+    fn clear_first(&mut self, amount: usize) {
         self.buffer_size_needs_change = true;
         self.instances.drain(0..amount);
     }
 
-    pub fn clear_at(&mut self, from: usize, to: usize) {
+    fn clear_at(&mut self, from: usize, to: usize) {
         self.buffer_size_needs_change = true;
-        self.instances.drain(from..to);
+        self.instances.drain(from..=to);
     }
 
-    /// Returns the inner instanced of the `Default` render for possible optimizations with `Defaults`
-    pub fn to_instanced(&self) -> Instanced<'_> {
+    fn to_instanced(&self) -> Instanced<'_> {
         Instanced {
             instance: &self.instance_buffer,
             model: &self.obj_model,
