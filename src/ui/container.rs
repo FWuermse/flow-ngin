@@ -28,7 +28,10 @@ pub fn merge_outs<S, E: Send>(outs: impl Iterator<Item = Out<S, E>>) -> Out<S, E
 
 /// Backing GPU resources for the container background quad.
 enum BgSource {
-    Color(wgpu::BindGroup),
+    Color {
+        bind_group: wgpu::BindGroup,
+        texture: Texture,
+    },
     Texture(Arc<BackgroundTexture>),
 }
 
@@ -41,7 +44,7 @@ struct BgResources {
 impl BgResources {
     fn bind_group(&self) -> &wgpu::BindGroup {
         match &self.source {
-            BgSource::Color(bg) => bg,
+            BgSource::Color { bind_group, .. } => bind_group,
             BgSource::Texture(arc) => &arc.bind_group,
         }
     }
@@ -136,6 +139,23 @@ impl<S: 'static, E: Send + 'static> Container<S, E> {
         self
     }
 
+    /// Update the solid background colour at runtime.
+    ///
+    /// No-op if the container has no background or uses a texture background.
+    /// Requires the container to have been initialized (`on_init`) with a colour background.
+    pub fn set_background_color(&mut self, rgba: [u8; 4], queue: &wgpu::Queue) {
+        if let Some(BgResources {
+            source: BgSource::Color { texture, .. },
+            ..
+        }) = &self.bg_resources
+        {
+            texture.write_color(rgba, queue);
+        }
+        if let Some(Background::Color(c)) = &mut self.background {
+            *c = rgba;
+        }
+    }
+
     /// Make this container a click shield with the given pick ID.
     ///
     /// A non-zero pick ID causes the background quad to absorb GPU picks,
@@ -201,7 +221,10 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Container<S, E> {
                     let tex = Texture::from_color(*rgba, &ctx.device, &ctx.queue);
                     let layout = mk_bind_group_layout(&ctx.device);
                     let bind_group = mk_bind_group(&ctx.device, &tex, &layout);
-                    BgSource::Color(bind_group)
+                    BgSource::Color {
+                        bind_group,
+                        texture: tex,
+                    }
                 }
                 Background::Texture(arc) => BgSource::Texture(Arc::clone(arc)),
             };

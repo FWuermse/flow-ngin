@@ -184,15 +184,13 @@ impl Texture {
 
     /// Create a 1×1 solid-colour texture from a raw RGBA byte array.
     pub fn from_color(rgba: [u8; 4], device: &wgpu::Device, queue: &wgpu::Queue) -> Texture {
-        let size = wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        };
-
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("solid color texture"),
-            size,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -201,10 +199,25 @@ impl Texture {
             view_formats: &[],
         });
 
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = Some(create_default_sampler(device));
+        let tex = Texture {
+            texture,
+            view,
+            sampler,
+        };
+        tex.write_color(rgba, queue);
+        tex
+    }
+
+    /// Overwrite a 1×1 solid-colour texture with a new RGBA value.
+    ///
+    /// Only valid for textures created via [`Texture::from_color`] (1×1, `COPY_DST`).
+    pub fn write_color(&self, rgba: [u8; 4], queue: &wgpu::Queue) {
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 aspect: wgpu::TextureAspect::All,
-                texture: &texture,
+                texture: &self.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
@@ -214,16 +227,12 @@ impl Texture {
                 bytes_per_row: Some(4),
                 rows_per_image: Some(1),
             },
-            size,
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
         );
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = Some(create_default_sampler(device));
-        Texture {
-            texture,
-            view,
-            sampler,
-        }
     }
 
     pub fn from_image(
