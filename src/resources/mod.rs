@@ -23,6 +23,55 @@ pub mod mesh;
 pub mod pick;
 pub mod texture;
 
+/// A loaded asset.
+pub enum Asset {
+    Model(model::Model),
+    Scene(Box<dyn SceneNode>),
+    Bytes(Vec<u8>),
+}
+
+/// A loading failure with the original request path.
+#[derive(Debug)]
+pub struct LoadErr {
+    pub path: String,
+    pub source: anyhow::Error,
+}
+
+fn asset_extension(path: &str) -> String {
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let authority = path.split_once("://").map(|(_, rest)| rest)
+        .or_else(|| path.strip_prefix("//"));
+    let path = match authority {
+        Some(rest) => rest.find('/').map(|start| &rest[start..]).unwrap_or(""),
+        None => path,
+    };
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+pub(crate) async fn load_asset(
+    path: String,
+    pick_id: PickId,
+    gpu: crate::context::InitContext,
+) -> Result<(String, Asset), LoadErr> {
+    let result = match asset_extension(&path).as_str() {
+        "obj" => load_model_obj(&path, &gpu.device, &gpu.queue)
+            .await
+            .map(Asset::Model),
+        "gltf" | "glb" => load_model_gltf(pick_id, &path, &gpu.device, &gpu.queue)
+            .await
+            .map(|scene| Asset::Scene(scene)),
+        _ => load_binary(&path).await.map(Asset::Bytes),
+    };
+    match result {
+        Ok(asset) => Ok((path, asset)),
+        Err(source) => Err(LoadErr { path, source }),
+    }
+}
+
 pub async fn load_model_obj(
     file_name: &str,
     device: &wgpu::Device,
@@ -162,8 +211,7 @@ pub async fn load_model_gltf(
                     file_name,
                     mime_type.split('/').last(),
                     false,
-                )
-                .expect("Couldn't load diffuse");
+                )?;
                 diffuse_texture
             }
             Some(gltf::image::Source::Uri { uri, mime_type }) => {
@@ -203,8 +251,7 @@ pub async fn load_model_gltf(
                         file_name,
                         None,
                         true,
-                    )
-                    .expect("Couldn't load normal");
+                    )?;
                     texture
                 }
                 // TODO: parse and pass the mime_type so that the img lib does't have to guess
@@ -249,3 +296,6 @@ pub async fn load_model_gltf(
 
     Ok(root_node)
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod load_tests;

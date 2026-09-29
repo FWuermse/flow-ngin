@@ -46,6 +46,7 @@ use crate::{
         mk_transparency_bind_group, mk_transparency_bind_group_layout, TransparencyUniform,
     },
     render::{Flat, Geometry, Instanced, Render},
+    resources::{Asset, LoadErr, load_asset},
 };
 use wgpu::util::DeviceExt;
 
@@ -78,6 +79,11 @@ where
     #[cfg(target_arch = "wasm32")]
     FutEvent(Vec<Box<dyn Future<Output = E>>>),
     FutFn(Vec<Box<dyn Future<Output = Box<dyn FnOnce(&mut S)>>>>),
+    /// Load an asset and deliver it to this flow once finished
+    Load {
+        path: String,
+        pick_id: PickId,
+    },
     Configure(Box<dyn FnOnce(&mut Context)>),
     Composed(Vec<Out<S, E>>),
     Empty,
@@ -118,6 +124,19 @@ pub trait GraphicsFlow<S, E: Send> {
     /// This is the only place to modify the Context and configure things such as the default
     /// background colour or camera start position.
     fn on_init(&mut self, _ctx: &mut Context, _state: &mut S) -> Out<S, E> {
+        Out::Empty
+    }
+
+    /// Receive a completed asset load.
+    fn on_load(
+        &mut self,
+        _ctx: &Context,
+        _state: &mut S,
+        result: Result<(String, Asset), LoadErr>,
+    ) -> Out<S, E> {
+        if let Err(error) = result {
+            log::error!("Failed to load {}: {:#}", error.path, error.source);
+        }
         Out::Empty
     }
 
@@ -711,6 +730,10 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     Mut(Box<dyn FnOnce(&mut State)>),
     #[allow(dead_code)]
     Custom(Event),
+    Loaded {
+        recipient: usize,
+        result: Result<(String, Asset), LoadErr>,
+    },
     #[allow(dead_code)]
     Exit,
 }
@@ -723,6 +746,9 @@ impl<State, Event> Debug for FlowEvent<State, Event> {
             }
             Self::Id(arg0) => f.debug_tuple("Id").field(arg0).finish(),
             Self::Mut(_) => f.write_str("Mut(|&mut State| -> {...})"),
+            Self::Loaded { recipient, .. } => f.debug_struct("Loaded")
+                .field("recipient", recipient)
+                .finish(),
             Self::Custom(_) => f.write_str("Custom(E)"),
             Self::Exit => f.write_str("Exit"),
         }
@@ -770,7 +796,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
         {
             let (mut app_state, flows) = self.async_runtime.block_on(init_future);
             self.graphics_flows = flows;
-            self.graphics_flows.iter_mut().for_each(|flow| {
+            self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, flow)| {
                 let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                 let proxy = self.proxy.clone();
                 handle_flow_output(
@@ -778,6 +804,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                     &mut app_state.state,
                     &mut app_state.ctx,
                     proxy,
+                    flow_id,
                     events,
                 );
             });
@@ -814,7 +841,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                 let app_state = self.state.as_mut().unwrap();
                 let size = app_state.ctx.window.inner_size();
                 app_state.resize(size.width, size.height);
-                self.graphics_flows.iter_mut().for_each(|flow| {
+                self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, flow)| {
                     let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
                     let proxy = self.proxy.clone();
                     handle_flow_output(
@@ -823,6 +850,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                         &mut app_state.state,
                         &mut app_state.ctx,
                         proxy,
+                        flow_id,
                         events,
                     );
                 });
@@ -832,10 +860,35 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                 if let Some(state) = &mut self.state {
                     state.ctx.mouse.toggle(PickId(pick_id));
                     flow_ids.into_iter().for_each(|flow_id| {
-                        self.graphics_flows
-                            .get_mut(flow_id)
-                            .map(|flow| flow.on_click(&state.ctx, &mut state.state, PickId(pick_id)));
+                        if let Some(flow) = self.graphics_flows.get_mut(flow_id) {
+                            let out = flow.on_click(&state.ctx, &mut state.state, PickId(pick_id));
+                            handle_flow_output(
+                                #[cfg(not(target_arch = "wasm32"))]
+                                &self.async_runtime,
+                                &mut state.state,
+                                &mut state.ctx,
+                                self.proxy.clone(),
+                                flow_id,
+                                out,
+                            );
+                        }
                     });
+                }
+            }
+            FlowEvent::Loaded { recipient, result } => {
+                if let Some(state) = &mut self.state {
+                    if let Some(flow) = self.graphics_flows.get_mut(recipient) {
+                        let out = flow.on_load(&state.ctx, &mut state.state, result);
+                        handle_flow_output(
+                            #[cfg(not(target_arch = "wasm32"))]
+                            &self.async_runtime,
+                            &mut state.state,
+                            &mut state.ctx,
+                            self.proxy.clone(),
+                            recipient,
+                            out,
+                        );
+                    }
                 }
             }
             FlowEvent::Custom(custom_event) => {
@@ -883,7 +936,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                     .handle_mouse(dx * speed_factor, dy * speed_factor);
             }
         }
-        self.graphics_flows.iter_mut().for_each(|f| {
+        self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
             let events = f.on_device_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
             handle_flow_output(
@@ -892,6 +945,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                 &mut state.state,
                 &mut state.ctx,
                 proxy,
+                flow_id,
                 events,
             );
         });
@@ -935,7 +989,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             state.resize(size.width, size.height);
         }
 
-        self.graphics_flows.iter_mut().for_each(|f| {
+        self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
             let events = f.on_window_events(&state.ctx, &mut state.state, &event);
             let proxy = self.proxy.clone();
             handle_flow_output(
@@ -944,6 +998,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                 &mut state.state,
                 &mut state.ctx,
                 proxy,
+                flow_id,
                 events,
             );
         });
@@ -966,7 +1021,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                         if self.time_since_tick
                             >= Duration::from_millis(state.ctx.tick_duration_millis)
                         {
-                            self.graphics_flows.iter_mut().for_each(|f| {
+                            self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
                                 let events = f.on_tick(&state.ctx, &mut state.state);
                                 let proxy = self.proxy.clone();
                                 handle_flow_output(
@@ -975,6 +1030,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                                     &mut state.state,
                                     &mut state.ctx,
                                     proxy,
+                                    flow_id,
                                     events,
                                 );
                             });
@@ -1005,7 +1061,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                         ) * old_position)
                             .into();
                         // Update custom stuff
-                        self.graphics_flows.iter_mut().for_each(|f| {
+                        self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
                             let events = f.on_update(&state.ctx, &mut state.state, dt);
                             let proxy = self.proxy.clone();
                             handle_flow_output(
@@ -1014,6 +1070,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                                 &mut state.state,
                                 &mut state.ctx,
                                 proxy,
+                                flow_id,
                                 events,
                             );
                         });
@@ -1052,6 +1109,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                                             &mut state.state,
                                             &mut state.ctx,
                                             proxy,
+                                            flow_id,
                                             events,
                                         );
                                     });
@@ -1084,6 +1142,7 @@ fn handle_flow_output<State, Event: Send>(
     state: &mut State,
     ctx: &mut Context,
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
+    recipient: usize,
     out: Out<State, Event>,
 ) {
     match out {
@@ -1138,6 +1197,19 @@ fn handle_flow_output<State, Event: Send>(
                 });
             }
         }
+        Out::Load { path, pick_id } => {
+            let gpu = InitContext::from(&*ctx);
+            let task = async move {
+                let result = load_asset(path, pick_id, gpu).await;
+                if proxy.send_event(FlowEvent::Loaded { recipient, result }).is_err() {
+                    log::debug!("Event loop closed before asset delivery");
+                }
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            async_runtime.spawn(task);
+            #[cfg(target_arch = "wasm32")]
+            wasm_bindgen_futures::spawn_local(task);
+        }
         Out::Configure(f) => f(ctx),
         Out::Composed(outs) => {
             for out in outs {
@@ -1147,6 +1219,7 @@ fn handle_flow_output<State, Event: Send>(
                     state,
                     ctx,
                     proxy.clone(),
+                    recipient,
                     out,
                 );
             }

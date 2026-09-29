@@ -38,6 +38,15 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn GPUResource<'a, 'pass> + Send
         (**self).write_to_buffer(queue, device);
     }
 
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        (**self).write_to_buffer_offset(queue, device, offset);
+    }
+
     fn get_render(&'a self) -> Render<'a, 'pass> {
         (**self).get_render()
     }
@@ -52,6 +61,15 @@ impl<'a, 'pass> From<&'a Box<dyn GPUResource<'a, 'pass>>> for Render<'a, 'pass> 
 impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn GPUResource<'a, 'pass>> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         (**self).write_to_buffer(queue, device);
+    }
+
+    fn write_to_buffer_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        offset: &Instance,
+    ) {
+        (**self).write_to_buffer_offset(queue, device, offset);
     }
 
     fn get_render(&'a self) -> Render<'a, 'pass> {

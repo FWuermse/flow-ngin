@@ -44,21 +44,23 @@ pub fn diffuse_normal_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 
 #[cfg(target_arch = "wasm32")]
 pub fn format_url(file_name: &str) -> reqwest::Url {
-    let window = web_sys::window().unwrap();
-    let location = window.location();
-    let mut origin = location.origin().unwrap();
-    if !origin.ends_with("learn-wgpu") {
-        origin = format!("{}/assets", origin);
-    }
-    let base = reqwest::Url::parse(&format!("{}/", origin,)).unwrap();
-    base.join(file_name).unwrap()
+    try_format_url(file_name).expect("Invalid asset URL")
+}
+
+#[cfg(target_arch = "wasm32")]
+fn try_format_url(file_name: &str) -> anyhow::Result<reqwest::Url> {
+    let window = web_sys::window().ok_or_else(|| anyhow::anyhow!("No browser window"))?;
+    let origin = window.location().origin()
+        .map_err(|error| anyhow::anyhow!("Cannot read origin: {error:?}"))?;
+    let base = reqwest::Url::parse(&format!("{origin}/assets/"))?;
+    Ok(base.join(file_name)?)
 }
 
 pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
     #[cfg(target_arch = "wasm32")]
     let txt = {
-        let url = format_url(file_name);
-        reqwest::get(url).await?.text().await?
+        let url = try_format_url(file_name)?;
+        reqwest::get(url).await?.error_for_status()?.text().await?
     };
     #[cfg(not(target_arch = "wasm32"))]
     let txt = {
@@ -75,8 +77,8 @@ pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
 pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
     #[cfg(target_arch = "wasm32")]
     let data = {
-        let url = format_url(file_name);
-        reqwest::get(url).await?.bytes().await?.to_vec()
+        let url = try_format_url(file_name)?;
+        reqwest::get(url).await?.error_for_status()?.bytes().await?.to_vec()
     };
     #[cfg(not(target_arch = "wasm32"))]
     // TODO make async
@@ -121,9 +123,10 @@ pub async fn load_textures(
             ..Default::default()
         },
         |p| async move {
-            let mat_text = load_string(&p)
-                .await
-                .expect(format!("Material Texture not found for {p}.").as_str());
+            let mat_text = load_string(&p).await.map_err(|error| {
+                log::error!("Failed to load material {p}: {error:#}");
+                tobj::LoadError::OpenFileFailed
+            })?;
             tobj::load_mtl_buf(&mut BufReader::new(Cursor::new(mat_text)))
         },
     )
