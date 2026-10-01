@@ -11,21 +11,52 @@ use flow_ngin::{
 struct State {
     completed: [usize; 2],
     frames: usize,
+    seen: [[bool; 5]; 2],
+    assets: Vec<Asset>,
+}
+
+// Intentionally neither Clone nor Default: completions move request identity.
+struct Event {
+    recipient: usize,
+    request: usize,
 }
 
 struct Loader(usize);
 
-impl GraphicsFlow<State, ()> for Loader {
-    fn on_init(&mut self, _: &mut Context, _: &mut State) -> Out<State, ()> {
+impl Loader {
+    fn batch(&self, request: usize, paths: &[(&str, u32)]) -> Out<State, Event> {
+        Out::LoadBatch {
+            paths: paths
+                .iter()
+                .map(|(path, id)| ((*path).into(), PickId(*id)))
+                .collect(),
+            event: Event {
+                recipient: self.0,
+                request,
+            },
+        }
+    }
+}
+
+impl GraphicsFlow<State, Event> for Loader {
+    fn on_init(&mut self, _: &mut Context, _: &mut State) -> Out<State, Event> {
         Out::Composed(vec![
             Out::Load {
-                path: "metal.gltf".into(),
-                pick_id: PickId(40 + self.0 as u32),
-            },
-            Out::Composed(vec![Out::Load {
                 path: "metal.bin".into(),
                 pick_id: PickId(1),
-            }]),
+            },
+            Out::Composed(vec![
+                self.batch(
+                    0,
+                    &[
+                        ("cube.obj", 1),
+                        ("metal.gltf", 40 + self.0 as u32),
+                        ("metal.bin", 2),
+                    ],
+                ),
+                self.batch(1, &[("metal.gltf", 80), ("metal.gltf", 81)]),
+                self.batch(2, &[]),
+            ]),
         ])
     }
 
@@ -33,39 +64,106 @@ impl GraphicsFlow<State, ()> for Loader {
         &mut self,
         _: &Context,
         state: &mut State,
-        result: Result<(String, Asset), LoadErr>,
-    ) -> Out<State, ()> {
+        event: Option<Event>,
+        result: Result<Vec<(String, Asset)>, Vec<LoadErr>>,
+    ) -> Out<State, Event> {
         state.completed[self.0] += 1;
-        assert!(state.completed[self.0] <= 3);
-        match result {
-            Ok((path, Asset::Scene(scene))) => {
-                assert_eq!(path, "metal.gltf");
-                let renders = scene.get_renders();
-                assert!(!renders.is_empty());
-                assert!(
-                    renders
+        assert!(state.completed[self.0] <= 8);
+        let Some(event) = event else {
+            let mut assets = match result {
+                Ok(assets) => assets,
+                Err(errors) => {
+                    assert_eq!(errors.len(), 1);
+                    assert_eq!(errors[0].path, format!("missing-single-{}.bin", self.0));
+                    return Out::Empty;
+                }
+            };
+            assert_eq!(assets.len(), 1);
+            let (path, asset) = assets.pop().unwrap();
+            assert_eq!(path, "metal.bin");
+            assert!(matches!(&asset, Asset::Bytes(bytes) if !bytes.is_empty()));
+            state.assets.push(asset);
+            return Out::Empty;
+        };
+        assert_eq!(event.recipient, self.0);
+        assert!(!state.seen[self.0][event.request], "duplicate completion");
+        state.seen[self.0][event.request] = true;
+        match event.request {
+            0 | 1 => {
+                let assets = result.unwrap();
+                let expected = if event.request == 0 {
+                    vec!["cube.obj", "metal.gltf", "metal.bin"]
+                } else {
+                    vec!["metal.gltf", "metal.gltf"]
+                };
+                assert_eq!(
+                    assets
                         .iter()
-                        .all(|render| render.id == PickId(40 + self.0 as u32))
+                        .map(|(path, _)| path.as_str())
+                        .collect::<Vec<_>>(),
+                    expected
                 );
-                Out::Composed(vec![Out::Load {
-                    path: format!("missing-flow-{}.bin", self.0),
-                    pick_id: PickId(1),
-                }])
+                for (index, (_, asset)) in assets.into_iter().enumerate() {
+                    match &asset {
+                        Asset::Scene(scene) => {
+                            let id = if event.request == 0 {
+                                40 + self.0 as u32
+                            } else {
+                                80 + index as u32
+                            };
+                            let renders = scene.get_renders();
+                            assert!(!renders.is_empty());
+                            assert!(renders.iter().all(|render| render.id == PickId(id)));
+                        }
+                        Asset::Model(_) => assert_eq!(index, 0),
+                        Asset::Bytes(bytes) => {
+                            assert_eq!(index, 2);
+                            assert!(!bytes.is_empty());
+                        }
+                    }
+                    state.assets.push(asset);
+                }
+                if event.request == 0 {
+                    return Out::Composed(vec![Out::Composed(vec![self.batch(
+                        3,
+                        &[
+                            ("missing-flow-first.bin", 1),
+                            ("metal.bin", 2),
+                            ("missing-flow-second.glb", 3),
+                        ],
+                    )])]);
+                }
             }
-            Ok((path, Asset::Bytes(bytes))) => {
-                assert_eq!(path, "metal.bin");
-                assert!(!bytes.is_empty());
-                Out::Empty
+            2 | 4 => assert!(result.unwrap().is_empty()),
+            3 => {
+                let Err(errors) = result else {
+                    panic!("expected errors")
+                };
+                assert_eq!(
+                    errors
+                        .iter()
+                        .map(|error| error.path.as_str())
+                        .collect::<Vec<_>>(),
+                    ["missing-flow-first.bin", "missing-flow-second.glb"]
+                );
+                return Out::Composed(vec![
+                    self.batch(4, &[]),
+                    Out::Load {
+                        path: format!("missing-single-{}.bin", self.0),
+                        pick_id: PickId(1),
+                    },
+                    Out::Load {
+                        path: "metal.bin".into(),
+                        pick_id: PickId(1),
+                    },
+                ]);
             }
-            Err(error) => {
-                assert_eq!(error.path, format!("missing-flow-{}.bin", self.0));
-                Out::Empty
-            }
-            _ => panic!("unexpected asset"),
+            _ => panic!("unexpected request"),
         }
+        Out::Empty
     }
 
-    fn on_custom_events(&mut self, _: &Context, _: &mut State, _: ()) -> Option<()> {
+    fn on_custom_events(&mut self, _: &Context, _: &mut State, _: Event) -> Option<Event> {
         panic!("load completion entered custom-event chain")
     }
 
@@ -74,7 +172,7 @@ impl GraphicsFlow<State, ()> for Loader {
         _: &Context,
         state: &mut State,
         _: instant::Duration,
-    ) -> Out<State, ()> {
+    ) -> Out<State, Event> {
         state.frames += 1;
         assert!(state.frames < 2000, "loads did not complete");
         Out::Empty
@@ -86,19 +184,29 @@ impl GraphicsFlow<State, ()> for Loader {
         state: &mut State,
         _: &mut image::ImageBuffer<image::Rgba<u8>, wgpu::BufferView>,
     ) -> anyhow::Result<ImageTestResult> {
-        Ok(if state.completed == [3, 3] && state.frames >= 20 {
-            ImageTestResult::Passed
-        } else {
-            ImageTestResult::Waiting
-        })
+        Ok(
+            if state.completed == [8, 8]
+                && state.seen == [[true; 5]; 2]
+                && state.assets.len() == 14
+                && state.frames >= 20
+            {
+                ImageTestResult::Passed
+            } else {
+                ImageTestResult::Waiting
+            },
+        )
     }
 }
 
 #[test]
 fn completion_stays_with_requester() {
-    run::<State, ()>(vec![
-        Box::new(|_| Box::pin(async { Box::new(Loader(0)) as Box<dyn GraphicsFlow<State, ()>> })),
-        Box::new(|_| Box::pin(async { Box::new(Loader(1)) as Box<dyn GraphicsFlow<State, ()>> })),
+    run::<State, Event>(vec![
+        Box::new(|_| {
+            Box::pin(async { Box::new(Loader(0)) as Box<dyn GraphicsFlow<State, Event>> })
+        }),
+        Box::new(|_| {
+            Box::pin(async { Box::new(Loader(1)) as Box<dyn GraphicsFlow<State, Event>> })
+        }),
     ])
     .unwrap();
 }

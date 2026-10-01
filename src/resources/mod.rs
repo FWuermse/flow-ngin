@@ -52,6 +52,31 @@ fn asset_extension(path: &str) -> String {
         .to_ascii_lowercase()
 }
 
+pub(crate) async fn load_assets(
+    paths: Vec<(String, PickId)>,
+    gpu: crate::context::InitContext,
+) -> Result<Vec<(String, Asset)>, Vec<LoadErr>> {
+    let results = futures::future::join_all(
+        paths
+            .into_iter()
+            .map(|(path, pick_id)| load_asset(path, pick_id, gpu.clone())),
+    )
+    .await;
+    let mut assets = Vec::new();
+    let mut errors = Vec::new();
+    for result in results {
+        match result {
+            Ok(asset) => assets.push(asset),
+            Err(error) => errors.push(error),
+        }
+    }
+    if errors.is_empty() {
+        Ok(assets)
+    } else {
+        Err(errors)
+    }
+}
+
 pub(crate) async fn load_asset(
     path: String,
     pick_id: PickId,

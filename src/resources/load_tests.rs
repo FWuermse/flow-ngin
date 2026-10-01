@@ -148,5 +148,44 @@ async fn loads_owned_assets_and_preserves_errors() {
         error.source.downcast_ref::<tobj::LoadError>(),
         Some(tobj::LoadError::OpenFileFailed)
     ));
+    let assets = load_assets(vec![
+        ("cube.obj".into(), PickId(1)),
+        (glb_path.clone(), PickId(51)),
+        ("metal.gltf".into(), PickId(52)),
+        ("metal.gltf".into(), PickId(53)),
+        ("metal.bin".into(), PickId(2)),
+        ("metal.bin".into(), PickId(3)),
+    ], gpu()).await.unwrap();
+    assert_eq!(assets.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+        ["cube.obj", glb_path.as_str(), "metal.gltf", "metal.gltf", "metal.bin", "metal.bin"]);
+    let mut byte_assets = Vec::new();
+    for (index, (_, asset)) in assets.into_iter().enumerate() {
+        match asset {
+            Asset::Model(_) => assert_eq!(index, 0),
+            Asset::Scene(scene) => {
+                let renders = scene.get_renders();
+                assert!(!renders.is_empty());
+                assert!(renders.iter().all(|render| render.id == PickId(50 + index as u32)));
+            }
+            Asset::Bytes(bytes) => byte_assets.push(bytes),
+        }
+    }
+    assert_eq!(byte_assets.len(), 2);
+    assert_eq!(byte_assets[0], byte_assets[1]);
+    byte_assets[0][0] ^= 1;
+    assert_ne!(byte_assets[0], byte_assets[1]);
+
+    let absent = dir.join("absent.bin").to_str().unwrap().to_owned();
+    let Err(errors) = load_assets(vec![
+        (absent.clone(), PickId(1)),
+        ("cube.obj".into(), PickId(2)),
+        (broken.clone(), PickId(3)),
+        (absent.clone(), PickId(4)),
+    ], gpu()).await else { panic!("expected all errors") };
+    assert_eq!(errors.iter().map(|error| error.path.as_str()).collect::<Vec<_>>(),
+        [absent.as_str(), broken.as_str(), absent.as_str()]);
+    assert!(errors[0].source.downcast_ref::<std::io::Error>().is_some());
+    assert!(load_assets(vec![], gpu()).await.unwrap().is_empty());
+
     std::fs::remove_dir_all(dir).unwrap();
 }

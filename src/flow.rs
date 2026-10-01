@@ -46,7 +46,7 @@ use crate::{
         mk_transparency_bind_group, mk_transparency_bind_group_layout, TransparencyUniform,
     },
     render::{Flat, Geometry, Instanced, Render},
-    resources::{Asset, LoadErr, load_asset},
+    resources::{Asset, LoadErr, load_assets},
 };
 use wgpu::util::DeviceExt;
 
@@ -83,6 +83,13 @@ where
     Load {
         path: String,
         pick_id: PickId,
+    },
+    /// Load all entries concurrently.
+    /// Any failures discard successful
+    /// assets and return all errors.
+    LoadBatch {
+        paths: Vec<(String, PickId)>,
+        event: E,
     },
     Configure(Box<dyn FnOnce(&mut Context)>),
     Composed(Vec<Out<S, E>>),
@@ -127,15 +134,20 @@ pub trait GraphicsFlow<S, E: Send> {
         Out::Empty
     }
 
-    /// Receive a completed asset load.
+    /// Receive one completion per load request, with owned assets or all errors.
+    /// Single loads receive `None`; batches receive their supplied event in `Some`.
+    /// Results preserve input order, including duplicates and empty batches.
     fn on_load(
         &mut self,
         _ctx: &Context,
         _state: &mut S,
-        result: Result<(String, Asset), LoadErr>,
+        _event: Option<E>,
+        result: Result<Vec<(String, Asset)>, Vec<LoadErr>>,
     ) -> Out<S, E> {
-        if let Err(error) = result {
-            log::error!("Failed to load {}: {:#}", error.path, error.source);
+        if let Err(errors) = result {
+            for error in errors {
+                log::error!("Failed to load {}: {:#}", error.path, error.source);
+            }
         }
         Out::Empty
     }
@@ -732,7 +744,8 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     Custom(Event),
     Loaded {
         recipient: usize,
-        result: Result<(String, Asset), LoadErr>,
+        event: Option<Event>,
+        result: Result<Vec<(String, Asset)>, Vec<LoadErr>>,
     },
     #[allow(dead_code)]
     Exit,
@@ -875,10 +888,14 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                     });
                 }
             }
-            FlowEvent::Loaded { recipient, result } => {
+            FlowEvent::Loaded {
+                recipient,
+                event,
+                result,
+            } => {
                 if let Some(state) = &mut self.state {
                     if let Some(flow) = self.graphics_flows.get_mut(recipient) {
-                        let out = flow.on_load(&state.ctx, &mut state.state, result);
+                        let out = flow.on_load(&state.ctx, &mut state.state, event, result);
                         handle_flow_output(
                             #[cfg(not(target_arch = "wasm32"))]
                             &self.async_runtime,
@@ -1197,19 +1214,24 @@ fn handle_flow_output<State, Event: Send>(
                 });
             }
         }
-        Out::Load { path, pick_id } => {
-            let gpu = InitContext::from(&*ctx);
-            let task = async move {
-                let result = load_asset(path, pick_id, gpu).await;
-                if proxy.send_event(FlowEvent::Loaded { recipient, result }).is_err() {
-                    log::debug!("Event loop closed before asset delivery");
-                }
-            };
+        Out::Load { path, pick_id } => spawn_load(
             #[cfg(not(target_arch = "wasm32"))]
-            async_runtime.spawn(task);
-            #[cfg(target_arch = "wasm32")]
-            wasm_bindgen_futures::spawn_local(task);
-        }
+            async_runtime,
+            InitContext::from(&*ctx),
+            proxy,
+            recipient,
+            vec![(path, pick_id)],
+            None,
+        ),
+        Out::LoadBatch { paths, event } => spawn_load(
+            #[cfg(not(target_arch = "wasm32"))]
+            async_runtime,
+            InitContext::from(&*ctx),
+            proxy,
+            recipient,
+            paths,
+            Some(event),
+        ),
         Out::Configure(f) => f(ctx),
         Out::Composed(outs) => {
             for out in outs {
@@ -1226,6 +1248,29 @@ fn handle_flow_output<State, Event: Send>(
         }
         Out::Empty => (),
     }
+}
+
+fn spawn_load<State: 'static, Event: Send + 'static>(
+    #[cfg(not(target_arch = "wasm32"))] async_runtime: &tokio::runtime::Runtime,
+    gpu: InitContext,
+    proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
+    recipient: usize,
+    paths: Vec<(String, PickId)>,
+    event: Option<Event>,
+) {
+    let task = async move {
+        let result = load_assets(paths, gpu).await;
+        if proxy
+            .send_event(FlowEvent::Loaded { recipient, event, result })
+            .is_err()
+        {
+            log::debug!("Event loop closed before asset delivery");
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    async_runtime.spawn(task);
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_futures::spawn_local(task);
 }
 
 pub fn run<State: 'static + Default, Event: Send + 'static>(
