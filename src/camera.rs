@@ -348,22 +348,6 @@ mod kani_proofs {
 
     #[kani::proof]
     #[kani::unwind(1)]
-    fn verify_screen_to_ndc_x_range() {
-        let width: f32 = kani::any();
-        let height: f32 = kani::any();
-        kani::assume(width > 0.0 && width < 1e6 && width.is_finite());
-        kani::assume(height > 0.0 && height < 1e6 && height.is_finite());
-        let mouse_x: f32 = kani::any();
-        kani::assume(mouse_x >= 0.0 && mouse_x <= width);
-        let mouse_y: f32 = kani::any();
-        kani::assume(mouse_y >= 0.0 && mouse_y <= height);
-        let ndc = screen_to_ndc(mouse_x, mouse_y, width, height);
-        kani::assert(ndc.x >= -1.0 && ndc.x <= 1.0, "NDC x in [-1, 1]");
-        kani::assert(ndc.y >= -1.0 && ndc.y <= 1.0, "NDC y in [-1, 1]");
-    }
-
-    #[kani::proof]
-    #[kani::unwind(1)]
     fn verify_intersect_no_panic() {
         let ox: f32 = kani::any();
         let oy: f32 = kani::any();

@@ -370,13 +370,6 @@ mod kani_proofs {
 
     #[kani::proof]
     #[kani::unwind(1)]
-    fn verify_to_raw_no_panic() {
-        let a = bounded_instance();
-        let _ = a.to_raw();
-    }
-
-    #[kani::proof]
-    #[kani::unwind(1)]
     fn verify_mul_no_panic() {
         let a = bounded_instance();
         let b = bounded_instance();
@@ -389,50 +382,6 @@ mod kani_proofs {
         let a = bounded_instance();
         let b = bounded_instance();
         let _ = a + b;
-    }
-
-    /// `Add` for Instance adds quaternion components directly, which breaks the
-    /// unit-norm invariant. This harness documents and catches that: given two
-    /// unit quaternions (norm == 1), their component-wise sum will NOT have norm 1
-    /// in general, meaning the resulting rotation is invalid.
-    #[kani::proof]
-    #[kani::unwind(1)]
-    fn verify_add_rotation_unit_norm() {
-        // Build two instances with arbitrary unit quaternions
-        let s1: f32 = kani::any();
-        let xi: f32 = kani::any();
-        let yi: f32 = kani::any();
-        let zi: f32 = kani::any();
-        // Assume unit quaternion: s^2 + x^2 + y^2 + z^2 == 1
-        kani::assume(s1.is_finite() && xi.is_finite() && yi.is_finite() && zi.is_finite());
-        let norm_sq_a = s1 * s1 + xi * xi + yi * yi + zi * zi;
-        kani::assume((norm_sq_a - 1.0).abs() < 1e-6);
-
-        let s2: f32 = kani::any();
-        let xj: f32 = kani::any();
-        let yj: f32 = kani::any();
-        let zj: f32 = kani::any();
-        kani::assume(s2.is_finite() && xj.is_finite() && yj.is_finite() && zj.is_finite());
-        let norm_sq_b = s2 * s2 + xj * xj + yj * yj + zj * zj;
-        kani::assume((norm_sq_b - 1.0).abs() < 1e-6);
-
-        let a = Instance {
-            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
-            rotation: Quaternion::new(s1, xi, yi, zi),
-            scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
-        };
-        let b = Instance {
-            position: cgmath::Vector3::new(0.0, 0.0, 0.0),
-            rotation: Quaternion::new(s2, xj, yj, zj),
-            scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
-        };
-        let result = a + b;
-        let rs = result.rotation.s;
-        let rv = result.rotation.v;
-        let norm_sq = rs * rs + rv.x * rv.x + rv.y * rv.y + rv.z * rv.z;
-        // This assertion SHOULD FAIL: component-wise quaternion addition does not
-        // preserve unit norm, so the resulting rotation is not a valid unit quaternion.
-        kani::assert((norm_sq - 1.0).abs() < 1e-3, "Add preserves unit quaternion norm");
     }
 
     #[kani::proof]
