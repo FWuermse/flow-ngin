@@ -134,19 +134,18 @@ pub trait GraphicsFlow<S, E: Send> {
         Out::Empty
     }
 
-    /// Receive one completion per load request, with owned assets or all errors.
-    /// Single loads receive `None`; batches receive their supplied event in `Some`.
-    /// Results preserve input order, including duplicates and empty batches.
+    /// Receive assets or errors once per request.
+    /// Singles receive `None`; batches receive `Some(event)`.
     fn on_load(
         &mut self,
         _ctx: &Context,
         _state: &mut S,
         _event: Option<E>,
-        result: Result<Vec<(String, Asset)>, Vec<LoadErr>>,
+        result: Result<Vec<Asset>, Vec<LoadErr>>,
     ) -> Out<S, E> {
         if let Err(errors) = result {
             for error in errors {
-                log::error!("Failed to load {}: {:#}", error.path, error.source);
+                log::error!("{error}");
             }
         }
         Out::Empty
@@ -745,7 +744,7 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
     Loaded {
         recipient: usize,
         event: Option<Event>,
-        result: Result<Vec<(String, Asset)>, Vec<LoadErr>>,
+        result: Result<Vec<Asset>, Vec<LoadErr>>,
     },
     #[allow(dead_code)]
     Exit,

@@ -24,17 +24,31 @@ pub mod pick;
 pub mod texture;
 
 /// A loaded asset.
-pub enum Asset {
+pub struct Asset {
+    pub path: String,
+    pub pick_id: PickId,
+    pub source: AssetSource,
+}
+
+/// Owned asset contents.
+pub enum AssetSource {
     Model(model::Model),
     Scene(Box<dyn SceneNode>),
     Bytes(Vec<u8>),
 }
 
-/// A loading failure with the original request path.
+/// A failed asset request.
 #[derive(Debug)]
 pub struct LoadErr {
     pub path: String,
+    pub pick_id: PickId,
     pub source: anyhow::Error,
+}
+
+impl std::fmt::Display for LoadErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Failed to load {}: {:#}", self.path, self.source)
+    }
 }
 
 fn asset_extension(path: &str) -> String {
@@ -55,7 +69,7 @@ fn asset_extension(path: &str) -> String {
 pub(crate) async fn load_assets(
     paths: Vec<(String, PickId)>,
     gpu: crate::context::InitContext,
-) -> Result<Vec<(String, Asset)>, Vec<LoadErr>> {
+) -> Result<Vec<Asset>, Vec<LoadErr>> {
     let results = futures::future::join_all(
         paths
             .into_iter()
@@ -81,19 +95,19 @@ pub(crate) async fn load_asset(
     path: String,
     pick_id: PickId,
     gpu: crate::context::InitContext,
-) -> Result<(String, Asset), LoadErr> {
+) -> Result<Asset, LoadErr> {
     let result = match asset_extension(&path).as_str() {
         "obj" => load_model_obj(&path, &gpu.device, &gpu.queue)
             .await
-            .map(Asset::Model),
+            .map(AssetSource::Model),
         "gltf" | "glb" => load_model_gltf(pick_id, &path, &gpu.device, &gpu.queue)
             .await
-            .map(|scene| Asset::Scene(scene)),
-        _ => load_binary(&path).await.map(Asset::Bytes),
+            .map(|scene| AssetSource::Scene(scene)),
+        _ => load_binary(&path).await.map(AssetSource::Bytes),
     };
     match result {
-        Ok(asset) => Ok((path, asset)),
-        Err(source) => Err(LoadErr { path, source }),
+        Ok(source) => Ok(Asset { path, pick_id, source }),
+        Err(source) => Err(LoadErr { path, pick_id, source }),
     }
 }
 

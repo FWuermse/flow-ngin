@@ -4,7 +4,7 @@ use flow_ngin::{
     context::Context,
     flow::{GraphicsFlow, ImageTestResult, Out, run},
     pick::PickId,
-    resources::{Asset, LoadErr},
+    resources::{Asset, AssetSource, LoadErr},
 };
 
 #[derive(Default)]
@@ -65,7 +65,7 @@ impl GraphicsFlow<State, Event> for Loader {
         _: &Context,
         state: &mut State,
         event: Option<Event>,
-        result: Result<Vec<(String, Asset)>, Vec<LoadErr>>,
+        result: Result<Vec<Asset>, Vec<LoadErr>>,
     ) -> Out<State, Event> {
         state.completed[self.0] += 1;
         assert!(state.completed[self.0] <= 8);
@@ -74,14 +74,16 @@ impl GraphicsFlow<State, Event> for Loader {
                 Ok(assets) => assets,
                 Err(errors) => {
                     assert_eq!(errors.len(), 1);
+                    assert_eq!(errors[0].pick_id, PickId(1));
                     assert_eq!(errors[0].path, format!("missing-single-{}.bin", self.0));
                     return Out::Empty;
                 }
             };
             assert_eq!(assets.len(), 1);
-            let (path, asset) = assets.pop().unwrap();
-            assert_eq!(path, "metal.bin");
-            assert!(matches!(&asset, Asset::Bytes(bytes) if !bytes.is_empty()));
+            let asset = assets.pop().unwrap();
+            assert_eq!(asset.path, "metal.bin");
+            assert_eq!(asset.pick_id, PickId(1));
+            assert!(matches!(&asset.source, AssetSource::Bytes(bytes) if !bytes.is_empty()));
             state.assets.push(asset);
             return Out::Empty;
         };
@@ -99,13 +101,19 @@ impl GraphicsFlow<State, Event> for Loader {
                 assert_eq!(
                     assets
                         .iter()
-                        .map(|(path, _)| path.as_str())
+                        .map(|asset| asset.path.as_str())
                         .collect::<Vec<_>>(),
                     expected
                 );
-                for (index, (_, asset)) in assets.into_iter().enumerate() {
-                    match &asset {
-                        Asset::Scene(scene) => {
+                for (index, asset) in assets.into_iter().enumerate() {
+                    let expected_id = if event.request == 0 {
+                        [1, 40 + self.0 as u32, 2][index]
+                    } else {
+                        80 + index as u32
+                    };
+                    assert_eq!(asset.pick_id, PickId(expected_id));
+                    match &asset.source {
+                        AssetSource::Scene(scene) => {
                             let id = if event.request == 0 {
                                 40 + self.0 as u32
                             } else {
@@ -115,8 +123,8 @@ impl GraphicsFlow<State, Event> for Loader {
                             assert!(!renders.is_empty());
                             assert!(renders.iter().all(|render| render.id == PickId(id)));
                         }
-                        Asset::Model(_) => assert_eq!(index, 0),
-                        Asset::Bytes(bytes) => {
+                        AssetSource::Model(_) => assert_eq!(index, 0),
+                        AssetSource::Bytes(bytes) => {
                             assert_eq!(index, 2);
                             assert!(!bytes.is_empty());
                         }
@@ -145,6 +153,10 @@ impl GraphicsFlow<State, Event> for Loader {
                         .map(|error| error.path.as_str())
                         .collect::<Vec<_>>(),
                     ["missing-flow-first.bin", "missing-flow-second.glb"]
+                );
+                assert_eq!(
+                    errors.iter().map(|error| error.pick_id).collect::<Vec<_>>(),
+                    [PickId(1), PickId(3)]
                 );
                 return Out::Composed(vec![
                     self.batch(4, &[]),

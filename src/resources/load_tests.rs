@@ -38,9 +38,10 @@ async fn loads_owned_assets_and_preserves_errors() {
         queue: queue.clone(),
     };
     let path = "cube.obj";
-    let (returned, asset) = load_asset(path.into(), PickId(1), gpu()).await.unwrap();
+    let Asset { path: returned, pick_id, source } = load_asset(path.into(), PickId(1), gpu()).await.unwrap();
     assert_eq!(returned, path);
-    assert!(matches!(asset, Asset::Model(_)));
+    assert_eq!(pick_id, PickId(1));
+    assert!(matches!(source, AssetSource::Model(_)));
 
     let path = "metal.gltf";
     let (first, second) = tokio::join!(
@@ -48,10 +49,11 @@ async fn loads_owned_assets_and_preserves_errors() {
         load_asset(path.into(), PickId(42), gpu()),
     );
     for (result, id) in [(first, PickId(41)), (second, PickId(42))] {
-        let (returned, Asset::Scene(scene)) = result.unwrap() else {
+        let Asset { path: returned, pick_id, source: AssetSource::Scene(scene) } = result.unwrap() else {
             panic!("expected scene")
         };
         assert_eq!(returned, path);
+        assert_eq!(pick_id, id);
         let renders = scene.get_renders();
         assert!(!renders.is_empty());
         assert!(renders.iter().all(|render| render.id == id));
@@ -62,13 +64,15 @@ async fn loads_owned_assets_and_preserves_errors() {
         load_asset(path.into(), PickId(1), gpu()),
         load_asset(path.into(), PickId(2), gpu()),
     );
-    let (returned, Asset::Bytes(mut first)) = first.unwrap() else {
+    let Asset { path: returned, pick_id, source: AssetSource::Bytes(mut first) } = first.unwrap() else {
         panic!("expected bytes")
     };
-    let (_, Asset::Bytes(second)) = second.unwrap() else {
+    let Asset { pick_id: second_id, source: AssetSource::Bytes(second), .. } = second.unwrap() else {
         panic!("expected bytes")
     };
     assert_eq!(returned, path);
+    assert_eq!(pick_id, PickId(1));
+    assert_eq!(second_id, PickId(2));
     assert_eq!(first, second);
     first[0] ^= 1;
     assert_ne!(first, second);
@@ -87,13 +91,14 @@ async fn loads_owned_assets_and_preserves_errors() {
     glb.extend(b"JSON");
     glb.extend(json);
     std::fs::write(&glb_path, glb).unwrap();
-    let (returned, Asset::Scene(scene)) = load_asset(glb_path.clone(), PickId(43), gpu())
+    let Asset { path: returned, pick_id, source: AssetSource::Scene(scene) } = load_asset(glb_path.clone(), PickId(43), gpu())
         .await
         .unwrap()
     else {
         panic!("expected GLB scene")
     };
     assert_eq!(returned, glb_path);
+    assert_eq!(pick_id, PickId(43));
     assert!(
         scene
             .get_renders()
@@ -115,12 +120,13 @@ async fn loads_owned_assets_and_preserves_errors() {
         std::io::ErrorKind::NotFound
     );
     std::fs::write(&missing, b"retry").unwrap();
-    let (returned, Asset::Bytes(bytes)) =
+    let Asset { path: returned, pick_id, source: AssetSource::Bytes(bytes) } =
         load_asset(missing.clone(), PickId(3), gpu()).await.unwrap()
     else {
         panic!("expected bytes")
     };
     assert_eq!(returned, missing);
+    assert_eq!(pick_id, PickId(3));
     assert_eq!(bytes, b"retry");
 
     let broken = dir.join("broken.glb").to_str().unwrap().to_owned();
@@ -156,18 +162,19 @@ async fn loads_owned_assets_and_preserves_errors() {
         ("metal.bin".into(), PickId(2)),
         ("metal.bin".into(), PickId(3)),
     ], gpu()).await.unwrap();
-    assert_eq!(assets.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+    assert_eq!(assets.iter().map(|asset| asset.path.as_str()).collect::<Vec<_>>(),
         ["cube.obj", glb_path.as_str(), "metal.gltf", "metal.gltf", "metal.bin", "metal.bin"]);
     let mut byte_assets = Vec::new();
-    for (index, (_, asset)) in assets.into_iter().enumerate() {
-        match asset {
-            Asset::Model(_) => assert_eq!(index, 0),
-            Asset::Scene(scene) => {
+    for (index, asset) in assets.into_iter().enumerate() {
+        assert_eq!(asset.pick_id, PickId([1, 51, 52, 53, 2, 3][index]));
+        match asset.source {
+            AssetSource::Model(_) => assert_eq!(index, 0),
+            AssetSource::Scene(scene) => {
                 let renders = scene.get_renders();
                 assert!(!renders.is_empty());
                 assert!(renders.iter().all(|render| render.id == PickId(50 + index as u32)));
             }
-            Asset::Bytes(bytes) => byte_assets.push(bytes),
+            AssetSource::Bytes(bytes) => byte_assets.push(bytes),
         }
     }
     assert_eq!(byte_assets.len(), 2);
@@ -184,6 +191,8 @@ async fn loads_owned_assets_and_preserves_errors() {
     ], gpu()).await else { panic!("expected all errors") };
     assert_eq!(errors.iter().map(|error| error.path.as_str()).collect::<Vec<_>>(),
         [absent.as_str(), broken.as_str(), absent.as_str()]);
+    assert_eq!(errors.iter().map(|error| error.pick_id).collect::<Vec<_>>(),
+        [PickId(1), PickId(3), PickId(4)]);
     assert!(errors[0].source.downcast_ref::<std::io::Error>().is_some());
     assert!(load_assets(vec![], gpu()).await.unwrap().is_empty());
 
