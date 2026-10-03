@@ -1,6 +1,6 @@
 //! GPU mipmap generation via blit (render) pipeline.
 //!
-//! [`Mipmapper`] holds a reusable render pipeline that downsamples each mip
+//! [`Mipmapper`] holds reusable render pipelines that downsample each mip
 //! level from the previous one using bilinear filtering. Create one instance
 //! with [`Mipmapper::new`] and call [`Mipmapper::generate_mipmaps`] for each
 //! texture that needs a full mip chain.
@@ -11,11 +11,12 @@ use anyhow::bail;
 /// previous one through a fullscreen-triangle render pass.
 pub struct Mipmapper {
     blit_pipeline: wgpu::RenderPipeline,
+    srgb_blit_pipeline: wgpu::RenderPipeline,
     blit_sampler: wgpu::Sampler,
 }
 
 impl Mipmapper {
-    /// Create a new [`Mipmapper`] holding the blit render pipeline and sampler.
+    /// Create a new [`Mipmapper`] holding linear and sRGB blit pipelines and a sampler.
     pub fn new(device: &wgpu::Device) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("blit shader"),
@@ -50,34 +51,36 @@ impl Mipmapper {
             ..Default::default()
         });
 
-        let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("blit mipmap pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let create_pipeline = |format| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("blit mipmap pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
 
         let blit_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("blit sampler"),
@@ -87,7 +90,8 @@ impl Mipmapper {
         });
 
         Self {
-            blit_pipeline,
+            blit_pipeline: create_pipeline(wgpu::TextureFormat::Rgba8Unorm),
+            srgb_blit_pipeline: create_pipeline(wgpu::TextureFormat::Rgba8UnormSrgb),
             blit_sampler,
         }
     }
@@ -103,16 +107,15 @@ impl Mipmapper {
         queue: &wgpu::Queue,
         texture: &wgpu::Texture,
     ) -> anyhow::Result<()> {
-        match texture.format() {
-            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {}
+        let blit_pipeline = match texture.format() {
+            wgpu::TextureFormat::Rgba8Unorm => &self.blit_pipeline,
+            wgpu::TextureFormat::Rgba8UnormSrgb => &self.srgb_blit_pipeline,
             _ => bail!("Unsupported mipmap format {:?}", texture.format()),
-        }
+        };
 
         if texture.mip_level_count() <= 1 {
             return Ok(());
         }
-
-        let non_srgb_format = texture.format().remove_srgb_suffix();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("mipmap encoder"),
@@ -120,14 +123,14 @@ impl Mipmapper {
 
         // When the texture lacks RENDER_ATTACHMENT usage we render into a
         // temporary texture that does, then copy the results back.
-        // TODO: check if that all works on wasm.
+        // Preserve the format: WebGL cannot copy between linear and sRGB textures.
+        // sRGB views also ensure that filtering happens in linear light.
         let (mut src_view, maybe_temp) = if texture
             .usage()
             .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
         {
             (
                 texture.create_view(&wgpu::TextureViewDescriptor {
-                    format: Some(non_srgb_format),
                     base_mip_level: 0,
                     mip_level_count: Some(1),
                     ..Default::default()
@@ -141,7 +144,7 @@ impl Mipmapper {
                 mip_level_count: texture.mip_level_count(),
                 sample_count: texture.sample_count(),
                 dimension: texture.dimension(),
-                format: non_srgb_format,
+                format: texture.format(),
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
@@ -165,19 +168,17 @@ impl Mipmapper {
         };
 
         for mip in 1..texture.mip_level_count() {
-            let dst_view =
-                src_view
-                    .texture()
-                    .create_view(&wgpu::TextureViewDescriptor {
-                        format: Some(non_srgb_format),
-                        base_mip_level: mip,
-                        mip_level_count: Some(1),
-                        ..Default::default()
-                    });
+            let dst_view = src_view
+                .texture()
+                .create_view(&wgpu::TextureViewDescriptor {
+                    base_mip_level: mip,
+                    mip_level_count: Some(1),
+                    ..Default::default()
+                });
 
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
-                layout: &self.blit_pipeline.get_bind_group_layout(0),
+                layout: &blit_pipeline.get_bind_group_layout(0),
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -206,7 +207,7 @@ impl Mipmapper {
                 timestamp_writes: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.blit_pipeline);
+            pass.set_pipeline(blit_pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
 
