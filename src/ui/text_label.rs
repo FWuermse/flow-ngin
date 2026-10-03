@@ -129,7 +129,6 @@ impl TextLabel {
         self.text = text.to_string();
         if let Some(res) = self.resources.borrow_mut().as_mut() {
             res.text_buffer.set_text(
-                &mut res.font_system,
                 text,
                 &Attrs::new().family(Family::SansSerif),
                 Shaping::Advanced,
@@ -156,7 +155,7 @@ impl TextLabel {
         self.resolved_h = h as f32;
         if let Some(res) = self.resources.borrow_mut().as_mut() {
             res.text_buffer
-                .set_size(&mut res.font_system, Some(w as f32), Some(h as f32));
+                .set_size(Some(w as f32), Some(h as f32));
             res.text_buffer.shape_until_scroll(&mut res.font_system, false);
         }
     }
@@ -202,12 +201,10 @@ impl TextLabel {
         let mut text_buffer =
             Buffer::new(&mut font_system, Metrics::new(self.font_size, self.line_height));
         text_buffer.set_size(
-            &mut font_system,
             Some(self.resolved_w),
             Some(self.resolved_h),
         );
         text_buffer.set_text(
-            &mut font_system,
             &self.text,
             &Attrs::new().family(Family::SansSerif),
             Shaping::Advanced,

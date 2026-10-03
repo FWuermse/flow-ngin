@@ -3,7 +3,7 @@ use std::sync::Arc;
 use flow_ngin::{
     Color, Deg, One, Quaternion, Rotation3, Vector3,
     context::{Context, GPUResource, InitContext},
-    data_structures::block::BuildingBlocks,
+    data_structures::block::{BuildingBlocks, WorldCoordMesh},
     flow::{FlowConstructor, GraphicsFlow, Out},
     ui::{
         Button, Checkbox, Grid, HAlign, VAlign, Value, image::{Atlas, Icon}
@@ -149,7 +149,7 @@ impl GUI {
             .fill(Icon::new(ctx, &self.atlas, bg_start))
             .hover_fill(Icon::new(ctx, &self.atlas, bg_start + 1))
             .click_fill(Icon::new(ctx, &self.atlas, bg_start + 2))
-            .on_click(on_click)
+            .on_click(move |_, _| on_click())
     }
 }
 impl<'a> GraphicsFlow<State, Event> for GUI {

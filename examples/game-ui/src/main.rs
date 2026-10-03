@@ -101,7 +101,7 @@ impl DrawerExample {
             .fill(Icon::new(ctx, &self.atlas, 0))
             .hover_fill(Icon::new(ctx, &self.atlas, 1))
             .click_fill(Icon::new(ctx, &self.atlas, 2))
-            .on_click(on_click)
+            .on_click(move |_, _| on_click())
     }
     fn make_arrow(
         &self,
@@ -115,7 +115,7 @@ impl DrawerExample {
             .fill(Icon::new(ctx, &self.atlas, 8))
             .hover_fill(Icon::new(ctx, &self.atlas, 9))
             .click_fill(Icon::new(ctx, &self.atlas, 9))
-            .on_click(on_click)
+            .on_click(move |_, _| on_click())
     }
 }
 
@@ -348,7 +348,7 @@ impl DetailCard {
             .fill(Icon::new(ctx, &self.atlas, 16))
             .hover_fill(Icon::new(ctx, &self.atlas, 24))
             .click_fill(Icon::new(ctx, &self.atlas, 32))
-            .on_click(|| Event::Build);
+            .on_click(|_, _| Event::Build);
 
         let btn_dismiss = Button::new()
             .square(60)
@@ -357,7 +357,7 @@ impl DetailCard {
             .fill(Icon::new(ctx, &self.atlas, 17))
             .hover_fill(Icon::new(ctx, &self.atlas, 25))
             .click_fill(Icon::new(ctx, &self.atlas, 33))
-            .on_click(|| Event::DismissCard);
+            .on_click(|_, _| Event::DismissCard);
 
         let buttons = Grid::new(2, 1)
             .with_child(0, 0, btn_build)

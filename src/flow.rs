@@ -652,7 +652,7 @@ impl<'a, State: Default> AppState<State> {
                 })
                 .unwrap();
             rx.receive().await.unwrap().unwrap();
-            let data = buffer_slice.get_mapped_range();
+            let data = buffer_slice.get_mapped_range().expect("GPU readback buffer must be mapped");
             let (width, height) = self.get_with_height();
             let buffer =
                 image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(width, height, data).unwrap();
@@ -682,7 +682,7 @@ impl<'a, State: Default> AppState<State> {
             }
         }
 
-        output.present();
+        self.ctx.queue.present(output);
         Ok(())
     }
 }

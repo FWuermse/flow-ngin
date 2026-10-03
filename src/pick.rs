@@ -352,7 +352,7 @@ async fn read_texture_buffer(
         .unwrap();
     rx.receive().await.unwrap().unwrap();
 
-    let data = buffer_slice.get_mapped_range();
+    let data = buffer_slice.get_mapped_range().expect("GPU readback buffer must be mapped");
     // [(0, 0, 0, 0), (0`, 255, 0, 255), (0, 0, 0, 0),
     // (0, 0, 0, 0), (0, 255, 0, 255), (0, 0, 0, 0)]
     let rgba_u32 = pick_id_from_buffer(

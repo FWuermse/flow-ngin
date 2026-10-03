@@ -43,7 +43,7 @@ pub fn mk_gui_pick_pipeline(device: &wgpu::Device, screen_size_layout: &wgpu::Bi
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[Vertex::desc()],
+            buffers: &[Some(Vertex::desc())],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

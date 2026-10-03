@@ -113,7 +113,7 @@ impl PartitionVizFlow {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[LineVertex::desc()],
+                buffers: &[Some(LineVertex::desc())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {

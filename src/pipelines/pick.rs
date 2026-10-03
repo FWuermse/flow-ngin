@@ -40,7 +40,7 @@ pub fn mk_pick_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
+            buffers: &[Some(model::ModelVertex::desc()), Some(InstanceRaw::desc())],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

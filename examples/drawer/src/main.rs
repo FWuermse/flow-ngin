@@ -78,7 +78,7 @@ impl GraphicsFlow<State, Event> for DrawerExample {
             .hover_fill(Icon::from_color(ctx, [80, 80, 80, 220]))
             .click_fill(Icon::from_color(ctx, [40, 40, 40, 220]))
             .with_icon(Icon::new(ctx, &self.atlas, 28))
-            .on_click(|| Event::ToggleDrawer);
+            .on_click(|_, _| Event::ToggleDrawer);
 
         let mut toggle = toggle;
         toggle.on_init(ctx, state);
@@ -131,7 +131,6 @@ impl GraphicsFlow<State, Event> for DrawerExample {
                             .track(Icon::from_color(ctx, [80, 80, 80, 255]))
                             .handle(Icon::from_color(ctx, [200, 200, 200, 255]))
                             .track_height(4)
-                            .handle_width(16)
                             .bind(&state.volume),
                     )
                     .with_child(
@@ -148,7 +147,7 @@ impl GraphicsFlow<State, Event> for DrawerExample {
                                     .font_size(18.0)
                                     .color([255, 255, 255]),
                             )
-                            .on_click(|| Event::ToggleDrawer),
+                            .on_click(|_, _| Event::ToggleDrawer),
                     ),
             );
 

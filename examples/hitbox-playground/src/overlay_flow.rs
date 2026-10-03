@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use flow_ngin::{
     One, Quaternion, Rotation, Vector3,
     context::{Context, GPUResource, InitContext},
-    data_structures::{block::BuildingBlocks, collision::sat, instance::Instance},
+    data_structures::{block::{BuildingBlocks, WorldCoordMesh}, collision::sat, instance::Instance},
     flow::{GraphicsFlow, Out},
     pick::PickId,
     pipelines::transparent::TransparencyUniform,

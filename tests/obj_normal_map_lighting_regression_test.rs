@@ -17,6 +17,11 @@ impl<'a, 'pass> flow_ngin::context::GPUResource<'a, 'pass> for TwoModels {
         self.1.write_to_buffer(queue, device);
     }
 
+    fn write_to_buffer_offset(&mut self, queue: &wgpu::Queue, device: &wgpu::Device, offset: &Instance) {
+        self.0.write_to_buffer_offset(queue, device, offset);
+        self.1.write_to_buffer_offset(queue, device, offset);
+    }
+
     fn get_render(&'a self) -> flow_ngin::render::Render<'a, 'pass> {
         flow_ngin::render::Render::Composed(vec![
             self.0.get_render(),

@@ -158,19 +158,22 @@ impl Context {
     pub(crate) async fn new(window: Arc<Window>) -> Result<Self, anyhow::Error> {
         let size = window.inner_size();
 
-        // The instance is a handle to our GPU
-        // BackendBit::PRIMARY => Vulkan + Metal + DX12 + Browser WebGPU
-        log::warn!("WGPU setup");
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance_descriptor = wgpu::InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
             backends: wgpu::Backends::PRIMARY,
             #[cfg(target_arch = "wasm32")]
-            backends: wgpu::Backends::GL,
+            backends: wgpu::Backends::BROWSER_WEBGPU | wgpu::Backends::GL,
             flags: wgpu::InstanceFlags::default(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
             backend_options: wgpu::BackendOptions::default(),
             display: None,
-        });
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let instance = wgpu::Instance::new(instance_descriptor);
+        // Probe for an adapter before acquiring a canvas context: navigator.gpu
+        // can exist even when the browser cannot provide a WebGPU adapter.
+        #[cfg(target_arch = "wasm32")]
+        let instance = wgpu::util::new_instance_with_webgpu_detection(instance_descriptor).await;
 
         let surface = instance.create_surface(window.clone())?;
 
@@ -179,16 +182,16 @@ impl Context {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                ..Default::default()
             })
             .await?;
-        log::warn!("device and queue");
+        let backend = adapter.get_info().backend;
+        log::info!("Graphics backend: {backend:?}");
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
                 required_features: wgpu::Features::empty(),
-                // WebGL doesn't support all of wgpu's features, so if
-                // we're building for the web we'll have to disable some.
-                required_limits: if cfg!(target_arch = "wasm32") {
+                required_limits: if backend == wgpu::Backend::Gl {
                     wgpu::Limits::downlevel_webgl2_defaults()
                 } else {
                     wgpu::Limits::default()
@@ -215,6 +218,7 @@ impl Context {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],

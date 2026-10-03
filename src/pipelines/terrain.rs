@@ -88,7 +88,7 @@ pub fn mk_terrain_pipeline(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[ModelVertex::desc(), <InstanceRaw as Vertex>::desc()],
+            buffers: &[Some(ModelVertex::desc()), Some(<InstanceRaw as Vertex>::desc())],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {

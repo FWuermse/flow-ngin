@@ -25,6 +25,8 @@ fn should_render_clear_colour() {
     impl<'a, 'pass> GPUResource<'a, 'pass> for Empty {
         fn write_to_buffer(&mut self, _: &wgpu::Queue, _: &wgpu::Device) {}
 
+        fn write_to_buffer_offset(&mut self, _: &wgpu::Queue, _: &wgpu::Device, _: &Instance) {}
+
         fn get_render(&'a self) -> flow_ngin::render::Render<'a, 'pass> {
             Render::None
         }

@@ -1,12 +1,12 @@
 use flow_ngin::{
     InnerSpace, One, Point3, Quaternion, Rad, Rotation, Rotation3, Vector3, WindowEvent,
     context::{Context, GPUResource, InitContext},
-    data_structures::{block::BuildingBlocks, instance::Instance},
+    data_structures::{block::{BuildingBlocks, WorldCoordMesh}, instance::Instance},
     flow::{GraphicsFlow, Out},
     pick::PickId,
     render::Render,
 };
-use rand::Rng;
+use rand::RngExt;
 use winit::{
     event::MouseScrollDelta,
     keyboard::{KeyCode, PhysicalKey},
@@ -229,17 +229,17 @@ impl GraphicsFlow<State, Event> for SceneFlow {
                 state.drag_rotation = Quaternion::one();
             }
             Event::PlaceRandom(count) => {
-                let mut rng = rand::thread_rng();
+                let mut rng = rand::rng();
                 // Keep objects fully within the grid boundary
                 let extent = WORLD_HALF - HALF;
                 for _ in 0..*count {
                     let id = PickId(state.next_id);
                     state.next_id += 1;
-                    let x = rng.gen_range(-extent..=extent);
-                    let z = rng.gen_range(-extent..=extent);
+                    let x = rng.random_range(-extent..=extent);
+                    let z = rng.random_range(-extent..=extent);
                     // For 3D detection space also scatter along Y; otherwise stay flat
                     let y = if state.detection_dims >= 3 {
-                        rng.gen_range(-extent..=extent)
+                        rng.random_range(-extent..=extent)
                     } else {
                         0.0
                     };
@@ -250,12 +250,12 @@ impl GraphicsFlow<State, Event> for SceneFlow {
                     let tau = std::f32::consts::TAU;
                     let rotation = match state.object_shape {
                         ObjectShape::Plane2D => {
-                            Quaternion::from_axis_angle(world_axis(1), Rad(rng.gen_range(0.0..tau)))
+                            Quaternion::from_axis_angle(world_axis(1), Rad(rng.random_range(0.0..tau)))
                         }
                         ObjectShape::Cube3D => {
-                            Quaternion::from_axis_angle(world_axis(0), Rad(rng.gen_range(0.0..tau)))
-                                * Quaternion::from_axis_angle(world_axis(1), Rad(rng.gen_range(0.0..tau)))
-                                * Quaternion::from_axis_angle(world_axis(2), Rad(rng.gen_range(0.0..tau)))
+                            Quaternion::from_axis_angle(world_axis(0), Rad(rng.random_range(0.0..tau)))
+                                * Quaternion::from_axis_angle(world_axis(1), Rad(rng.random_range(0.0..tau)))
+                                * Quaternion::from_axis_angle(world_axis(2), Rad(rng.random_range(0.0..tau)))
                         }
                     };
                     state.placed.push(PlacedObject {
