@@ -11,7 +11,7 @@ use crate::{
     pipelines::{
         basic::mk_basic_pipeline,
         gui::{mk_gui_pipeline, mk_screen_size_bind_group, mk_screen_size_bind_group_layout},
-        light::{LightResources, LightUniform, mk_light_pipeline},
+        light::{LightResources, LightUniform, LightUpdate, mk_light_pipeline},
         pick::mk_pick_pipeline,
         pick_gui::mk_gui_pick_pipeline,
         terrain::mk_terrain_pipeline,
@@ -151,6 +151,10 @@ pub struct Context {
     pub camera: CameraResources,
     pub projection: Projection,
     pub light: LightResources,
+    /// Called once per successful frame update, before flows' `on_update` hooks.
+    /// Set during `on_init` or via `Out::Configure`. Use `LightUpdate::default()`
+    /// to restore the built-in orbit, or a no-op callback to keep the light static.
+    pub light_update: LightUpdate,
     pub pipelines: Pipelines,
     pub screen_size: ScreenSizeResources,
 }
@@ -404,6 +408,7 @@ impl Context {
             depth_texture,
             device,
             light,
+            light_update: LightUpdate::default(),
             mouse,
             msaa_view,
             pipelines,

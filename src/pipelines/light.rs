@@ -1,4 +1,39 @@
+use std::fmt;
+
+use cgmath::Rotation3;
+use instant::Duration;
 use wgpu::util::DeviceExt;
+
+pub struct LightUpdate(Box<dyn FnMut(&mut LightUniform, Duration)>);
+
+impl LightUpdate {
+    pub fn new(update: impl FnMut(&mut LightUniform, Duration) + 'static) -> Self {
+        Self(Box::new(update))
+    }
+
+    pub(crate) fn update(&mut self, light: &mut LightUniform, dt: Duration) {
+        (self.0)(light, dt);
+    }
+}
+
+impl Default for LightUpdate {
+    fn default() -> Self {
+        Self::new(|light, dt| {
+            let position: cgmath::Vector3<_> = light.position.into();
+            light.position = (cgmath::Quaternion::from_axis_angle(
+                cgmath::Vector3::unit_y(),
+                cgmath::Deg(2.0 * dt.as_secs_f32()),
+            ) * position)
+                .into();
+        })
+    }
+}
+
+impl fmt::Debug for LightUpdate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("LightUpdate { .. }")
+    }
+}
 
 use crate::data_structures::{
     model::{Model, ModelVertex, Vertex},
@@ -118,4 +153,58 @@ pub fn mk_light_pipeline(
         shader,
         sample_count,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn light() -> LightUniform {
+        LightUniform {
+            position: [10.0, 5.0, 0.0],
+            color: [1.0; 3],
+            _padding: 0,
+            _padding2: 0,
+        }
+    }
+
+    #[test]
+    fn default_orbit_preserves_height_and_colour() {
+        let mut light = light();
+        LightUpdate::default().update(&mut light, Duration::from_secs(45));
+        assert!(light.position[0].abs() < 0.0001);
+        assert!((light.position[1] - 5.0).abs() < 0.0001);
+        assert!((light.position[2] + 10.0).abs() < 0.0001);
+        assert_eq!(light.color, [1.0; 3]);
+    }
+
+    #[test]
+    fn custom_update_keeps_state_and_replaces_default_orbit() {
+        let mut elapsed = 0.0;
+        let mut update = LightUpdate::new(move |light, dt| {
+            elapsed += dt.as_secs_f32();
+            light.position = [elapsed, 20.0, 30.0];
+            light.color = [elapsed / 10.0, 0.5, 0.25];
+        });
+        let mut light = light();
+        update.update(&mut light, Duration::from_millis(500));
+        update.update(&mut light, Duration::from_millis(1500));
+        assert_eq!(light.position, [2.0, 20.0, 30.0]);
+        assert_eq!(light.color, [0.2, 0.5, 0.25]);
+    }
+
+    #[test]
+    fn no_op_disables_motion_and_default_can_be_restored() {
+        let mut light = light();
+        let mut update = LightUpdate::new(|_, _| {});
+        update.update(&mut light, Duration::from_secs(45));
+        assert_eq!(light.position, [10.0, 5.0, 0.0]);
+        assert_eq!(light.color, [1.0; 3]);
+
+        update = LightUpdate::default();
+        update.update(&mut light, Duration::ZERO);
+        assert_eq!(light.position, [10.0, 5.0, 0.0]);
+        update.update(&mut light, Duration::from_secs(45));
+        assert!((light.position[2] + 10.0).abs() < 0.0001);
+    }
 }

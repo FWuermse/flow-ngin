@@ -25,7 +25,6 @@ use std::{collections::HashSet, fmt::Debug, iter, pin::Pin, sync::Arc};
 
 use instant::{Duration, Instant};
 
-use cgmath::Rotation3;
 #[cfg(feature = "integration-tests")]
 use tokio::runtime::Runtime;
 use winit::{
@@ -393,6 +392,12 @@ impl<'a, State: Default> AppState<State> {
             Some(tex) => tex,
             None => return Ok(()),
         };
+        // Include changes from light callbacks, on_init, and Out::Configure.
+        self.ctx.queue.write_buffer(
+            &self.ctx.light.buffer,
+            0,
+            bytemuck::bytes_of(&self.ctx.light.uniform),
+        );
         // TODO: different view for golden img testing
         #[cfg(not(feature = "integration-tests"))]
         let view = output
@@ -1069,13 +1074,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                             bytemuck::cast_slice(&[state.ctx.camera.uniform]),
                         );
                         // Update the light
-                        let old_position: cgmath::Vector3<_> =
-                            state.ctx.light.uniform.position.into();
-                        state.ctx.light.uniform.position = (cgmath::Quaternion::from_axis_angle(
-                            (0.0, 1.0, 0.0).into(),
-                            cgmath::Deg(2.0 * dt.as_secs_f32()),
-                        ) * old_position)
-                            .into();
+                        state.ctx.light_update.update(&mut state.ctx.light.uniform, dt);
                         // Update custom stuff
                         self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
                             let events = f.on_update(&state.ctx, &mut state.state, dt);

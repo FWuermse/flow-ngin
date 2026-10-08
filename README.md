@@ -40,13 +40,13 @@ You may want to use this engine if:
 - [x] Picking 
 - [x] Ray casting
 - [ ] Terrain generation
-  - [ ] Multi-texture Terrain
+  - [x] Multi-texture Terrain
   - [ ] Deterministic Terrain generation
   - [ ] Seed as input parameter
 - [x] User Interface
   - [x] Button
   - [x] Icons (including transparency)
-  - [ ] Responsiveness
+  - [x] Responsiveness
 
 ## Tests and Verification
 
