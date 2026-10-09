@@ -1379,6 +1379,7 @@ mod tests {
         assert_eq!(parent.children[0].get_world_transforms().len(), 3);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn test_device() -> wgpu::Device {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
@@ -1412,6 +1413,7 @@ mod tests {
         ModelNode::from_model(instances, 0u32, device, empty_model, Vec::new())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn hidden_remove_last_does_not_affect_children() {
         let device = test_device();
@@ -1434,6 +1436,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn hidden_get_render_returns_empty() {
         let device = test_device();
@@ -1452,6 +1455,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn hidden_add_instance_unhides() {
         let device = test_device();
@@ -1472,6 +1476,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn hidden_add_instances_unhides() {
         let device = test_device();

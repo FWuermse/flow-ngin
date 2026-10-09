@@ -1074,7 +1074,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                             bytemuck::cast_slice(&[state.ctx.camera.uniform]),
                         );
                         // Update the light
-                        state.ctx.light_update.update(&mut state.ctx.light.uniform, dt);
+                        state.ctx.light_update.update(&mut state.ctx.light.uniform,  &state.ctx.camera.camera, dt);
                         // Update custom stuff
                         self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
                             let events = f.on_update(&state.ctx, &mut state.state, dt);
