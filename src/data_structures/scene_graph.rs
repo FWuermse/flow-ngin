@@ -156,7 +156,7 @@ pub fn to_scene_node(
                     contents: bytemuck::cast_slice(&indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
-                let mat_idx = primitive.material().index().unwrap_or(0);
+                let mat_idx = primitive.material().index().unwrap_or(mats.len().saturating_sub(1));
 
                 meshes.push(model::Mesh {
                     name: mesh.name().unwrap_or("unknown_mesh").to_string(),

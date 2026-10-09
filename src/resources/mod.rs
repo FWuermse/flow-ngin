@@ -19,9 +19,16 @@ use crate::{
  * This module contains all logic for loading mesh/textures/etc. from external files.
  */
 pub mod animation;
+#[cfg(feature = "asset-bundles")]
+mod asset_bundle;
 pub mod mesh;
 pub mod pick;
 pub mod texture;
+#[cfg(feature = "asset-bundles")]
+pub use asset_bundle::{
+    AssetFiles, load_gltf_geometry_from_files, load_model_gltf_from_files,
+    load_model_obj_from_files, load_obj_geometry_from_files,
+};
 
 /// A loaded asset.
 pub struct Asset {
@@ -314,6 +321,7 @@ pub async fn load_model_gltf(
         }
     }
 
+    materials.push(default_material(device, queue)?);
     let mut models = Vec::new();
 
     let id = id.into();
@@ -334,6 +342,16 @@ pub async fn load_model_gltf(
     root_node.update_world_transform_all();
 
     Ok(root_node)
+}
+
+fn default_material(device: &wgpu::Device, queue: &wgpu::Queue) -> anyhow::Result<model::Material> {
+    model::Material::new(
+        device,
+        "Default",
+        Texture::from_color([210, 210, 210, 255], device, queue),
+        Texture::create_default_normal_map(1, 1, device, queue),
+        &diffuse_normal_layout(device),
+    )
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

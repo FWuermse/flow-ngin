@@ -944,7 +944,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
         if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
             // TODO: make the below pattern/factor configurable
             let speed_factor = 5.0;
-            if let MouseButtonState::Right = state.ctx.mouse.pressed {
+            if state.ctx.automatic_camera_controls && matches!(state.ctx.mouse.pressed, MouseButtonState::Right) {
                 state
                     .ctx
                     .camera
@@ -979,7 +979,9 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
         };
 
         // general stuff
-        state.ctx.camera.controller.handle_window_events(&event);
+        if state.ctx.automatic_camera_controls {
+            state.ctx.camera.controller.handle_window_events(&event);
+        }
 
         if let WindowEvent::CursorMoved {
             device_id: _,
@@ -990,7 +992,7 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             let dy = position.y - state.ctx.mouse.coords.y;
             state.ctx.mouse.prev_coords = state.ctx.mouse.coords;
             state.ctx.mouse.coords = position;
-            if let MouseButtonState::Right = state.ctx.mouse.pressed {
+            if state.ctx.automatic_camera_controls && matches!(state.ctx.mouse.pressed, MouseButtonState::Right) {
                 let speed_factor = 5.0;
                 state
                     .ctx
@@ -1053,11 +1055,9 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
                             self.time_since_tick = Duration::from_millis(0);
                         }
                         // Update the camera
-                        state
-                            .ctx
-                            .camera
-                            .controller
-                            .update(&mut state.ctx.camera.camera, dt);
+                        if state.ctx.automatic_camera_controls {
+                            state.ctx.camera.controller.update(&mut state.ctx.camera.camera, dt);
+                        }
                         state
                             .ctx
                             .camera
@@ -1310,9 +1310,18 @@ pub fn run<State: 'static + Default, Event: Send + 'static>(
     #[cfg(not(feature = "integration-tests"))]
     let event_loop: EventLoop<FlowEvent<State, Event>> = EventLoop::with_user_event().build()?;
 
-    let mut app: App<State, Event> = App::new(&event_loop, constructors);
+    let app: App<State, Event> = App::new(&event_loop, constructors);
 
-    event_loop.run_app(&mut app)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut app = app;
+        event_loop.run_app(&mut app)?;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::EventLoopExtWebSys;
+        event_loop.spawn_app(app);
+    }
 
     Ok(())
 }

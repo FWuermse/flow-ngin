@@ -7,7 +7,8 @@ use crate::{
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
-        HAlign, Placement, VAlign, container::merge_outs, image::Icon, layout::Layout, text_label::TextLabel
+        HAlign, Placement, VAlign, container::merge_outs, image::Icon, layout::Layout,
+        text_label::TextLabel,
     },
 };
 
@@ -27,8 +28,8 @@ pub enum ButtonContent {
 
 /// A clickable button with text or icon content.
 ///
-/// Click detection is coordinate-based: the button tracks mouse state transitions
-/// and fires when the mouse is released while hovering over the button.
+/// Click detection is coordinate-based and fires on mouse release. Forward window
+/// events to capture clicks between frames; update-only callers retain polling.
 ///
 /// # Example
 ///
@@ -59,10 +60,32 @@ pub struct Button<S, E: Send> {
     content_scale: f32,
     visual_state: VisualState,
     was_pressed: bool,
+    event_driven: bool,
     _marker: PhantomData<S>,
 }
 
 impl<S: 'static, E: Send + 'static> Button<S, E> {
+    /// Initialize GPU resources without changing the application context.
+    pub fn init(&mut self, ctx: &Context) {
+        // Resolve own placement against screen dimensions.
+        // For nested buttons, the parent's Layout::resolve will override afterward.
+        let (x, y, w, h) = self
+            .placement
+            .resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
+
+        // Init content GPU resources.
+        match &mut self.content {
+            Some(ButtonContent::Text(label)) => label.init(ctx),
+            Some(ButtonContent::Icon(_)) | None => {}
+        }
+
+        self.layout_content(&ctx.queue);
+    }
+
     /// Create a button that fills its parent by default.
     ///
     /// Use `.width()`/`.height()` for explicit sizes, `.halign()`/`.valign()` for alignment.
@@ -82,6 +105,7 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
             content_scale: 0.8,
             visual_state: VisualState::Normal,
             was_pressed: false,
+            event_driven: false,
             _marker: PhantomData,
         }
     }
@@ -169,6 +193,18 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
         self
     }
 
+    fn fire(&self, ctx: &Context, state: &S) -> Out<S, E> {
+        let mut out = Vec::new();
+        if let Some(f) = &self.on_click_fn {
+            let event = f(ctx, state);
+            out.push(Out::FutEvent(vec![Box::new(async move { event })]));
+        }
+        if let Some(f) = &self.on_click_fn_out {
+            out.push(f(ctx, state));
+        }
+        merge_outs(out.into_iter())
+    }
+
     fn contains(&self, x: f64, y: f64) -> bool {
         x >= self.x as f64
             && x < (self.x + self.width) as f64
@@ -188,14 +224,7 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
                 icon.set_position(ix, iy, queue);
             }
             Some(ButtonContent::Text(label)) => {
-                Layout::resolve(
-                    label,
-                    self.x,
-                    self.y,
-                    self.width,
-                    self.height,
-                    queue,
-                );
+                Layout::resolve(label, self.x, self.y, self.width, self.height, queue);
             }
             None => {}
         }
@@ -219,7 +248,9 @@ impl<S: 'static, E: Send + 'static> Layout for Button<S, E> {
         parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        let (x, y, w, h) = self
+            .placement
+            .resolve(parent_x, parent_y, parent_w, parent_h);
         self.x = x;
         self.y = y;
         self.width = w;
@@ -237,21 +268,7 @@ impl<S: 'static, E: Send + 'static> Layout for Button<S, E> {
 
 impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Button<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
-        // Resolve own placement against screen dimensions.
-        // For nested buttons, the parent's Layout::resolve will override afterward.
-        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
-        self.x = x;
-        self.y = y;
-        self.width = w;
-        self.height = h;
-
-        // Init content GPU resources.
-        match &mut self.content {
-            Some(ButtonContent::Text(label)) => label.init(ctx),
-            Some(ButtonContent::Icon(_)) | None => {}
-        }
-
-        self.layout_content(&ctx.queue);
+        self.init(ctx);
         Out::Empty
     }
 
@@ -266,40 +283,69 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Button<S, E> {
             (false, _) => VisualState::Normal,
         };
 
-        // Detect click: was pressed last frame, now released, still hovering.
-        let clicked = self.was_pressed && !is_pressed && hovered;
-        self.was_pressed = is_pressed && hovered;
-        let mut out = Vec::new();
-
-        if clicked {
-            if let Some(f) = &self.on_click_fn {
-                let event = f(ctx, state);
-                out.push(Out::FutEvent(vec![Box::new(async move { event })]));
-            }
-            if let Some(f) = &self.on_click_fn_out {
-                out.push(f(ctx, state))
+        // Keep polling as a fallback for callers that only forward updates.
+        if !self.event_driven {
+            let clicked = self.was_pressed && !is_pressed && hovered;
+            self.was_pressed = is_pressed && hovered;
+            if clicked {
+                return self.fire(ctx, state);
             }
         }
-        merge_outs(out.into_iter())
+        Out::Empty
+    }
+
+    fn on_window_events(
+        &mut self,
+        ctx: &Context,
+        state: &mut S,
+        event: &winit::event::WindowEvent,
+    ) -> Out<S, E> {
+        use winit::event::{MouseButton, WindowEvent};
+        if let WindowEvent::MouseInput {
+            button: MouseButton::Left,
+            state: button,
+            ..
+        } = event
+        {
+            self.event_driven = true;
+            let hovered = self.contains(ctx.mouse.coords.x, ctx.mouse.coords.y);
+            if button.is_pressed() {
+                self.was_pressed = hovered;
+            } else {
+                let clicked = std::mem::take(&mut self.was_pressed) && hovered;
+                if clicked {
+                    return self.fire(ctx, state);
+                }
+            }
+        } else if matches!(event, WindowEvent::Focused(false)) {
+            self.was_pressed = false;
+        }
+        Out::Empty
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
         let bind_group = match self.visual_state {
-            VisualState::Normal => if let Some(fill) = &self.fill {
-                GraphicsFlow::<S, E>::on_render(fill)
-            } else {
-                Render::None
-            },
-            VisualState::Hovered => if let Some(hover) = &self.hover {
-                GraphicsFlow::<S, E>::on_render(hover)
-            } else {
-                Render::None
-            },
-            VisualState::Pressed => if let Some(pressed) = &self.pressed {
-                GraphicsFlow::<S, E>::on_render(pressed)
-            } else {
-                Render::None
-            },
+            VisualState::Normal => {
+                if let Some(fill) = &self.fill {
+                    GraphicsFlow::<S, E>::on_render(fill)
+                } else {
+                    Render::None
+                }
+            }
+            VisualState::Hovered => {
+                if let Some(hover) = &self.hover {
+                    GraphicsFlow::<S, E>::on_render(hover)
+                } else {
+                    Render::None
+                }
+            }
+            VisualState::Pressed => {
+                if let Some(pressed) = &self.pressed {
+                    GraphicsFlow::<S, E>::on_render(pressed)
+                } else {
+                    Render::None
+                }
+            }
         };
 
         match &self.content {

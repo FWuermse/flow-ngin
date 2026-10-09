@@ -158,7 +158,7 @@ fn read_mip(
         })
         .unwrap();
     rx.recv().unwrap().unwrap();
-    let mapped = buffer.slice(..).get_mapped_range();
+    let mapped = buffer.slice(..).get_mapped_range().expect("mipmap readback buffer is mapped");
     mapped
         .chunks_exact(stride as usize)
         .flat_map(|row| row[..width as usize * 4].iter().copied())

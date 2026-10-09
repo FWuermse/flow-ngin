@@ -4,12 +4,7 @@ use crate::{
     context::{Context, MouseButtonState},
     flow::{GraphicsFlow, Out},
     render::Render,
-    ui::{
-        HAlign, Placement, VAlign,
-        image::Icon,
-        layout::Layout,
-        value::Value,
-    },
+    ui::{HAlign, Placement, VAlign, image::Icon, layout::Layout, value::Value},
 };
 
 /// A togglable checkbox that binds to a `Value<bool>`.
@@ -35,13 +30,29 @@ pub struct Checkbox<S, E: Send> {
     width: u32,
     height: u32,
     checked_icon: Option<Icon>,
+    overlay_checked: bool,
     unchecked_icon: Option<Icon>,
     value: Option<Value<bool>>,
     on_change: Option<Box<dyn Fn(bool) -> Out<S, E>>>,
     was_pressed: bool,
+    event_driven: bool,
 }
 
 impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
+    /// Initialize GPU resources without changing the application context.
+    pub fn init(&mut self, ctx: &Context) {
+        let (x, y, w, h) = self
+            .placement
+            .resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
+
+        Self::layout_icon(&mut self.checked_icon, x, y, w, h, &ctx.queue);
+        Self::layout_icon(&mut self.unchecked_icon, x, y, w, h, &ctx.queue);
+    }
+
     pub fn new() -> Self {
         Self {
             placement: Placement::default(),
@@ -50,10 +61,12 @@ impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
             width: 0,
             height: 0,
             checked_icon: None,
+            overlay_checked: false,
             unchecked_icon: None,
             value: None,
             on_change: None,
             was_pressed: false,
+            event_driven: false,
         }
     }
 
@@ -85,7 +98,15 @@ impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
 
     /// Set the icon shown when checked.
     pub fn checked(mut self, icon: Icon) -> Self {
+        self.overlay_checked = false;
         self.checked_icon = Some(icon);
+        self
+    }
+
+    /// Draw this checkmark over the unchecked icon when checked.
+    pub fn checked_overlay(mut self, icon: Icon) -> Self {
+        self.checked_icon = Some(icon);
+        self.overlay_checked = true;
         self
     }
 
@@ -99,6 +120,17 @@ impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
     pub fn on_change(mut self, f: impl Fn(bool) -> Out<S, E> + 'static) -> Self {
         self.on_change = Some(Box::new(f));
         self
+    }
+
+    fn toggle(&self) -> Out<S, E> {
+        if let Some(value) = &self.value {
+            let new_val = !value.get();
+            value.set(new_val);
+            if let Some(cb) = &self.on_change {
+                return cb(new_val);
+            }
+        }
+        Out::Empty
     }
 
     fn contains(&self, x: f64, y: f64) -> bool {
@@ -130,7 +162,9 @@ impl<S: 'static, E: Send + 'static> Layout for Checkbox<S, E> {
         parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        let (x, y, w, h) = self
+            .placement
+            .resolve(parent_x, parent_y, parent_w, parent_h);
         self.x = x;
         self.y = y;
         self.width = w;
@@ -143,14 +177,7 @@ impl<S: 'static, E: Send + 'static> Layout for Checkbox<S, E> {
 
 impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
-        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
-        self.x = x;
-        self.y = y;
-        self.width = w;
-        self.height = h;
-
-        Self::layout_icon(&mut self.checked_icon, x, y, w, h, &ctx.queue);
-        Self::layout_icon(&mut self.unchecked_icon, x, y, w, h, &ctx.queue);
+        self.init(ctx);
         Out::Empty
     }
 
@@ -159,23 +186,54 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
         let hovered = self.contains(pos.x, pos.y);
         let is_pressed = matches!(ctx.mouse.pressed, MouseButtonState::Left);
 
-        let clicked = self.was_pressed && !is_pressed && hovered;
-        self.was_pressed = is_pressed && hovered;
-
-        if clicked {
-            // TODO: if no value is bound the on_click hook should still work.
-            if let Some(value) = &self.value {
-                let new_val = !value.get();
-                value.set(new_val);
-                if let Some(cb) = &self.on_change {
-                    return cb(new_val);
-                }
+        if !self.event_driven {
+            let clicked = self.was_pressed && !is_pressed && hovered;
+            self.was_pressed = is_pressed && hovered;
+            if clicked {
+                return self.toggle();
             }
         }
         Out::Empty
     }
 
+    fn on_window_events(
+        &mut self,
+        ctx: &Context,
+        _: &mut S,
+        event: &winit::event::WindowEvent,
+    ) -> Out<S, E> {
+        use winit::event::{MouseButton, WindowEvent};
+        if let WindowEvent::MouseInput {
+            button: MouseButton::Left,
+            state: button,
+            ..
+        } = event
+        {
+            self.event_driven = true;
+            let hovered = self.contains(ctx.mouse.coords.x, ctx.mouse.coords.y);
+            if button.is_pressed() {
+                self.was_pressed = hovered;
+            } else {
+                let clicked = std::mem::take(&mut self.was_pressed) && hovered;
+                if clicked {
+                    return self.toggle();
+                }
+            }
+        } else if matches!(event, WindowEvent::Focused(false)) {
+            self.was_pressed = false;
+        }
+        Out::Empty
+    }
+
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
+        if self.overlay_checked && self.is_checked() {
+            return Render::Composed(
+                [&self.unchecked_icon, &self.checked_icon].into_iter()
+                    .filter_map(|icon| icon.as_ref())
+                    .map(|icon| GraphicsFlow::<S, E>::on_render(icon))
+                    .collect(),
+            );
+        }
         let icon = if self.is_checked() {
             &self.checked_icon
         } else {

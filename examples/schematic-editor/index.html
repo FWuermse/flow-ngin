@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Flow schematic editor</title>
+  <style>
+    * { box-sizing:border-box; } body { margin:0;background:#342e27;color:#f5e5c6;font:14px system-ui,sans-serif;overflow:hidden; }
+    header { height:48px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:#2b231c; }
+    button { border:1px solid #796044;background:#413326;color:#f5e5c6;border-radius:4px;padding:6px 12px;cursor:pointer; }
+    button:hover { background:#694c2f; } button:disabled { opacity:.5;cursor:wait; }
+    button:active { background:#704c20; } button:focus-visible { outline:2px solid #c39340;outline-offset:2px; }
+    header span { margin-left:auto; } canvas { display:block;width:100vw;height:calc(100vh - 48px);outline:none; }
+    #message { position:absolute;left:350px;top:72px;padding:14px;background:#2b231c;border:1px solid #796044;max-width:600px; }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="models" disabled>Import files</button><button id="folder" disabled>Import folder</button>
+    <button id="open" disabled>Open project</button><button id="export" disabled>Save project ZIP</button><button id="binary" disabled>Save schematic.bin</button>
+    <span>flow-ngin · schematic editor</span>
+  </header>
+  <canvas id="canvas" tabindex="0"></canvas><div id="message" role="status">Loading editor…</div>
+  <input id="model-picker" type="file" multiple hidden>
+  <input id="folder-picker" type="file" webkitdirectory multiple hidden>
+  <input id="open-picker" type="file" accept=".zip,.bin" hidden>
+  <script type="module">
+    import init, {run_web,receive_files,file_action} from './pkg/schematic_editor.js';
+    const canvas=document.querySelector('#canvas'),message=document.querySelector('#message');
+    function resize() { canvas.width=Math.round(innerWidth*devicePixelRatio);canvas.height=Math.round((innerHeight-48)*devicePixelRatio); }
+    resize();window.addEventListener('resize',resize);
+    canvas.addEventListener('contextmenu',e=>e.preventDefault());
+    canvas.addEventListener('pointerdown',()=>canvas.focus());
+    canvas.addEventListener('wheel',e=>e.preventDefault(),{passive:false});
+    canvas.addEventListener('keydown',e=>{
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace',' ','Delete'].includes(e.key) || ((e.ctrlKey||e.metaKey)&&['c','v','z','y','s'].includes(e.key.toLowerCase()))) e.preventDefault();
+    });
+    for (const [button,picker,kind] of [['models','model-picker','import'],['folder','folder-picker','import'],['open','open-picker','open']]) {
+      const input=document.getElementById(picker);
+      // Invoke the selector directly in the trusted click, not a GPU readback or animation frame.
+      document.getElementById(button).onclick=()=>input.click();
+      input.onchange=async()=>{
+        try {
+          const files=Array.from(input.files);
+          if (files.reduce((n,f)=>n+f.size,0)>512*1024*1024) throw Error('Selection exceeds 512 MiB');
+          if (files.length) receive_files(kind,files.map(f=>f.webkitRelativePath||f.name),await Promise.all(files.map(async f=>new Uint8Array(await f.arrayBuffer()))));
+          canvas.focus();
+        } catch(e) { message.hidden=false;message.textContent=String(e); }
+        input.value='';
+      };
+    }
+    for (const action of ['export','binary']) document.getElementById(action).onclick=()=>{ file_action(action);canvas.focus(); };
+    try {
+      await init();
+      for(const button of document.querySelectorAll('button')) button.disabled=false;
+      message.hidden=true;run_web();
+    } catch(e) { message.hidden=false;message.textContent=`Editor failed to start: ${e}`;console.error(e); }
+  </script>
+</body>
+</html>

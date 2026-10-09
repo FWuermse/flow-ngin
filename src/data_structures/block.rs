@@ -15,6 +15,7 @@ use crate::{
     resources::{self, pick::load_pick_model},
 };
 use cgmath::{One, Rotation3, Zero};
+use std::sync::Arc;
 use wgpu::{Device, util::DeviceExt};
 
 /// A collection of identically-shaped building blocks.
@@ -25,7 +26,7 @@ use wgpu::{Device, util::DeviceExt};
 pub struct BuildingBlocks {
     // TODO: create apis and make fields private
     pub id: PickId,
-    pub obj_model: model::Model,
+    pub obj_model: Arc<model::Model>,
     // TODO: retire this param
     #[allow(dead_code)]
     obj_file: String,
@@ -86,6 +87,40 @@ pub trait WorldCoordMesh {
 }
 
 impl BuildingBlocks {
+    /// Build an instance batch from an already loaded model. Cloned mesh/material
+    /// handles share their GPU allocations; no asset loading is performed here.
+    pub fn from_model(
+        id: impl Into<PickId>,
+        device: &Device,
+        obj_model: model::Model,
+        instances: Vec<Instance>,
+    ) -> Self {
+        Self::from_shared_model(id, device, Arc::new(obj_model), instances)
+    }
+
+    /// Build an instance batch sharing a model with another batch.
+    pub fn from_shared_model(
+        id: impl Into<PickId>,
+        device: &Device,
+        obj_model: Arc<model::Model>,
+        instances: Vec<Instance>,
+    ) -> Self {
+        let data: Vec<_> = instances.iter().map(Instance::to_raw).collect();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        Self {
+            id: id.into(),
+            obj_model,
+            instances,
+            instance_buffer,
+            obj_file: String::new(),
+            buffer_size_needs_change: false,
+        }
+    }
+
     pub async fn new(
         id: impl Into<PickId>,
         queue: &wgpu::Queue,
@@ -111,7 +146,7 @@ impl BuildingBlocks {
         });
 
         Self {
-            obj_model,
+            obj_model: Arc::new(obj_model),
             instances,
             obj_file: obj_file.to_string(),
             instance_buffer,
@@ -166,7 +201,7 @@ impl BuildingBlocks {
         });
 
         Self {
-            obj_model: obj_model,
+            obj_model: Arc::new(obj_model),
             obj_file: self.obj_file.clone(),
             instances: self.instances.clone(),
             instance_buffer,

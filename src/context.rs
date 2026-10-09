@@ -142,6 +142,8 @@ pub struct Context {
     pub(crate) msaa_view: Option<wgpu::TextureView>,
     pub anti_aliasing: AntiAliasing,
     pub tick_duration_millis: u64,
+    /// Disable to let an application own navigation and reserve arrow keys.
+    pub automatic_camera_controls: bool,
     pub clear_colour: wgpu::Color,
     pub surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
@@ -300,7 +302,7 @@ impl Context {
 
         let light_uniform = LightUniform {
             position: [8.0, 80.0, 50.0],
-            _padding: 0,
+            ambient_strength: 0.1,
             // change when it's evening
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
@@ -412,6 +414,7 @@ impl Context {
             screen_size,
             surface,
             tick_duration_millis,
+            automatic_camera_controls: true,
             window,
         })
     }
