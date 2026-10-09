@@ -16,7 +16,7 @@ use flow_ngin::{
         texture::Texture,
     },
     render::Render,
-    resources::{AssetFiles, load_model_obj_from_files},
+    resources::{AssetFiles, load_model_obj_from_files, load_obj_geometry_from_files},
 };
 use std::{collections::HashMap, sync::Arc};
 use wgpu::util::DeviceExt;
@@ -82,6 +82,22 @@ struct Camera { pos:vec4<f32>, vp:mat4x4<f32> }
 }
 @fragment fn fs_main()->@location(0) vec4<f32> { return tint; }
 "#;
+const PLACEHOLDER_CUBE_OBJ: &str = r#"
+v -0.5 0.0 -0.5
+v  0.5 0.0 -0.5
+v  0.5 1.0 -0.5
+v -0.5 1.0 -0.5
+v -0.5 0.0  0.5
+v  0.5 0.0  0.5
+v  0.5 1.0  0.5
+v -0.5 1.0  0.5
+f 1 4 3 2
+f 5 6 7 8
+f 1 2 6 5
+f 2 3 7 6
+f 3 4 8 7
+f 4 1 5 8
+"#;
 struct Paint {
     buffer: wgpu::Buffer,
     bind: wgpu::BindGroup,
@@ -131,25 +147,13 @@ pub struct Scene {
 }
 impl Scene {
     pub fn new(gpu: &InitContext) -> anyhow::Result<Self> {
-        let files = AssetFiles::from([
-            (
-                "cube.obj".into(),
-                include_bytes!("../../../assets/cube.obj").to_vec(),
-            ),
-            (
-                "cube.mtl".into(),
-                include_bytes!("../../../assets/cube.mtl").to_vec(),
-            ),
-            (
-                "cube-diffuse.jpg".into(),
-                include_bytes!("../../../assets/cube-diffuse.jpg").to_vec(),
-            ),
-            (
-                "cube-normal.png".into(),
-                include_bytes!("../../../assets/cube-normal.png").to_vec(),
-            ),
-        ]);
-        let model = load_model_obj_from_files("cube.obj", &files, &gpu.device, &gpu.queue)?;
+        // Keep a visible placeholder while hosted models load, without depending
+        // on files from the repository's assets directory.
+        let files = AssetFiles::from([(
+            "cube.obj".into(),
+            PLACEHOLDER_CUBE_OBJ.as_bytes().to_vec(),
+        )]);
+        let model = load_obj_geometry_from_files("cube.obj", &files, &gpu.device, &gpu.queue)?;
         let model = Arc::new(model);
         Ok(Self {
             batches: Self::batches(&model, gpu),
