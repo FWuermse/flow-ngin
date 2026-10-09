@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use wgpu::{FrontFace, RenderPass};
+use wgpu::RenderPass;
 
 use crate::{
     context::{Context, GPUResource},

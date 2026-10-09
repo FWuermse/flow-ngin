@@ -5,7 +5,7 @@
 //! hidden blocks are not culled, so this may not be optimal for large voxel worlds.
 
 use crate::{
-    context::{Context, GPUResource},
+    context::GPUResource,
     data_structures::{
         instance::Instance,
         model::{self},

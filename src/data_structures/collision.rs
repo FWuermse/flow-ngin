@@ -14,7 +14,7 @@
 //! Most of this implementation is inspired by [Mikola Lysenko](https://github.com/mikolalysenko/`)'s
 //! [blog post](https://0fps.net/2015/01/07/collision-detection-part-1/) about collision detection.
 //!
-use std::{collections::HashMap, marker::PhantomData};
+use std::collections::HashMap;
 
 use cgmath::{One, Quaternion, Rotation, Vector3};
 
