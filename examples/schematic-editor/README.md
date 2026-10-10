@@ -1,5 +1,19 @@
 # Schematic editor
 
+The web entry page requires Google sign-in using the client ID supplied for
+Fortressflow. Add the deployed builder origin to that client's authorized
+JavaScript origins in Google Cloud. The token is kept in `sessionStorage` as
+`ngin_token` (or in memory if storage is unavailable) and passed to
+`run_web(token: String)`. The Rust entry point does not use it yet; asset downloads
+remain unchanged. Browser checks only check token freshness and audience, not
+its signature. Any future backend must verify tokens before trusting them.
+Native startup does not require sign-in.
+
+Deploy `index.html`, `auth.js`, `legal.js`, and `legal.css` alongside the rebuilt
+`pkg/` WASM output. The legal dialogs are adapted from the supplied Fortressflow
+page. Its server-log retention placeholder still needs the actual hosting value
+before publication; the builder domain has not yet been specified.
+
 Run the native editor from the repository root:
 
 ```sh
@@ -8,7 +22,7 @@ cargo run --manifest-path examples/schematic-editor/Cargo.toml
 
 Block models, materials, textures, and the 8 × 8 icon atlas download from
 `https://play.fortressflow.com/assets/` at startup. The editor remains usable
-while they load. Failed downloads retain the cube or plain-button fallback and
+while they load. Failed downloads retain an untextured cube or plain-button fallback and
 report an error in the status bar. Internet access is required for these assets.
 
 Edit `src/assets.rs` to change the base URL, per-block OBJ paths, or icon slots.
@@ -28,8 +42,9 @@ placed blocks remain unchanged. Grid lines follow block edges at half-unit X/Z
 coordinates. Selection, snapping, and collision continue to use the editor's logical block
 boxes, rather than the detailed rendered shapes.
 
-The fallback cube is embedded from the repository's existing `assets/cube.obj`,
-`cube.mtl`, `cube-diffuse.jpg`, and `cube-normal.png` at build time.
+The temporary fallback cube is generated from in-memory geometry, with no
+repository asset files required. Each block uses its downloaded model and
+material textures once startup loading finishes.
 
 The WASM build also supports these downloads. Cross-origin server configuration
 is separate from this example; native execution does not require browser CORS.

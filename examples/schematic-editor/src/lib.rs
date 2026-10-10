@@ -28,6 +28,7 @@ use std::collections::VecDeque;
 
 #[derive(Clone)]
 pub enum Action {
+    DismissStatus,
     Paint(BlockType),
     Mode(Mode),
     Grid(bool),
@@ -199,6 +200,7 @@ impl EditorFlow {
                     Action::DeleteSelection => {
                         state.delete_ids(&state.selected.iter().copied().collect::<Vec<_>>())
                     }
+                    Action::DismissStatus => state.status.clear(),
                     Action::Escape => {
                         state.escape();
                         self.ui.confirm_open = false;
@@ -410,16 +412,25 @@ impl GraphicsFlow<Editor, Event> for EditorFlow {
     }
 }
 pub fn launch() {
+    if let Err(error) = try_launch() {
+        eprintln!("Editor failed to start: {error:#}");
+    }
+}
+
+fn try_launch() -> anyhow::Result<()> {
     let editor: FlowConstructor<Editor, Event> = Box::new(|gpu| {
         Box::pin(async move { Box::new(EditorFlow::new(&gpu)) as Box<dyn GraphicsFlow<_, _>> })
     });
-    let _ = flow_ngin::flow::run(vec![editor]);
+    flow_ngin::flow::run(vec![editor])
 }
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
-pub fn run_web() {
+pub fn run_web(_token: String) -> Result<(), wasm_bindgen::JsValue> {
+    // Reserved for future authenticated services; no token is consumed or sent yet.
     console_error_panic_hook::set_once();
-    launch();
+    try_launch().map_err(|error| {
+        wasm_bindgen::JsValue::from_str(&format!("Editor failed to start: {error:#}"))
+    })
 }
 #[cfg(target_arch = "wasm32")]
 pub use files::{file_action, receive_files};

@@ -5,3 +5,8 @@ target
 !**/assets/fonts/
 !**/assets/fonts/**
 **/fixtures/*
+
+# Local web hosting files do not belong in the engine examples.
+*.html
+*.js
+*.css

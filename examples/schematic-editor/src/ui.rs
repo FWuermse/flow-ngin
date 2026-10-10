@@ -33,6 +33,8 @@ pub struct Ui {
     fields: Vec<Field>,
     background: Container<Editor, Event>,
     status: TextLabel,
+    status_close: Button<Editor, Event>,
+    status_visible: bool,
     pub guide_tab: bool,
     pub page: usize,
     rebuild: bool,
@@ -55,6 +57,8 @@ impl Ui {
                 .font_size(15.)
                 .line_height(20.)
                 .color([204, 185, 154]),
+            status_close: Button::new(),
+            status_visible: false,
             guide_tab: false,
             page: 0,
             rebuild: true,
@@ -163,6 +167,22 @@ impl Ui {
         self.fields.push(Field { input, value, rect });
     }
     fn build(&mut self, ctx: &Context, editor: &mut Editor) {
+        let mut close = Button::new().on_click(|_, _| Event::Action(Action::DismissStatus));
+        if let Some(atlas) = &self.atlas {
+            close = close
+                .fill(Icon::new(ctx, atlas, 18))
+                .hover_fill(Icon::new(ctx, atlas, 24))
+                .click_fill(Icon::new(ctx, atlas, 30));
+        } else {
+            // Errors must remain dismissible if the atlas download fails.
+            close = close
+                .fill(Icon::from_color(ctx, [65, 51, 38, 255]))
+                .hover_fill(Icon::from_color(ctx, [105, 76, 47, 255]))
+                .click_fill(Icon::from_color(ctx, [112, 76, 32, 255]))
+                .with_text(TextLabel::new("×").font_size(18.).color([245, 229, 198]));
+        }
+        close.init(ctx);
+        self.status_close = close;
         self.items.clear();
         self.fields.clear();
         self.grid.set(editor.settings.grid);
@@ -533,7 +553,7 @@ impl Ui {
     pub fn resize(&mut self, ctx: &Context) {
         // Keep every control accessible in small windows by scaling the panel's
         // vertical layout; the canvas still uses physical pixel coordinates.
-        let factor = (ctx.config.height.saturating_sub(90) as f32 / 670.)
+        let factor = (ctx.config.height.saturating_sub(110) as f32 / 670.)
             .min(1.)
             .max(0.25);
         Layout::resolve(
@@ -567,9 +587,17 @@ impl Ui {
         Layout::resolve(
             &mut self.status,
             12,
-            ctx.config.height.saturating_sub(86),
-            300,
-            82,
+            ctx.config.height.saturating_sub(106),
+            268,
+            102,
+            &ctx.queue,
+        );
+        Layout::resolve(
+            &mut self.status_close,
+            288,
+            ctx.config.height.saturating_sub(106),
+            24,
+            24,
             &ctx.queue,
         );
     }
@@ -587,6 +615,10 @@ impl Ui {
             self.build(ctx, editor);
         }
         let mut outs = Vec::new();
+        self.status_visible = !editor.status.is_empty();
+        if self.status_visible {
+            outs.push(self.status_close.on_update(ctx, editor, dt));
+        }
         for item in &mut self.items {
             outs.push(item.widget.on_update(ctx, editor, dt));
         }
@@ -598,9 +630,13 @@ impl Ui {
             .as_ref()
             .map(|p| format!("{:?}", p.operation))
             .unwrap_or_else(|| format!("{:?}", editor.mode));
-        let status = wrap(&editor.status, 36);
+        let status = if editor.status.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", wrap(&editor.status, 32))
+        };
         let status = format!(
-            "{}\n{}{} | {} blocks | {} selected\nAxis {} | {}",
+            "{}{}{} | {} blocks | {} selected\nAxis {} | {}",
             status,
             if editor.dirty() { "* " } else { "" },
             mode,
@@ -634,6 +670,9 @@ impl Ui {
                 .iter_mut()
                 .map(|f| f.input.on_window_events(ctx, editor, event)),
         );
+        if !editor.status.is_empty() {
+            outs.push(self.status_close.on_window_events(ctx, editor, event));
+        }
         Out::Composed(outs)
     }
     pub fn render<'a, 'p>(&'a self) -> Render<'a, 'p>
@@ -641,6 +680,9 @@ impl Ui {
         'p: 'a,
     {
         let mut renders = vec![self.background.on_render(), self.status.render()];
+        if self.status_visible {
+            renders.push(self.status_close.on_render());
+        }
         renders.extend(self.items.iter().map(|item| item.widget.on_render()));
         renders.extend(self.fields.iter().map(|f| f.input.on_render()));
         Render::Composed(renders)
