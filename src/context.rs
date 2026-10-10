@@ -197,7 +197,8 @@ impl Context {
                     wgpu::Limits::downlevel_webgl2_defaults()
                 } else {
                     wgpu::Limits::default()
-                },
+                }
+                .using_resolution(adapter.limits()),
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
                 experimental_features: ExperimentalFeatures::disabled(),
@@ -303,7 +304,6 @@ impl Context {
         let light_uniform = LightUniform {
             position: [8.0, 80.0, 50.0],
             ambient_strength: 0.1,
-            // change when it's evening
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
         };
