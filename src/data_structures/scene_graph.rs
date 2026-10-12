@@ -1130,6 +1130,7 @@ pub async fn mk_flat_scene_graph(
     Ok(parent)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(test)]
 mod tests {
     use super::*;

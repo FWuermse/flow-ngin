@@ -5,3 +5,8 @@ target
 !**/assets/fonts/
 !**/assets/fonts/**
 **/fixtures/*
+
+*.html
+*.js
+*.css
+*.ico

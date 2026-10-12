@@ -172,7 +172,7 @@ pub struct InstanceRaw {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::{assert_relative_eq, Deg, Matrix4, Quaternion, Rotation3, SquareMatrix, Vector3};
+    use cgmath::{Deg, Matrix4, Quaternion, Rotation3, SquareMatrix, Vector3, assert_relative_eq};
 
     fn approx_eq_instance(a: &Instance, b: &Instance) {
         assert_relative_eq!(a.position.x, b.position.x, epsilon = 1e-5);
@@ -253,9 +253,21 @@ mod tests {
             scale: Vector3::new(1.0, 1.0, 1.0),
         };
         let result = a.clone() + b.clone();
-        assert_relative_eq!(result.position.x, a.position.x + b.position.x, epsilon = 1e-6);
-        assert_relative_eq!(result.position.y, a.position.y + b.position.y, epsilon = 1e-6);
-        assert_relative_eq!(result.position.z, a.position.z + b.position.z, epsilon = 1e-6);
+        assert_relative_eq!(
+            result.position.x,
+            a.position.x + b.position.x,
+            epsilon = 1e-6
+        );
+        assert_relative_eq!(
+            result.position.y,
+            a.position.y + b.position.y,
+            epsilon = 1e-6
+        );
+        assert_relative_eq!(
+            result.position.z,
+            a.position.z + b.position.z,
+            epsilon = 1e-6
+        );
     }
 
     #[test]
@@ -339,7 +351,7 @@ mod tests {
         };
         let ab_c = (a.clone() + b.clone()) + c.clone();
         let a_bc = a + (b + c);
-        assert_relative_eq!(ab_c.rotation.s,   a_bc.rotation.s,   epsilon = 1e-5);
+        assert_relative_eq!(ab_c.rotation.s, a_bc.rotation.s, epsilon = 1e-5);
         assert_relative_eq!(ab_c.rotation.v.x, a_bc.rotation.v.x, epsilon = 1e-5);
         assert_relative_eq!(ab_c.rotation.v.y, a_bc.rotation.v.y, epsilon = 1e-5);
         assert_relative_eq!(ab_c.rotation.v.z, a_bc.rotation.v.z, epsilon = 1e-5);
