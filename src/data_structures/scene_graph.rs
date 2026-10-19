@@ -421,6 +421,11 @@ pub(crate) fn instance_from_gltf(
     }
 }
 
+/// Local transform of a child's first instance, used for new instances so glTF offsets are kept.
+fn rest_pose(child: &Box<dyn SceneNode>) -> Instance {
+    child.get_local_transform(0).cloned().unwrap_or_default()
+}
+
 impl<'a, 'pass> GPUResource<'a, 'pass> for Box<dyn SceneNode> {
     fn write_to_buffer(&mut self, queue: &wgpu::Queue, device: &wgpu::Device) {
         self.write_to_buffers(queue, device);
@@ -641,7 +646,7 @@ impl SceneNode for ContainerNode {
     fn add_instance(&mut self, instance: Instance) -> usize {
         self.instances.push((instance.clone(), instance));
         for child in &mut self.children {
-            child.add_instance(Instance::default());
+            child.add_instance(rest_pose(child));
         }
         self.instances.len() - 1
     }
@@ -690,7 +695,7 @@ impl SceneNode for ContainerNode {
         let mut instances = instances.into_iter().zip(cloned).collect();
         self.instances.append(&mut instances);
         for child in &mut self.children {
-            child.add_instances((0..len).map(|_| Instance::default()).collect());
+            child.add_instances((0..len).map(|_| rest_pose(child)).collect());
         }
         self.instances.len() - 1
     }
@@ -703,7 +708,7 @@ impl SceneNode for ContainerNode {
         let len = instances.len();
         self.instances = instances.to_vec().into_iter().zip(instances).collect();
         for child in &mut self.children {
-            child.set_instances((0..len).map(|_| Instance::default()).collect());
+            child.set_instances((0..len).map(|_| rest_pose(child)).collect());
         }
         self.instances.len() - 1
     }
@@ -1012,7 +1017,7 @@ impl SceneNode for ModelNode {
         }
         self.instances.push((instance.clone(), instance));
         for child in &mut self.children {
-            child.add_instance(Instance::default());
+            child.add_instance(rest_pose(child));
         }
         self.buffer_size_needs_change = true;
         self.instances.len() - 1
@@ -1032,7 +1037,7 @@ impl SceneNode for ModelNode {
         let rest_len = rest.len();
         self.instances.append(&mut rest);
         for child in &mut self.children {
-            child.add_instances((0..rest_len).map(|_| Instance::default()).collect());
+            child.add_instances((0..rest_len).map(|_| rest_pose(child)).collect());
         }
         self.buffer_size_needs_change = true;
         self.instances.len() - 1
@@ -1050,7 +1055,7 @@ impl SceneNode for ModelNode {
         let len = instances.len();
         self.instances = instances.to_vec().into_iter().zip(instances).collect();
         for child in &mut self.children {
-            child.set_instances((0..len).map(|_| Instance::default()).collect());
+            child.set_instances((0..len).map(|_| rest_pose(child)).collect());
         }
         self.buffer_size_needs_change = true;
         self.instances.len() - 1
@@ -1366,6 +1371,21 @@ mod tests {
         assert_eq!(idx, 1);
         assert_eq!(parent.instances.len(), 2);
         assert_eq!(parent.children[0].get_world_transforms().len(), 2);
+    }
+
+    #[test]
+    fn add_instance_keeps_child_rest_pose() {
+        let mut parent = ContainerNode::new(1, Vec::new());
+        let mut offset = Instance::default();
+        offset.position = cgmath::Vector3::new(1.0, 2.0, 3.0);
+        offset.scale = cgmath::Vector3::new(0.125, 1.0, 10.0);
+        parent.add_child(Box::new(ContainerNode::from(offset.clone())));
+
+        let idx = parent.add_instance(Instance::default());
+
+        let local = parent.children[0].get_local_transform(idx).unwrap();
+        assert_eq!(local.position, offset.position);
+        assert_eq!(local.scale, offset.scale);
     }
 
     #[test]
