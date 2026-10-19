@@ -40,6 +40,7 @@ use crate::{
         model::{DrawLight, DrawModel},
         texture::Texture,
     },
+    loading::Startup,
     pick::{PickId, draw_to_pick_buffer},
     pipelines::transparent::{
         mk_transparency_bind_group, mk_transparency_bind_group_layout, TransparencyUniform,
@@ -125,6 +126,11 @@ pub enum ImageTestResult {
 /// 7. `on_render()` is called each frame and specifies how to render `self`
 ///
 pub trait GraphicsFlow<S, E: Send> {
+    /// Async preparation before `on_init`; must yield to keep the loader animating.
+    fn on_init_async(&mut self, _ctx: InitContext) -> futures::future::LocalBoxFuture<'_, ()> {
+        Box::pin(std::future::ready(()))
+    }
+
     /// Initialize the flow and configure the context.
     ///
     /// This is the only place to modify the Context and configure things such as the default
@@ -695,6 +701,8 @@ impl<'a, State: Default> AppState<State> {
 pub struct App<State: 'static, Event: 'static> {
     #[cfg(not(target_arch = "wasm32"))]
     async_runtime: tokio::runtime::Runtime,
+    #[cfg(not(target_arch = "wasm32"))]
+    local_tasks: Option<tokio::task::LocalSet>,
     proxy: winit::event_loop::EventLoopProxy<FlowEvent<State, Event>>,
     state: Option<AppState<State>>,
     // This will hold the fully initialized flows once they are ready.
@@ -702,6 +710,7 @@ pub struct App<State: 'static, Event: 'static> {
     // This holds the constructors at the star.
     // We use Option to `take()` it after use.
     constructors: Option<Vec<FlowConstructor<State, Event>>>,
+    startup: Option<Startup<State, Event>>,
     last_time: Instant,
     time_since_tick: Duration,
 }
@@ -721,10 +730,13 @@ where
         Self {
             #[cfg(not(target_arch = "wasm32"))]
             async_runtime,
+            #[cfg(not(target_arch = "wasm32"))]
+            local_tasks: None,
             proxy,
             state: None,
             graphics_flows: Vec::new(),
             constructors: Some(constructors),
+            startup: None,
             last_time: Instant::now(),
             time_since_tick: Duration::from_millis(0),
         }
@@ -732,11 +744,11 @@ where
 }
 
 pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
+    #[cfg(not(target_arch = "wasm32"))]
+    WakeTasks,
+    StartupReady,
     #[cfg(target_arch = "wasm32")]
-    Initialized {
-        state: AppState<State>,
-        flows: Vec<Box<dyn GraphicsFlow<State, Event>>>,
-    },
+    Initialized { state: AppState<State> },
     #[allow(dead_code)]
     Id((u32, HashSet<usize>)),
     #[allow(dead_code)]
@@ -757,10 +769,11 @@ pub(crate) enum FlowEvent<State: 'static, Event: 'static> {
 impl<State, Event> Debug for FlowEvent<State, Event> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::WakeTasks => f.write_str("WakeTasks"),
+            Self::StartupReady => f.write_str("StartupReady"),
             #[cfg(target_arch = "wasm32")]
-            Self::Initialized { state: _, flows } => {
-                f.debug_struct("Initialized").field("flows", flows).finish()
-            }
+            Self::Initialized { .. } => f.write_str("Initialized"),
             Self::Id(arg0) => f.debug_tuple("Id").field(arg0).finish(),
             Self::Mut(_) => f.write_str("Mut(|&mut State| -> {...})"),
             Self::Loaded { recipient, .. } => f.debug_struct("Loaded")
@@ -772,10 +785,78 @@ impl<State, Event> Debug for FlowEvent<State, Event> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+struct TaskWake<S: 'static, E: 'static>(winit::event_loop::EventLoopProxy<FlowEvent<S, E>>);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<S: 'static, E: Send + 'static> std::task::Wake for TaskWake<S, E> {
+    fn wake(self: Arc<Self>) {
+        let _ = self.0.send_event(FlowEvent::WakeTasks);
+    }
+}
+
+impl<State: Default + 'static, Event: Send + 'static> App<State, Event> {
+    fn start_loading(&mut self, mut state: AppState<State>) {
+        let constructors = self.constructors.take().unwrap_or_default();
+        let (startup, task) = Startup::new(&state.ctx, constructors, self.proxy.clone());
+        self.startup = Some(startup);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let local_tasks = tokio::task::LocalSet::new();
+            local_tasks.spawn_local(task);
+            self.local_tasks = Some(local_tasks);
+            let _ = self.proxy.send_event(FlowEvent::WakeTasks);
+        }
+        #[cfg(target_arch = "wasm32")]
+        wasm_bindgen_futures::spawn_local(task);
+        let size = state.ctx.window.inner_size();
+        state.resize(size.width, size.height);
+        state.ctx.window.request_redraw();
+        self.state = Some(state);
+        self.last_time = Instant::now();
+        self.time_since_tick = Duration::ZERO;
+    }
+
+    fn finish_loading(&mut self) {
+        let Some(mut startup) = self.startup.take() else {
+            return;
+        };
+        self.graphics_flows = startup
+            .ready
+            .try_recv()
+            .expect("Startup task completed")
+            .expect("StartupReady requires prepared flows");
+        #[cfg(not(target_arch = "wasm32"))]
+        drop(self.local_tasks.take());
+        let state = self.state.as_mut().expect("Loading requires a GPU context");
+        for (flow_id, flow) in self.graphics_flows.iter_mut().enumerate() {
+            let out = flow.on_init(&mut state.ctx, &mut state.state);
+            handle_flow_output(
+                #[cfg(not(target_arch = "wasm32"))]
+                &self.async_runtime,
+                &mut state.state,
+                &mut state.ctx,
+                self.proxy.clone(),
+                flow_id,
+                out,
+            );
+        }
+        for event in startup.events {
+            let _ = self.proxy.send_event(event);
+        }
+        self.last_time = Instant::now();
+        self.time_since_tick = Duration::ZERO;
+        state.ctx.window.request_redraw();
+    }
+}
+
 impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEvent<State, Event>>
     for App<State, Event>
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_some() {
+            return;
+        }
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes();
 
@@ -795,84 +876,49 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        let constructors = self.constructors.take().unwrap();
-
-        let init_future = async move {
-            let app_state = AppState::new(window).await;
-
-            let flow_futures: Vec<_> = constructors
-                .into_iter()
-                // The clone in into() leverages the internal Arcs of Device and Queue and thus only clones the ref
-                .map(|constructor| constructor((&app_state.ctx).into()))
-                .collect();
-            let flows: Vec<_> = futures::future::join_all(flow_futures).await;
-            (app_state, flows)
-        };
-
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let (mut app_state, flows) = self.async_runtime.block_on(init_future);
-            self.graphics_flows = flows;
-            self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, flow)| {
-                let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
-                let proxy = self.proxy.clone();
-                handle_flow_output(
-                    &self.async_runtime,
-                    &mut app_state.state,
-                    &mut app_state.ctx,
-                    proxy,
-                    flow_id,
-                    events,
-                );
-            });
-            self.state = Some(app_state);
+            let state = self.async_runtime.block_on(AppState::new(window));
+            self.start_loading(state);
         }
 
         #[cfg(target_arch = "wasm32")]
         {
             let proxy = self.proxy.clone();
             wasm_bindgen_futures::spawn_local(async move {
-                let (app_state, flows) = init_future.await;
-                assert!(
-                    proxy
-                        .send_event(FlowEvent::Initialized {
-                            state: app_state,
-                            flows,
-                        })
-                        .is_ok()
-                );
+                let state = AppState::new(window).await;
+                let _ = proxy.send_event(FlowEvent::Initialized { state });
             });
         }
     }
 
     #[allow(unused_mut)]
     fn user_event(&mut self, event_loop: &ActiveEventLoop, mut event: FlowEvent<State, Event>) {
-        match event {
-            #[cfg(target_arch = "wasm32")]
-            FlowEvent::Initialized { state, flows } => {
-                // This is the message from our wasm `spawn_local`
-                self.state = Some(state);
-                self.graphics_flows = flows;
-
-                // Important: Trigger a resize and redraw now that we are initialized
-                let app_state = self.state.as_mut().unwrap();
-                let size = app_state.ctx.window.inner_size();
-                app_state.resize(size.width, size.height);
-                self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, flow)| {
-                    let events = flow.on_init(&mut app_state.ctx, &mut app_state.state);
-                    let proxy = self.proxy.clone();
-                    handle_flow_output(
-                        #[cfg(not(target_arch = "wasm32"))]
-                        &self.async_runtime,
-                        &mut app_state.state,
-                        &mut app_state.ctx,
-                        proxy,
-                        flow_id,
-                        events,
-                    );
-                });
-                app_state.ctx.window.request_redraw();
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(event, FlowEvent::WakeTasks) {
+            let Some(local_tasks) = self.local_tasks.as_mut() else {
+                return;
+            };
+            let _runtime = self.async_runtime.enter();
+            let waker = std::task::Waker::from(Arc::new(TaskWake(self.proxy.clone())));
+            let _ = std::future::Future::poll(
+                Pin::new(local_tasks),
+                &mut std::task::Context::from_waker(&waker),
+            );
+            return;
+        }
+        if let Some(startup) = &mut self.startup {
+            if !matches!(event, FlowEvent::Exit | FlowEvent::StartupReady) {
+                startup.events.push(event);
+                return;
             }
+        }
+        match event {
+            #[cfg(not(target_arch = "wasm32"))]
+            FlowEvent::WakeTasks => unreachable!(),
+            FlowEvent::StartupReady => self.finish_loading(),
+            #[cfg(target_arch = "wasm32")]
+            FlowEvent::Initialized { state } => self.start_loading(state),
             FlowEvent::Id((pick_id, flow_ids)) => {
                 if let Some(state) = &mut self.state {
                     state.ctx.mouse.toggle(PickId(pick_id));
@@ -942,6 +988,9 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
         _device_id: DeviceId,
         event: DeviceEvent,
     ) {
+        if self.startup.is_some() {
+            return;
+        }
         let state = match &mut self.state {
             Some(state) => state,
             None => return,
@@ -982,6 +1031,29 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             Some(state) => state,
             None => return,
         };
+
+        if let Some(startup) = &mut self.startup {
+            match event {
+                WindowEvent::CloseRequested => event_loop.exit(),
+                WindowEvent::Resized(size) => state.resize(size.width, size.height),
+                WindowEvent::RedrawRequested => {
+                    let dt = self.last_time.elapsed();
+                    self.last_time = Instant::now();
+                    startup.screen[0].on_update(&state.ctx, &mut state.state, dt);
+                    if let Err(error) = state.render(
+                        &mut startup.screen,
+                        #[cfg(feature = "integration-tests")]
+                        &self.async_runtime,
+                        #[cfg(feature = "integration-tests")]
+                        &self.proxy,
+                    ) {
+                        log::error!("Unable to render loading screen: {error}");
+                    }
+                }
+                _ => (),
+            }
+            return;
+        }
 
         // general stuff
         state.ctx.camera.controller.handle_window_events(&event);

@@ -21,6 +21,7 @@ pub mod camera;
 pub mod context;
 pub mod data_structures;
 pub mod flow;
+mod loading;
 pub mod pick;
 pub mod pipelines;
 pub mod resources;
