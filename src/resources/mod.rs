@@ -350,6 +350,7 @@ async fn load_model_gltf_inner(
         }
     }
 
+    materials.push(default_material(device, queue)?);
     let mut models = Vec::new();
 
     for scene in gltf.scenes() {
@@ -369,6 +370,16 @@ async fn load_model_gltf_inner(
     root_node.update_world_transform_all();
 
     Ok(root_node)
+}
+
+fn default_material(device: &wgpu::Device, queue: &wgpu::Queue) -> anyhow::Result<model::Material> {
+    model::Material::new(
+        device,
+        "Default",
+        Texture::from_color([210, 210, 210, 255], device, queue),
+        Texture::create_default_normal_map(1, 1, device, queue),
+        &diffuse_normal_layout(device),
+    )
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

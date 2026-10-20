@@ -1356,7 +1356,9 @@ pub fn run<State: 'static + Default, Event: Send + 'static>(
 
     #[cfg(target_arch = "wasm32")]
     {
-        console_log::init_with_level(log::Level::Info).unwrap_throw();
+        if let Err(e) = console_log::init_with_level(log::Level::Info) {
+            log::warn!("Could not initialize console logger: {e}");
+        }
     }
 
     #[cfg(all(feature = "integration-tests", target_os = "linux"))]
@@ -1382,9 +1384,18 @@ pub fn run<State: 'static + Default, Event: Send + 'static>(
     #[cfg(not(feature = "integration-tests"))]
     let event_loop: EventLoop<FlowEvent<State, Event>> = EventLoop::with_user_event().build()?;
 
-    let mut app: App<State, Event> = App::new(&event_loop, constructors);
+    let app: App<State, Event> = App::new(&event_loop, constructors);
 
-    event_loop.run_app(&mut app)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut app = app;
+        event_loop.run_app(&mut app)?;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::EventLoopExtWebSys;
+        event_loop.spawn_app(app);
+    }
 
     Ok(())
 }

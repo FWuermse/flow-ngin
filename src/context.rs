@@ -199,7 +199,8 @@ impl Context {
                     wgpu::Limits::downlevel_webgl2_defaults()
                 } else {
                     wgpu::Limits::default()
-                },
+                }
+                .using_resolution(adapter.limits()),
                 memory_hints: Default::default(),
                 trace: wgpu::Trace::Off,
                 experimental_features: ExperimentalFeatures::disabled(),
