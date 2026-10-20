@@ -1,6 +1,30 @@
 use super::*;
 use crate::context::InitContext;
 
+#[tokio::test]
+#[should_panic(expected = "asset worker panic")]
+async fn asset_worker_panics_propagate_to_the_caller() {
+    let _ = background_load::<()>(async { panic!("asset worker panic") }).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn asset_work_does_not_block_the_calling_thread() {
+    let caller = std::thread::current().id();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let work = background_load(async move {
+        started_tx.send(()).unwrap();
+        release_rx.recv_timeout(std::time::Duration::from_secs(5))?;
+        Ok(std::thread::current().id())
+    });
+    let release = async move {
+        started_rx.await.unwrap();
+        let _ = release_tx.send(());
+    };
+    let (result, ()) = tokio::join!(work, release);
+    assert_ne!(result.unwrap(), caller);
+}
+
 #[test]
 fn extensions_ignore_url_suffixes_and_case() {
     for (path, expected) in [

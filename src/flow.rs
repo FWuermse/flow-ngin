@@ -825,7 +825,8 @@ impl<State: Default + 'static, Event: Send + 'static> App<State, Event> {
             .ready
             .try_recv()
             .expect("Startup task completed")
-            .expect("StartupReady requires prepared flows");
+            .expect("StartupReady requires prepared flows")
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
         #[cfg(not(target_arch = "wasm32"))]
         drop(self.local_tasks.take());
         let state = self.state.as_mut().expect("Loading requires a GPU context");

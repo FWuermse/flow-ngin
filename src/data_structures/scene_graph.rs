@@ -1436,6 +1436,28 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
+    fn remove_then_add_places_hidden_children() {
+        let device = test_device();
+        let mut root = ContainerNode::new(1, Vec::new());
+        let mut child = test_model_node(&device, 1);
+        let mut offset = Instance::default();
+        offset.position = cgmath::Vector3::new(-5.0, 0.5, 5.0);
+        child.set_local_transform(0, offset);
+        root.add_child(Box::new(child));
+
+        root.remove_instance(0);
+        let mut placed = Instance::default();
+        placed.position = cgmath::Vector3::new(53.0, 0.0, 6.0);
+        let idx = root.add_instance(placed);
+        root.update_world_transform_all();
+
+        assert_eq!(idx, 0);
+        let world = root.children[0].get_world_transform(0).unwrap();
+        assert_eq!(world.position, cgmath::Vector3::new(48.0, 0.5, 11.0));
+        assert_eq!(root.children[0].get_renders().len(), 1);
+    }
+
+    #[test]
     fn hidden_remove_last_does_not_affect_children() {
         let device = test_device();
         let mut node = test_model_node(&device, 2);

@@ -23,6 +23,22 @@ pub mod mesh;
 pub mod pick;
 pub mod texture;
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn background_load<T: Send + 'static>(
+    task: impl Future<Output = anyhow::Result<T>> + Send + 'static,
+) -> anyhow::Result<T> {
+    match tokio::spawn(task).await {
+        Ok(result) => result,
+        Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn background_load<T>(task: impl Future<Output = anyhow::Result<T>>) -> anyhow::Result<T> {
+    task.await
+}
+
 /// A loaded asset.
 pub struct Asset {
     pub path: String,
@@ -116,6 +132,15 @@ pub async fn load_model_obj(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
 ) -> anyhow::Result<model::Model> {
+    let (file_name, device, queue) = (file_name.to_owned(), device.clone(), queue.clone());
+    background_load(async move { load_model_obj_inner(&file_name, &device, &queue).await }).await
+}
+
+async fn load_model_obj_inner(
+    file_name: &str,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> anyhow::Result<model::Model> {
     let bind_group_layout = diffuse_normal_layout(device);
 
     let (materials, models) =
@@ -140,6 +165,17 @@ pub async fn load_model_obj(
 /// `id` is a unique identifyer to identify click events on this resource.
 pub async fn load_model_gltf(
     id: impl Into<PickId>,
+    file_name: &str,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> anyhow::Result<Box<dyn SceneNode + Send>> {
+    let id = id.into();
+    let (file_name, device, queue) = (file_name.to_owned(), device.clone(), queue.clone());
+    background_load(async move { load_model_gltf_inner(id, &file_name, &device, &queue).await }).await
+}
+
+async fn load_model_gltf_inner(
+    id: PickId,
     file_name: &str,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -316,7 +352,6 @@ pub async fn load_model_gltf(
 
     let mut models = Vec::new();
 
-    let id = id.into();
     for scene in gltf.scenes() {
         for node in scene.nodes() {
             let model = to_scene_node(id, node, &buffer_data, device, &materials, &animations);

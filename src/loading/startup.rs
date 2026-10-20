@@ -1,4 +1,5 @@
-use futures::channel::oneshot;
+use futures::{FutureExt, channel::oneshot};
+use std::panic::AssertUnwindSafe;
 
 use super::LoadingScreen;
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
 type Flows<S, E> = Vec<Box<dyn GraphicsFlow<S, E>>>;
 
 pub(crate) struct Startup<S: 'static, E: 'static> {
-    pub ready: oneshot::Receiver<Flows<S, E>>,
+    pub ready: oneshot::Receiver<std::thread::Result<Flows<S, E>>>,
     pub screen: Flows<S, E>,
     pub events: Vec<FlowEvent<S, E>>,
 }
@@ -17,16 +18,16 @@ pub(crate) struct Startup<S: 'static, E: 'static> {
 pub(super) async fn prepare_flows<S: 'static, E: Send + 'static>(
     constructors: Vec<FlowConstructor<S, E>>,
     gpu: InitContext,
-) -> Flows<S, E> {
-    futures::future::join_all(constructors.into_iter().map(|constructor| {
+) -> std::thread::Result<Flows<S, E>> {
+    let prepare = futures::future::join_all(constructors.into_iter().map(|constructor| {
         let gpu = gpu.clone();
         async move {
             let mut flow = constructor(gpu.clone()).await;
             flow.on_init_async(gpu).await;
             flow
         }
-    }))
-    .await
+    }));
+    AssertUnwindSafe(prepare).catch_unwind().await
 }
 
 impl<S: 'static, E: Send + 'static> Startup<S, E> {

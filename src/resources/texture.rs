@@ -100,8 +100,15 @@ pub async fn load_texture(
     queue: &wgpu::Queue,
     format: Option<&str>,
 ) -> anyhow::Result<texture::Texture> {
-    let data = load_binary(file_name).await?;
-    texture::Texture::from_bytes(device, queue, &data, file_name, format, is_normal_map)
+    let (file_name, device, queue) = (file_name.to_owned(), device.clone(), queue.clone());
+    let format = format.map(str::to_owned);
+    super::background_load(async move {
+        let data = load_binary(&file_name).await?;
+        texture::Texture::from_bytes(
+            &device, &queue, &data, &file_name, format.as_deref(), is_normal_map,
+        )
+    })
+    .await
 }
 
 pub async fn load_textures(

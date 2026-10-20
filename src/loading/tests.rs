@@ -16,6 +16,11 @@ async fn animation_renders_and_changes_with_time_with_and_without_msaa() {
         queue: queue.clone(),
     })
     .await;
+    preparation_reports_panics(crate::context::InitContext {
+        device: device.clone(),
+        queue: queue.clone(),
+    })
+    .await;
     for samples in [1, 4] {
         let loading = LoadingScreen::create(
             &device,
@@ -40,6 +45,51 @@ async fn animation_renders_and_changes_with_time_with_and_without_msaa() {
                 image::save_buffer(&path, &second, 512, 512, image::ColorType::Rgba8).unwrap();
             }
         }
+    }
+}
+
+async fn preparation_reports_panics(gpu: crate::context::InitContext) {
+    use crate::flow::FlowConstructor;
+
+    struct PanickingInit;
+    impl GraphicsFlow<(), ()> for PanickingInit {
+        fn on_init_async(
+            &mut self,
+            _: crate::context::InitContext,
+        ) -> futures::future::LocalBoxFuture<'_, ()> {
+            Box::pin(async {
+                tokio::task::yield_now().await;
+                panic!("async init panic");
+            })
+        }
+    }
+
+    let constructors: Vec<FlowConstructor<(), ()>> = vec![
+        Box::new(|_| panic!("constructor panic")),
+        Box::new(|_| {
+            Box::pin(async {
+                tokio::task::yield_now().await;
+                panic!("constructor future panic");
+            })
+        }),
+        Box::new(|_| Box::pin(async { Box::new(PanickingInit) as Box<dyn GraphicsFlow<(), ()>> })),
+    ];
+    for (constructor, expected) in constructors.into_iter().zip([
+        "constructor panic",
+        "constructor future panic",
+        "async init panic",
+    ]) {
+        let pending: FlowConstructor<(), ()> = Box::new(|_| Box::pin(std::future::pending()));
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            startup::prepare_flows(vec![pending, constructor], gpu.clone()),
+        )
+        .await
+        .expect("A failed flow must not wait for other constructors");
+        let Err(panic) = result else {
+            panic!("Startup must report the panic");
+        };
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&expected));
     }
 }
 
@@ -220,7 +270,7 @@ async fn preparation_waits_for_constructors_and_async_init(gpu: crate::context::
             );
             assert_eq!(*started.borrow(), [1, 0]);
             init_gates.pop().unwrap().send(()).unwrap();
-            let flows = task.await.unwrap();
+            let flows = task.await.unwrap().unwrap();
             started.borrow_mut().clear();
             for flow in flows {
                 flow.on_render();
