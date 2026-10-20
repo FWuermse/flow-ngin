@@ -112,10 +112,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 32.0);
     let specular_color = specular_strength * light.color;
 
-    // Replace/mix tint: the texture hue is overridden by the tint (`rgb`),
+    // Multiply tint: the texture colour is modulated by the tint (`rgb`),
     // while lighting (ambient + diffuse + specular) is preserved.
     let lighting = ambient_color + diffuse_color + specular_color;
-    let result = lighting * transparency.rgb;
+    let result = lighting * object_color.rgb * transparency.rgb;
 
     return vec4<f32>(result, transparency.a);
 }

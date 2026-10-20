@@ -4,7 +4,8 @@ use crate::{data_structures::{instance::InstanceRaw, model::{ModelVertex, Vertex
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TransparencyUniform {
-    /// RGB tint, each channel in `0.0..=1.0`. Replaces the object's texture hue.
+    /// RGB tint, each channel in `0.0..=1.0`. Multiplied with the object's texture
+    /// colour; `[1.0, 1.0, 1.0]` keeps the original colour.
     pub tint: [f32; 3],
     /// Opacity in `0.0..=1.0` (0 = fully transparent, 1 = fully opaque).
     pub alpha: f32,
