@@ -373,13 +373,45 @@ async fn load_model_gltf_inner(
 }
 
 fn default_material(device: &wgpu::Device, queue: &wgpu::Queue) -> anyhow::Result<model::Material> {
+    diffuse_material(device, queue, "Default", Texture::from_color([210, 210, 210, 255], device, queue))
+}
+
+fn diffuse_material(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    name: &str,
+    diffuse: Texture,
+) -> anyhow::Result<model::Material> {
     model::Material::new(
         device,
-        "Default",
-        Texture::from_color([210, 210, 210, 255], device, queue),
+        name,
+        diffuse,
         Texture::create_default_normal_map(1, 1, device, queue),
         &diffuse_normal_layout(device),
     )
+}
+
+/// Puts `texture` onto a quad of the given `height` (width from the texture's aspect ratio),
+/// bottom-centred at the origin and facing +Z.
+pub(crate) fn sprite_model(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: Texture,
+    height: f32,
+) -> anyhow::Result<model::Model> {
+    let w = height * texture.texture.width() as f32 / texture.texture.height() as f32 / 2.0;
+    let quad = tobj::Mesh {
+        positions: vec![-w, 0.0, 0.0, w, 0.0, 0.0, w, height, 0.0, -w, height, 0.0],
+        texcoords: vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0],
+        normals: [0.0, 0.0, 1.0].repeat(4),
+        indices: vec![0, 1, 2, 0, 2, 3],
+        ..Default::default()
+    };
+    let meshes = mesh::load_meshes(&vec![tobj::Model::new(quad, "sprite".into())], "sprite", device)
+        .into_iter()
+        .collect::<Result<_, _>>()?;
+    let materials = vec![diffuse_material(device, queue, "sprite", texture)?];
+    Ok(model::Model { meshes, materials })
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

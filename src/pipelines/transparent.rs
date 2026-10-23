@@ -94,6 +94,7 @@ pub fn mk_transparent_pipeline(
         Some(Texture::DEPTH_FORMAT),
         &[ModelVertex::desc(), InstanceRaw::desc()],
         shader,
+        "vs_main",
         sample_count,
     )
 }

@@ -519,7 +519,6 @@ impl<'a, State: Default> AppState<State> {
                 );
             });
 
-            render_pass.set_pipeline(&self.ctx.pipelines.basic);
             for instanced in basics {
                 if instanced.amount == 0 {
                     log::debug!("you attemted to render instances, nothing drawn to screen.");
@@ -531,19 +530,13 @@ impl<'a, State: Default> AppState<State> {
                     );
                     continue;
                 }
-                // TODO: introduce as new render category
-                if let wgpu::FrontFace::Cw = instanced.front_face {
-                    render_pass.set_pipeline(&self.ctx.pipelines.basic_cw);
-                    render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
-                    render_pass.draw_model_instanced(
-                        &instanced.model,
-                        0..instanced.amount as u32,
-                        &self.ctx.camera.bind_group,
-                        &self.ctx.light.bind_group,
-                    );
-                    render_pass.set_pipeline(&self.ctx.pipelines.basic);
-                    continue;
-                }
+                let pipelines = &self.ctx.pipelines;
+                render_pass.set_pipeline(match (instanced.front_face, instanced.tiled) {
+                    (wgpu::FrontFace::Cw, false) => &pipelines.basic_cw,
+                    (wgpu::FrontFace::Cw, true) => &pipelines.basic_tiled_cw,
+                    (wgpu::FrontFace::Ccw, false) => &pipelines.basic,
+                    (wgpu::FrontFace::Ccw, true) => &pipelines.basic_tiled,
+                });
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
                 render_pass.draw_model_instanced(
                     &instanced.model,

@@ -40,17 +40,45 @@ struct VertexOutput {
     @location(3) tangent_view_position: vec3<f32>,
 }
 
-@vertex
-fn vs_main(
-    model: VertexInput,
-    instance: InstanceInput,
-) -> VertexOutput {
-    let model_matrix = mat4x4<f32>(
+fn model_matrix_of(instance: InstanceInput) -> mat4x4<f32> {
+    return mat4x4<f32>(
         instance.model_matrix_0,
         instance.model_matrix_1,
         instance.model_matrix_2,
         instance.model_matrix_3,
     );
+}
+
+@vertex
+fn vs_main(
+    model: VertexInput,
+    instance: InstanceInput,
+) -> VertexOutput {
+    return vertex(model, instance);
+}
+
+// Same as `vs_main` but tiles the texture with repeat and not stretch
+@vertex
+fn vs_tiled(
+    model: VertexInput,
+    instance: InstanceInput,
+) -> VertexOutput {
+    let m4 = model_matrix_of(instance);
+    let m = mat3x3<f32>(m4[0].xyz, m4[1].xyz, m4[2].xyz);
+    let uv_scale = vec2<f32>(
+        length(m * normalize(model.tangent)),
+        length(m * normalize(model.bitangent)),
+    );
+    var out = vertex(model, instance);
+    out.tex_coords = model.tex_coords * uv_scale;
+    return out;
+}
+
+fn vertex(
+    model: VertexInput,
+    instance: InstanceInput,
+) -> VertexOutput {
+    let model_matrix = model_matrix_of(instance);
     let normal_matrix = mat3x3<f32>(
         instance.normal_matrix_0,
         instance.normal_matrix_1,
@@ -93,6 +121,10 @@ var s_normal: sampler;
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
+    // Alpha cutout, e.g. for LOD sprites with transparent background
+    if object_color.a < 0.5 {
+        discard;
+    }
     let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.tex_coords);
 
     // We don't need (or want) much ambient light, so 0.1 is fine

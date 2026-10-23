@@ -32,6 +32,8 @@ pub struct Instanced<'a> {
     pub instance: &'a wgpu::Buffer,
     pub model: &'a Model,
     pub front_face: wgpu::FrontFace,
+    /// Tile the texture by the instance scale instead of stretching it.
+    pub tiled: bool,
     pub amount: usize,
     pub id: PickId,
 }
@@ -213,6 +215,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
                     model: instanced.model,
                     amount: instanced.amount,
                     front_face: instanced.front_face,
+                    tiled: instanced.tiled,
                     id: instanced.id,
                 },
                 tu,
@@ -225,6 +228,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
                         model: instanced.model,
                         amount: instanced.amount,
                         front_face: instanced.front_face,
+                        tiled: instanced.tiled,
                         id: instanced.id,
                     })
                     .collect(),

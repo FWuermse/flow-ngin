@@ -151,6 +151,7 @@ pub fn mk_light_pipeline(
         Some(texture::Texture::DEPTH_FORMAT),
         &[ModelVertex::desc()],
         shader,
+        "vs_main",
         sample_count,
     )
 }

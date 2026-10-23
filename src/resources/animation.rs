@@ -2,9 +2,12 @@ use std::ops::BitAnd;
 
 use instant::{Duration, Instant};
 
-use cgmath::{AbsDiffEq, num_traits::Float};
+use cgmath::{AbsDiffEq, VectorSpace, num_traits::Float};
 
-use crate::data_structures::{instance::Instance, scene_graph::SceneNode};
+use crate::data_structures::{
+    instance::Instance,
+    scene_graph::{ModelAnimation, SceneNode},
+};
 
 const EPSILON: f32 = 1e-2;
 
@@ -38,11 +41,10 @@ impl<'a> Animation {
 
     /**
      * This function checks whether the passed Scene Graph contains animation data and plays it
-     * according to the time passed since this `Animation` struct was initialized.
+     * according to the time passed since this `Animation` struct was initialized, scaled by `speed`.
+     * Transforms are linearly interpolated between the surrounding keyframes.
      *
-     * Repeats the animation after 20s (TODO: make this a parameter)
-     *
-     * TODO: interpolate similar to `animate_with(...args)`
+     * Repeats the animation once its longest track has finished.
      */
     pub fn animate(
         &mut self,
@@ -50,11 +52,11 @@ impl<'a> Animation {
         anim_idx: usize,
         instance_idx: usize,
     ) {
-        let current_time = &mut self.time;
-        let duration = animate_graph(graph, instance_idx, anim_idx, current_time, self.speed);
+        let anim_time = self.time.elapsed().as_secs_f32() * self.speed;
+        let duration = animate_graph(graph, instance_idx, anim_idx, anim_time);
         self.set_rep_time(duration);
 
-        if self.time.elapsed().as_secs_f32() > self.rep_after_sec {
+        if anim_time > self.rep_after_sec {
             self.time = Instant::now();
         }
     }
@@ -119,10 +121,8 @@ fn animate_graph(
     graph: &mut Box<dyn SceneNode>,
     instance_idx: usize,
     anim_idx: usize,
-    time: &mut Instant,
-    speed: f32,
+    anim_time: f32,
 ) -> f32 {
-    let current_time = time.elapsed().as_secs_f32();
     let animations = graph.get_animation();
     let mut longest_anim_duration = 0.0;
     // pick desired animation
@@ -130,26 +130,38 @@ fn animate_graph(
         if let Some(timestamp) = animation.timestamps.last() {
             longest_anim_duration = longest_anim_duration.max(*timestamp)
         }
-        let current_keyframe_index = find_keyframe_index(&animation.timestamps, current_time);
-
-        // Update locals with current animation
-        let ref_pos = &animation.instances[current_keyframe_index];
-        graph.set_local_transform(instance_idx, ref_pos.clone());
+        if let Some(transform) = sample(animation, anim_time) {
+            graph.set_local_transform(instance_idx, transform);
+        }
     }
 
     for child in graph.get_children_mut() {
-        let duration = animate_graph(child, instance_idx, anim_idx, time, speed);
+        let duration = animate_graph(child, instance_idx, anim_idx, anim_time);
         longest_anim_duration = longest_anim_duration.max(duration);
     }
     longest_anim_duration
 }
 
+/// Linearly interpolates the animation's transform at `time` between the surrounding keyframes.
+/// Clamps to the first/last keyframe outside the animation's time range.
+pub(crate) fn sample(animation: &ModelAnimation, time: f32) -> Option<Instance> {
+    let ts = &animation.timestamps;
+    let next = find_keyframe_index(ts, time).min(animation.instances.len().checked_sub(1)?);
+    let to = &animation.instances[next];
+    if next == 0 {
+        return Some(to.clone());
+    }
+    let (t0, t1) = (ts[next - 1], ts[next]);
+    let t = if t1 > t0 { (time - t0) / (t1 - t0) } else { 1.0 };
+    Some(step(&animation.instances[next - 1], to, t, 1.0))
+}
+
 // linear interpolation between two positions
 pub(crate) fn step(fst: &Instance, snd: &Instance, dt: f32, speed: f32) -> Instance {
     let t = (dt * speed).clamp(0.0, 1.0);
-    let position = fst.position + (snd.position - fst.position) * t;
+    let position = fst.position.lerp(snd.position, t);
     let rotation = fst.rotation.nlerp(snd.rotation, t);
-    let scale = fst.scale + (snd.scale - fst.scale) * t;
+    let scale = fst.scale.lerp(snd.scale, t);
 
     Instance {
         position,
@@ -353,6 +365,40 @@ mod tests {
         let a = make_instance([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let b = make_instance([0.011, 0.0, 0.0], [1.0, 1.0, 1.0]);
         assert!(!diff_lt_epsilon(&a, &b));
+    }
+
+    fn anim(xs: &[f32], ts: &[f32]) -> ModelAnimation {
+        ModelAnimation {
+            name: String::new(),
+            instances: xs.iter().map(|&x| make_instance([x, 0.0, 0.0], [1.0; 3])).collect(),
+            timestamps: ts.to_vec(),
+        }
+    }
+
+    #[test]
+    fn sample_interpolates_between_keyframes() {
+        let a = anim(&[0.0, 10.0, 20.0], &[0.0, 1.0, 3.0]);
+        assert_relative_eq!(sample(&a, 0.5).unwrap().position.x, 5.0, epsilon = 1e-5);
+        assert_relative_eq!(sample(&a, 2.0).unwrap().position.x, 15.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn sample_clamps_outside_range() {
+        let a = anim(&[0.0, 10.0], &[1.0, 2.0]);
+        assert_relative_eq!(sample(&a, 0.0).unwrap().position.x, 0.0, epsilon = 1e-5);
+        assert_relative_eq!(sample(&a, 5.0).unwrap().position.x, 10.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn sample_hits_keyframes_exactly() {
+        let a = anim(&[0.0, 10.0, 20.0], &[0.0, 1.0, 2.0]);
+        assert_relative_eq!(sample(&a, 1.0).unwrap().position.x, 10.0, epsilon = 1e-5);
+        assert_relative_eq!(sample(&a, 2.0).unwrap().position.x, 20.0, epsilon = 1e-5);
+    }
+
+    #[test]
+    fn sample_empty_is_none() {
+        assert!(sample(&anim(&[], &[]), 1.0).is_none());
     }
 
     // --- find_keyframe_index ---

@@ -991,6 +991,7 @@ impl SceneNode for ModelNode {
                 model: &self.model,
                 amount: self.instances.len(),
                 front_face: self.front_face,
+                tiled: false,
                 id: self.id,
             }])
             .collect()

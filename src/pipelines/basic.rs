@@ -13,6 +13,7 @@ pub fn mk_basic_pipeline(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
     direction: wgpu::FrontFace,
+    tiled: bool,
     light_bind_group_layout: &wgpu::BindGroupLayout,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
     sample_count: u32,
@@ -46,6 +47,7 @@ pub fn mk_basic_pipeline(
         Some(Texture::DEPTH_FORMAT),
         &[model::ModelVertex::desc(), InstanceRaw::desc()],
         shader,
+        if tiled { "vs_tiled" } else { "vs_main" },
         sample_count,
     )
 }
@@ -62,6 +64,7 @@ pub fn mk_render_pipeline(
     depth_format: Option<wgpu::TextureFormat>,
     vertex_layouts: &[wgpu::VertexBufferLayout],
     shader: wgpu::ShaderModuleDescriptor,
+    vs_entry: &str,
     sample_count: u32,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(shader);
@@ -72,7 +75,7 @@ pub fn mk_render_pipeline(
         layout: Some(layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: Some("vs_main"),
+            entry_point: Some(vs_entry),
             buffers: &vertex_layouts.iter().cloned().map(Some).collect::<Vec<_>>(),
             compilation_options: Default::default(),
         },
