@@ -168,15 +168,14 @@ impl TextLabel {
         #[cfg(not(target_arch = "wasm32"))]
         let mut font_system = FontSystem::new();
         #[cfg(target_arch = "wasm32")]
-        let mut font_system = {
-            let mut fs = FontSystem::new_with_locale_and_db(
-                "en-US".into(),
-                glyphon::cosmic_text::fontdb::Database::new(),
-            );
-            fs.db_mut()
-                .load_font_data(include_bytes!("../../assets/fonts/Roboto-Regular.ttf").to_vec());
-            fs
-        };
+        let mut font_system = FontSystem::new_with_locale_and_db(
+            "en-US".into(),
+            glyphon::cosmic_text::fontdb::Database::new(),
+        );
+        // Bundle Roboto as SansSerif so it resolves even without system fonts (e.g. Open Sans).
+        let db = font_system.db_mut();
+        db.load_font_data(include_bytes!("../../assets/fonts/Roboto-Regular.ttf").to_vec());
+        db.set_sans_serif_family("Roboto");
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&ctx.device);
         let viewport = Viewport::new(&ctx.device, &cache);

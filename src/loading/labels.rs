@@ -3,9 +3,9 @@ use glyphon::{Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, SwashC
 pub(super) fn atlas() -> image::RgbaImage {
     let mut fonts =
         FontSystem::new_with_locale_and_db("en-US".into(), glyphon::fontdb::Database::new());
-    fonts
-        .db_mut()
-        .load_font_data(include_bytes!("../../assets/fonts/Roboto-Regular.ttf").to_vec());
+    let db = fonts.db_mut();
+    db.load_font_data(include_bytes!("../../assets/fonts/Roboto-Regular.ttf").to_vec());
+    db.set_sans_serif_family("Roboto");
     let mut text = Buffer::new(&mut fonts, Metrics::new(96.0, 160.0));
     text.set_size(Some(512.0), Some(640.0));
     text.set_text(

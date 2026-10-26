@@ -209,7 +209,6 @@ impl Context {
             })
             .await?;
 
-        log::warn!("Surface");
         let surface_caps = surface.get_capabilities(&adapter);
         // Shader code in this tutorial assumes an Srgb surface texture. Using a different
         // one will result all the colors comming out darker. If you want to support non
