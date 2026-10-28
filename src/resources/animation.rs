@@ -35,17 +35,20 @@ impl<'a> Animation {
         }
     }
 
+    /// Resets the animation time in the state (useful when switching animation tracks).
+    pub fn reset(&mut self) {
+        self.time = Instant::now();
+    }
+
     pub fn set_rep_time(&mut self, new_time: f32) {
         self.rep_after_sec = new_time;
     }
 
-    /**
-     * This function checks whether the passed Scene Graph contains animation data and plays it
-     * according to the time passed since this `Animation` struct was initialized, scaled by `speed`.
-     * Transforms are linearly interpolated between the surrounding keyframes.
-     *
-     * Repeats the animation once its longest track has finished.
-     */
+    /// This function checks whether the passed Scene Graph contains animation data and plays it
+    /// according to the time passed since this `Animation` struct was initialized, scaled by `speed`.
+    /// Transforms are linearly interpolated between the surrounding keyframes.
+    ///
+    /// Repeats the animation once its longest track has finished.
     pub fn animate(
         &mut self,
         graph: &'a mut Box<dyn SceneNode>,
@@ -61,16 +64,14 @@ impl<'a> Animation {
         }
     }
 
-    /**
-     * This function animates a single frame with interpolation between the current position of
-     * the screne_graph and the position given in the animation List.
-     *
-     * `graph` is the Scene Graph of the object to model
-     * `current` is a mapping between Scene Graph nodes and the passed animation positions
-     * `reference` is the desired position
-     * `idx` is the index of the instance to animate
-     * `dt` the duration since the last rendered frame
-     */
+    /// This function animates a single frame with interpolation between the current position of
+    /// the screne_graph and the position given in the animation List.
+    ///
+    /// `graph` is the Scene Graph of the object to model
+    /// `current` is a mapping between Scene Graph nodes and the passed animation positions
+    /// `reference` is the desired position
+    /// `idx` is the index of the instance to animate
+    /// `dt` the duration since the last rendered frame
     pub fn animate_with(
         &mut self,
         graph: &'a mut Box<dyn SceneNode>,
@@ -152,7 +153,11 @@ pub(crate) fn sample(animation: &ModelAnimation, time: f32) -> Option<Instance> 
         return Some(to.clone());
     }
     let (t0, t1) = (ts[next - 1], ts[next]);
-    let t = if t1 > t0 { (time - t0) / (t1 - t0) } else { 1.0 };
+    let t = if t1 > t0 {
+        (time - t0) / (t1 - t0)
+    } else {
+        1.0
+    };
     Some(step(&animation.instances[next - 1], to, t, 1.0))
 }
 
@@ -257,7 +262,7 @@ mod kani_proofs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::{assert_relative_eq, One, Quaternion, Vector3};
+    use cgmath::{One, Quaternion, Vector3, assert_relative_eq};
 
     fn make_instance(pos: [f32; 3], scale: [f32; 3]) -> Instance {
         Instance {
@@ -307,9 +312,21 @@ mod tests {
         let b = make_instance([2.0, 4.0, 6.0], [1.0, 1.0, 1.0]);
         let half_speed2 = step(&a, &b, 0.5, 2.0);
         let full_speed1 = step(&a, &b, 1.0, 1.0);
-        assert_relative_eq!(half_speed2.position.x, full_speed1.position.x, epsilon = 1e-6);
-        assert_relative_eq!(half_speed2.position.y, full_speed1.position.y, epsilon = 1e-6);
-        assert_relative_eq!(half_speed2.position.z, full_speed1.position.z, epsilon = 1e-6);
+        assert_relative_eq!(
+            half_speed2.position.x,
+            full_speed1.position.x,
+            epsilon = 1e-6
+        );
+        assert_relative_eq!(
+            half_speed2.position.y,
+            full_speed1.position.y,
+            epsilon = 1e-6
+        );
+        assert_relative_eq!(
+            half_speed2.position.z,
+            full_speed1.position.z,
+            epsilon = 1e-6
+        );
     }
 
     #[test]
@@ -370,7 +387,10 @@ mod tests {
     fn anim(xs: &[f32], ts: &[f32]) -> ModelAnimation {
         ModelAnimation {
             name: String::new(),
-            instances: xs.iter().map(|&x| make_instance([x, 0.0, 0.0], [1.0; 3])).collect(),
+            instances: xs
+                .iter()
+                .map(|&x| make_instance([x, 0.0, 0.0], [1.0; 3]))
+                .collect(),
             timestamps: ts.to_vec(),
         }
     }
