@@ -277,7 +277,7 @@ impl Context {
 
         let camera = CameraResources {
             camera,
-            controller: camera_controller,
+            controller: Box::new(camera_controller),
             uniform: camera_uniform,
             buffer: camera_buffer,
             bind_group: camera_bind_group,
@@ -306,8 +306,7 @@ impl Context {
 
         let light_uniform = LightUniform {
             position: [8.0, 80.0, 50.0],
-            _padding: 0,
-            // change when it's evening
+            ambient_strength: 0.1,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
         };

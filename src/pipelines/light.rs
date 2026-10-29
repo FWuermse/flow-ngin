@@ -77,8 +77,8 @@ impl LightResources {
 pub struct LightUniform {
     // TODO: make private and create nicer API for light sources
     pub position: [f32; 3],
-    // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
-    pub _padding: u32,
+    /// Constant fill light, independent of surface direction (normally 0.1).
+    pub ambient_strength: f32,
     pub color: [f32; 3],
     // Due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
     pub _padding2: u32,
@@ -166,7 +166,7 @@ use super::*;
         LightUniform {
             position: [10.0, 5.0, 0.0],
             color: [1.0; 3],
-            _padding: 0,
+            ambient_strength: 0.1,
             _padding2: 0,
         }
     }

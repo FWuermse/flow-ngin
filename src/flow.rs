@@ -595,11 +595,8 @@ impl<'a, State: Default> AppState<State> {
 
             render_pass.set_pipeline(&self.ctx.pipelines.gui);
             render_pass.set_bind_group(1, &self.ctx.screen_size.bind_group, &[]);
-            for button in guis {
-                render_pass.set_bind_group(0, button.group, &[]);
-                render_pass.set_vertex_buffer(0, button.vertex.slice(..));
-                render_pass.set_index_buffer(button.index.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..button.amount as u32, 0, 0..1);
+            for flat in &guis {
+                crate::render::draw_flat(&mut render_pass, flat);
             }
 
             for custom in customs {
@@ -990,15 +987,10 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             None => return,
         };
         if let DeviceEvent::MouseMotion { delta: (dx, dy) } = event {
-            // TODO: make the below pattern/factor configurable
-            let speed_factor = 5.0;
-            if let MouseButtonState::Right = state.ctx.mouse.pressed {
-                state
-                    .ctx
-                    .camera
-                    .controller
-                    .handle_mouse(dx * speed_factor, dy * speed_factor);
-            }
+            let ctx = &mut state.ctx;
+            ctx.camera
+                .controller
+                .handle_mouse_motion(dx, dy, &ctx.mouse.pressed);
         }
         self.graphics_flows.iter_mut().enumerate().for_each(|(flow_id, f)| {
             let events = f.on_device_events(&state.ctx, &mut state.state, &event);
@@ -1061,14 +1053,10 @@ impl<State: 'static + Default, Event: Send + 'static> ApplicationHandler<FlowEve
             let dy = position.y - state.ctx.mouse.coords.y;
             state.ctx.mouse.prev_coords = state.ctx.mouse.coords;
             state.ctx.mouse.coords = position;
-            if let MouseButtonState::Right = state.ctx.mouse.pressed {
-                let speed_factor = 5.0;
-                state
-                    .ctx
-                    .camera
-                    .controller
-                    .handle_mouse(dx * speed_factor, dy * speed_factor);
-            }
+            let ctx = &mut state.ctx;
+            ctx.camera
+                .controller
+                .handle_mouse_motion(dx, dy, &ctx.mouse.pressed);
         };
 
         // Update config before dispatching so components see current dimensions.

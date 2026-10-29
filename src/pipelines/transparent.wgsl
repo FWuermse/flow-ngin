@@ -9,6 +9,7 @@ var<uniform> camera: Camera;
 
 struct Light {
     position: vec3<f32>,
+    ambient_strength: f32,
     color: vec3<f32>,
 }
 @group(2) @binding(0)
@@ -96,9 +97,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let object_color: vec4<f32> = textureSample(t_diffuse, s_diffuse, in.tex_coords);
     let object_normal: vec4<f32> = textureSample(t_normal, s_normal, in.tex_coords);
 
-    // We don't need (or want) much ambient light, so 0.1 is fine
-    let ambient_strength = 0.1;
-    let ambient_color = light.color * ambient_strength;
+    let ambient_color = light.color * light.ambient_strength;
 
     // Create the lighting vectors
     let tangent_normal = object_normal.xyz * 2.0 - 1.0;

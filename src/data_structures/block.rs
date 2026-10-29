@@ -127,6 +127,32 @@ pub trait WorldCoordMesh {
 }
 
 impl BuildingBlocks {
+    /// Build an instance batch from an already loaded model; no asset loading is performed here.
+    pub fn from_model(
+        id: impl Into<PickId>,
+        device: &Device,
+        obj_model: model::Model,
+        instances: Vec<Instance>,
+    ) -> Self {
+        let data: Vec<_> = instances.iter().map(Instance::to_raw).collect();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Instance Buffer"),
+            contents: bytemuck::cast_slice(&data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+        Self {
+            id: id.into(),
+            obj_model,
+            near_amount: instances.len(),
+            instances,
+            instance_buffer,
+            obj_file: String::new(),
+            buffer_size_needs_change: false,
+            tiled: false,
+            lod: None,
+        }
+    }
+
     pub async fn new(
         id: impl Into<PickId>,
         queue: &wgpu::Queue,

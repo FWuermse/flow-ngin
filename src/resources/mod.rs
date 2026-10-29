@@ -19,9 +19,16 @@ use crate::{
  * This module contains all logic for loading mesh/textures/etc. from external files.
  */
 pub mod animation;
+#[cfg(feature = "asset-bundles")]
+mod asset_bundle;
 pub mod mesh;
 pub mod pick;
 pub mod texture;
+#[cfg(feature = "asset-bundles")]
+pub use asset_bundle::{
+    AssetFiles, load_gltf_geometry_from_files, load_model_gltf_from_files,
+    load_model_obj_from_files, load_obj_geometry_from_files,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn background_load<T: Send + 'static>(

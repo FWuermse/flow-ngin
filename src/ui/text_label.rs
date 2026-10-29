@@ -162,7 +162,7 @@ impl TextLabel {
 
     /// Initialize GPU resources. Called automatically by `GraphicsFlow::on_init`;
     /// call directly when embedding in a custom flow.
-    pub fn init(&mut self, ctx: &mut Context) {
+    pub fn init(&mut self, ctx: &Context) {
         self.resolve_placement(0, 0, ctx.config.width, ctx.config.height);
 
         #[cfg(not(target_arch = "wasm32"))]

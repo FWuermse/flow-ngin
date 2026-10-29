@@ -8,6 +8,7 @@ var<uniform> camera: Camera;
 
 struct Light {
     position: vec3<f32>,
+    ambient_strength: f32,
     color: vec3<f32>,
 }
 @group(2) @binding(0)
@@ -180,8 +181,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let specular_strength = pow(max(dot(tangent_normal, half_dir), 0.0), 64.0);
     let specular_color = specular_strength * light.color;
 
-    let ambient_strength = 0.1;
-    let ambient_color = light.color * ambient_strength;
+    let ambient_color = light.color * light.ambient_strength;
   
     let result = (ambient_color + diffuse_color + specular_color) * final_color.xyz;
     
