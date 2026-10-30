@@ -138,9 +138,11 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
         self
     }
 
-    /// Set a text label as the button content.
+    /// Set a text label as the button content, centered in the button.
     #[inline]
     pub fn with_text(mut self, label: TextLabel) -> Self {
+        // Centered like icon content; the label fills the button.
+        let label = label.halign(HAlign::Center).valign(VAlign::Center);
         self.content = Some(ButtonContent::Text(label));
         self
     }
