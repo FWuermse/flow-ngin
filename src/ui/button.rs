@@ -29,7 +29,7 @@ pub enum ButtonContent {
 /// A clickable button with text or icon content.
 ///
 /// Click detection is coordinate-based and fires on mouse release. Forward window
-/// events to capture clicks between frames; update-only callers retain polling.
+/// events to capture clicks between frames.
 ///
 /// # Example
 ///
