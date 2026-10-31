@@ -195,7 +195,7 @@ impl Projection {
 /// Navigation input for the camera. Replace `ctx.camera.controller` to take over navigation,
 /// e.g. with [`NoCameraControl`] when the application moves the camera itself.
 pub trait CameraControl: std::fmt::Debug {
-    /// Every window event; return `true` if the event was used.
+    /// Receive window events like re-sizing.
     fn handle_window_events(&mut self, _event: &WindowEvent) -> bool {
         false
     }
