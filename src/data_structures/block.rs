@@ -127,7 +127,7 @@ pub trait WorldCoordMesh {
 }
 
 impl BuildingBlocks {
-    /// Build an instance batch from an already loaded model; no asset loading is performed here.
+    /// Build an instance batch from an already loaded model.
     pub fn from_model(
         id: impl Into<PickId>,
         device: &Device,
