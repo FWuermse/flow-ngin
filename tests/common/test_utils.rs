@@ -129,12 +129,32 @@ pub(crate) fn save_or_compare(
     let expected = image::open(fixture_path)
         .unwrap_or_else(|e| panic!("failed to load fixture {fixture_path}: {e}"))
         .to_rgba8();
-    assert_eq!(actual.dimensions(), expected.dimensions(), "image sizes differ");
+    assert_eq!(
+        actual.dimensions(),
+        expected.dimensions(),
+        "image sizes differ"
+    );
+    let mut first = None;
+    let mut differing = 0usize;
+    let mut max_delta = 0u8;
     for (x, y, pixel) in actual.enumerate_pixels() {
-        assert_eq!(
-            pixel,
-            expected.get_pixel(x, y),
-            "pixel mismatch at ({x}, {y})",
+        let expected = expected.get_pixel(x, y);
+        if pixel != expected {
+            first.get_or_insert((x, y));
+            differing += 1;
+            for (a, e) in pixel.0.iter().zip(expected.0) {
+                max_delta = max_delta.max(a.abs_diff(e));
+            }
+        }
+    }
+    if let Some((x, y)) = first {
+        // Keep the frame for inspection next to the fixture.
+        let actual_path = fixture_path.replace(".png", ".actual.png");
+        actual.save(&actual_path)?;
+        let total = actual.width() as usize * actual.height() as usize;
+        panic!(
+            "pixel mismatch at ({x}, {y}): {differing} of {total} pixels differ, \
+             max channel delta {max_delta}; actual frame saved to {actual_path}"
         );
     }
     Ok(ImageTestResult::Passed)
@@ -163,11 +183,7 @@ pub(crate) struct TestRender<'a, T> {
 #[cfg(feature = "integration-tests")]
 impl<'a, T> TestRender<'a, T> {
     /// Create a test flow that compares against (or auto-generates) a golden fixture file.
-    pub(crate) fn new(
-        data: T,
-        setup: &'a dyn Fn(&mut Context),
-        fixture_path: &'a str,
-    ) -> Self {
+    pub(crate) fn new(data: T, setup: &'a dyn Fn(&mut Context), fixture_path: &'a str) -> Self {
         Self {
             data,
             setup,
@@ -285,7 +301,10 @@ where
     }
 
     fn on_render<'pass>(&self) -> Render<'_, 'pass> {
-        self.inner.as_ref().map(|i| i.on_render()).unwrap_or(Render::None)
+        self.inner
+            .as_ref()
+            .map(|i| i.on_render())
+            .unwrap_or(Render::None)
     }
 
     fn on_update(
@@ -295,7 +314,10 @@ where
         dt: std::time::Duration,
     ) -> Out<FrameCounter, ()> {
         state.progress();
-        self.inner.as_mut().map(|i| i.on_update(ctx, state, dt)).unwrap_or(Out::Empty)
+        self.inner
+            .as_mut()
+            .map(|i| i.on_update(ctx, state, dt))
+            .unwrap_or(Out::Empty)
     }
 
     fn render_to_texture(

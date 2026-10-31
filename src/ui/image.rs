@@ -54,9 +54,26 @@ impl Atlas {
         h_grids: u8,
         v_grids: u8,
     ) -> Self {
-        let mut atlas = load_texture(file_name, false, device, queue, None)
+        let atlas = load_texture(file_name, false, device, queue, None)
             .await
             .expect(&format!("File does not exist: {}", file_name));
+        Self::from_texture(device, atlas, h_grids, v_grids)
+    }
+
+    /// Create an atlas from downloaded or embedded image bytes.
+    pub fn from_bytes(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bytes: &[u8],
+        h_grids: u8,
+        v_grids: u8,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(h_grids > 0 && v_grids > 0, "Atlas grid must be nonzero");
+        let atlas = Texture::from_bytes(device, queue, bytes, "UI atlas", None, false)?;
+        Ok(Self::from_texture(device, atlas, h_grids, v_grids))
+    }
+
+    fn from_texture(device: &wgpu::Device, mut atlas: Texture, h_grids: u8, v_grids: u8) -> Self {
         let size = atlas.texture.size();
 
         // Use ClampToEdge to prevent UV wrapping at atlas cell boundaries.

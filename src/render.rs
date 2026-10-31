@@ -83,6 +83,8 @@ pub struct Geometry<'a> {
 /// - `Terrain(Flat)` renders terrain mesh
 /// - `Composed(Vec<Render>)` recursively renders composition of multiple renders
 /// - `Custom(...)` invokes a user-defined closure for custom rendering
+/// - `Clipped(rect, render)` restricts the GUI and custom draws of `render` to `rect` (nested
+///   clips aren't intersected
 ///
 #[derive(Default)]
 pub enum Render<'a, 'pass>
@@ -99,6 +101,39 @@ where
     Terrain(Geometry<'a>),
     Composed(Vec<Render<'a, 'pass>>),
     Custom(Box<dyn 'a + FnOnce(&Context, &mut wgpu::RenderPass<'pass>) -> ()>),
+    Clipped(ClipRect, Box<Render<'a, 'pass>>),
+}
+
+/// Screen-space rectangle in physical pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClipRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl ClipRect {
+    /// Intersection with a `width` × `height` render target; `None` if nothing is left.
+    pub(crate) fn within(self, width: u32, height: u32) -> Option<ClipRect> {
+        let x = self.x.min(width);
+        let y = self.y.min(height);
+        let right = self.x.saturating_add(self.width).min(width);
+        let bottom = self.y.saturating_add(self.height).min(height);
+        (right > x && bottom > y).then(|| ClipRect {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        })
+    }
+}
+
+pub(crate) fn draw_flat(render_pass: &mut RenderPass<'_>, flat: &Flat<'_>) {
+    render_pass.set_bind_group(0, flat.group, &[]);
+    render_pass.set_vertex_buffer(0, flat.vertex.slice(..));
+    render_pass.set_index_buffer(flat.index.slice(..), wgpu::IndexFormat::Uint16);
+    render_pass.draw_indexed(0..flat.amount as u32, 0, 0..1);
 }
 
 pub(crate) fn map_id_list(
@@ -143,6 +178,7 @@ impl<'a, 'pass> Render<'a, 'pass> {
             Render::Composed(renders) => renders
                 .into_iter()
                 .for_each(|render| render.map_ids(flow_id, map)),
+            Render::Clipped(_, render) => render.map_ids(flow_id, map),
             Render::None | Render::Custom(_) => (),
         }
     }
@@ -175,6 +211,39 @@ impl<'a, 'pass> Render<'a, 'pass> {
                 })
                 .collect(),
             Render::Custom(f) => customs.push(f),
+            Render::Clipped(rect, render) => {
+                // Drawn as one custom step, so the clipped GUI quads and texts keep their order
+                // relative to each other and the scissor only applies to them.
+                let mut clipped_guis = Vec::new();
+                let mut clipped_customs = Vec::new();
+                render.set_pipelines(
+                    ctx,
+                    render_pass,
+                    basics,
+                    trans,
+                    &mut clipped_guis,
+                    terrain,
+                    &mut clipped_customs,
+                );
+                customs.push(Box::new(
+                    move |ctx: &Context, pass: &mut RenderPass<'pass>| {
+                        let (width, height) = (ctx.config.width, ctx.config.height);
+                        let Some(clip) = rect.within(width, height) else {
+                            return;
+                        };
+                        pass.set_scissor_rect(clip.x, clip.y, clip.width, clip.height);
+                        pass.set_pipeline(&ctx.pipelines.gui);
+                        pass.set_bind_group(1, &ctx.screen_size.bind_group, &[]);
+                        for flat in &clipped_guis {
+                            draw_flat(pass, flat);
+                        }
+                        for custom in clipped_customs {
+                            custom(ctx, pass);
+                        }
+                        pass.set_scissor_rect(0, 0, width, height);
+                    },
+                ));
+            }
             Render::None => (),
         }
     }
@@ -200,6 +269,9 @@ impl<'a, 'pass> Render<'a, 'pass> {
                 .into_iter()
                 .map(|render| render.set_pick_pipelines(ctx, render_pass, basics, flats, geoms))
                 .collect(),
+            Render::Clipped(_, render) => {
+                render.set_pick_pipelines(ctx, render_pass, basics, flats, geoms)
+            }
             // Picking is not supported for custom renders
             Render::Custom(_) => (),
             Render::None => (),
@@ -271,6 +343,39 @@ impl<'a, 'pass> From<&'a Box<dyn GPUResource<'a, 'pass> + Send>> for Render<'a, 
 mod tests {
     use super::*;
     use crate::pick::PickId;
+
+    // --- ClipRect ---
+
+    #[test]
+    fn clip_rect_is_cut_to_the_render_target() {
+        let r = ClipRect {
+            x: 100,
+            y: 50,
+            width: 300,
+            height: 100,
+        };
+        assert_eq!(r.within(800, 600), Some(r));
+        assert_eq!(
+            r.within(200, 120),
+            Some(ClipRect {
+                x: 100,
+                y: 50,
+                width: 100,
+                height: 70
+            })
+        );
+        assert_eq!(r.within(100, 600), None);
+        assert_eq!(
+            ClipRect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 10
+            }
+            .within(800, 600),
+            None
+        );
+    }
 
     // --- map_id_list ---
 

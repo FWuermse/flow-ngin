@@ -7,6 +7,8 @@ use winit::event::*;
 use winit::keyboard::KeyCode;
 use winit::{dpi::PhysicalPosition, keyboard::PhysicalKey};
 
+use crate::context::MouseButtonState;
+
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::from_cols(
     cgmath::Vector4::new(1.0, 0.0, 0.0, 0.0),
@@ -190,6 +192,29 @@ impl Projection {
     }
 }
 
+/// Navigation input for the camera. Replace `ctx.camera.controller` to take over navigation,
+/// e.g. with [`NoCameraControl`] when the application moves the camera itself.
+pub trait CameraControl: std::fmt::Debug {
+    /// Receive window events like re-sizing.
+    fn handle_window_events(&mut self, _event: &WindowEvent) -> bool {
+        false
+    }
+    /// Raw mouse movement in pixels with the currently pressed button. Called for device motion
+    /// and for cursor movement, so a drag may report both.
+    fn handle_mouse_motion(&mut self, _dx: f64, _dy: f64, _pressed: &MouseButtonState) {}
+    /// Called once per frame before the camera uniform is written.
+    fn update(&mut self, camera: &mut Camera, dt: Duration);
+}
+
+/// Leaves the camera alone; the application positions it.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoCameraControl;
+
+impl CameraControl for NoCameraControl {
+    fn update(&mut self, _camera: &mut Camera, _dt: Duration) {}
+}
+
+/// Default navigation: WASD/arrows to move, Space/Shift up and down, right-drag to look around.
 #[derive(Debug, Clone)]
 pub struct CameraController {
     amount_left: f32,
@@ -332,10 +357,28 @@ impl CameraController {
     }
 }
 
+impl CameraControl for CameraController {
+    fn handle_window_events(&mut self, event: &WindowEvent) -> bool {
+        CameraController::handle_window_events(self, event)
+    }
+
+    fn handle_mouse_motion(&mut self, dx: f64, dy: f64, pressed: &MouseButtonState) {
+        // TODO: make the drag button and factor configurable
+        const SPEED_FACTOR: f64 = 5.0;
+        if let MouseButtonState::Right = pressed {
+            self.handle_mouse(dx * SPEED_FACTOR, dy * SPEED_FACTOR);
+        }
+    }
+
+    fn update(&mut self, camera: &mut Camera, dt: Duration) {
+        CameraController::update(self, camera, dt)
+    }
+}
+
 #[derive(Debug)]
 pub struct CameraResources {
     pub camera: Camera,
-    pub controller: CameraController,
+    pub controller: Box<dyn CameraControl>,
     pub uniform: CameraUniform,
     pub buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
@@ -587,5 +630,37 @@ mod tests {
         let m_square = proj_square.calc_matrix();
         // m[0][0] scales x by 1/aspect; wider viewport → smaller value
         assert!(m_wide[0][0] < m_square[0][0]);
+    }
+}
+
+#[cfg(test)]
+mod control_tests {
+    use super::*;
+
+    fn camera() -> Camera {
+        Camera::new((0.0, 5.0, 10.0), Deg(-90.0), Deg(-20.0))
+    }
+
+    #[test]
+    fn default_controller_turns_only_on_right_drag() {
+        let dt = Duration::from_millis(16);
+        let mut control: Box<dyn CameraControl> = Box::new(CameraController::new(10.0, 0.4));
+        let mut cam = camera();
+        control.handle_mouse_motion(30.0, 0.0, &MouseButtonState::Left);
+        control.update(&mut cam, dt);
+        assert_eq!(cam.yaw, camera().yaw);
+        control.handle_mouse_motion(30.0, 0.0, &MouseButtonState::Right);
+        control.update(&mut cam, dt);
+        assert!(cam.yaw > camera().yaw);
+    }
+
+    #[test]
+    fn no_camera_control_never_moves_the_camera() {
+        let mut control: Box<dyn CameraControl> = Box::new(NoCameraControl);
+        let mut cam = camera();
+        control.handle_mouse_motion(30.0, 30.0, &MouseButtonState::Right);
+        control.update(&mut cam, Duration::from_secs(1));
+        assert_eq!(cam.position, camera().position);
+        assert_eq!((cam.yaw, cam.pitch), (camera().yaw, camera().pitch));
     }
 }

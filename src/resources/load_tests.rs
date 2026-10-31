@@ -222,3 +222,35 @@ async fn loads_owned_assets_and_preserves_errors() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn untrusted_images_fail_instead_of_panicking() {
+    use crate::data_structures::texture::Texture;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        flags: wgpu::InstanceFlags::default(),
+        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+        backend_options: wgpu::BackendOptions::default(),
+        display: None,
+    });
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions::default())
+        .await
+        .expect("GPU adapter required");
+    let (device, queue) = adapter
+        .request_device(&wgpu::DeviceDescriptor::default())
+        .await
+        .unwrap();
+    let png = |width: u32| {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::new(width, 1)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        bytes.into_inner()
+    };
+    assert!(Texture::from_bytes(&device, &queue, &png(4), "ok", None, false).is_ok());
+    let too_wide = device.limits().max_texture_dimension_2d + 1;
+    let err = Texture::from_bytes(&device, &queue, &png(too_wide), "wide", None, false);
+    assert!(err.is_err_and(|e| e.to_string().contains("at most")));
+    assert!(Texture::from_bytes(&device, &queue, &png(4), "odd", Some("ktx9"), false).is_err());
+}

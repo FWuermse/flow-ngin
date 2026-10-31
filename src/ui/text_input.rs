@@ -8,11 +8,7 @@ use crate::{
     flow::{GraphicsFlow, Out},
     render::Render,
     ui::{
-        HAlign, Placement, VAlign,
-        image::Icon,
-        layout::Layout,
-        text_label::TextLabel,
-        value::Value,
+        HAlign, Placement, VAlign, image::Icon, layout::Layout, text_label::TextLabel, value::Value,
     },
 };
 
@@ -61,6 +57,46 @@ pub struct TextInput<S, E: Send> {
 }
 
 impl<S: 'static, E: Send + 'static> TextInput<S, E> {
+    /// Initialize GPU resources without changing the application context.
+    pub fn init(&mut self, ctx: &Context) {
+        let (x, y, w, h) = self
+            .placement
+            .resolve(0, 0, ctx.config.width, ctx.config.height);
+        self.x = x;
+        self.y = y;
+        self.width = w;
+        self.height = h;
+
+        if self.label.get_line_height() > self.height as f32 {
+            self.label = std::mem::replace(&mut self.label, TextLabel::new(""))
+                .line_height(self.height as f32);
+        }
+        self.label.init(ctx);
+        self.layout_label(&ctx.queue);
+
+        self.layout_background(&ctx.queue);
+
+        if self.cursor.is_none() {
+            self.cursor = Some(Icon::from_color(ctx, [255, 255, 255, 255]));
+        }
+        self.layout_cursor(&ctx.queue);
+
+        if let Some(value) = &self.value {
+            let initial = value.get();
+            if !initial.is_empty() {
+                self.text = initial;
+                self.cursor_pos = self.text.len();
+                self.label.set_text(&self.text);
+                self.layout_cursor(&ctx.queue);
+            }
+        }
+    }
+
+    /// Whether this input currently owns keyboard focus.
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
+
     pub fn new() -> Self {
         Self {
             placement: Placement::default(),
@@ -172,8 +208,7 @@ impl<S: 'static, E: Send + 'static> TextInput<S, E> {
 
     fn layout_cursor(&mut self, queue: &wgpu::Queue) {
         if let Some(cursor) = &mut self.cursor {
-            let cursor_x =
-                self.x + self.label.cursor_x_for_byte_pos(self.cursor_pos) as u32;
+            let cursor_x = self.x + self.label.cursor_x_for_byte_pos(self.cursor_pos) as u32;
             let cursor_h = (self.label.get_line_height() as u32).min(self.height);
 
             cursor.width_px = CURSOR_WIDTH_PX;
@@ -224,7 +259,9 @@ impl<S: 'static, E: Send + 'static> Layout for TextInput<S, E> {
         parent_h: u32,
         queue: &wgpu::Queue,
     ) {
-        let (x, y, w, h) = self.placement.resolve(parent_x, parent_y, parent_w, parent_h);
+        let (x, y, w, h) = self
+            .placement
+            .resolve(parent_x, parent_y, parent_w, parent_h);
         self.x = x;
         self.y = y;
         self.width = w;
@@ -238,36 +275,7 @@ impl<S: 'static, E: Send + 'static> Layout for TextInput<S, E> {
 
 impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for TextInput<S, E> {
     fn on_init(&mut self, ctx: &mut Context, _: &mut S) -> Out<S, E> {
-        let (x, y, w, h) = self.placement.resolve(0, 0, ctx.config.width, ctx.config.height);
-        self.x = x;
-        self.y = y;
-        self.width = w;
-        self.height = h;
-
-        if self.label.get_line_height() > self.height as f32 {
-            self.label = std::mem::replace(&mut self.label, TextLabel::new(""))
-                .line_height(self.height as f32);
-        }
-        self.label.init(ctx);
-        self.layout_label(&ctx.queue);
-
-        self.layout_background(&ctx.queue);
-
-        if self.cursor.is_none() {
-            self.cursor = Some(Icon::from_color(ctx, [255, 255, 255, 255]));
-        }
-        self.layout_cursor(&ctx.queue);
-
-        if let Some(value) = &self.value {
-            let initial = value.get();
-            if !initial.is_empty() {
-                self.text = initial;
-                self.cursor_pos = self.text.len();
-                self.label.set_text(&self.text);
-                self.layout_cursor(&ctx.queue);
-            }
-        }
-
+        self.init(ctx);
         Out::Empty
     }
 
@@ -294,7 +302,25 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for TextInput<S, E> {
         Out::Empty
     }
 
-    fn on_window_events(&mut self, ctx: &Context, _state: &mut S, event: &WindowEvent) -> Out<S, E> {
+    fn on_window_events(
+        &mut self,
+        ctx: &Context,
+        _state: &mut S,
+        event: &WindowEvent,
+    ) -> Out<S, E> {
+        if let WindowEvent::MouseInput {
+            button: winit::event::MouseButton::Left,
+            state: ElementState::Released,
+            ..
+        } = event
+        {
+            self.focused = self.contains(ctx.mouse.coords.x, ctx.mouse.coords.y);
+            self.cursor_visible = true;
+            self.cursor_timer = Duration::ZERO;
+        }
+        if matches!(event, WindowEvent::Focused(false)) {
+            self.focused = false;
+        }
         if !self.focused {
             return Out::Empty;
         }

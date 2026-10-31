@@ -10,6 +10,7 @@ mod common;
 fn should_render_clear_colour() {
     use flow_ngin::{
         context::{Context, GPUResource, InitContext},
+        data_structures::instance::Instance,
         flow::GraphicsFlow,
         render::Render,
     };

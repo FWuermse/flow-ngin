@@ -173,11 +173,29 @@ impl Texture {
         format: Option<&str>,
         is_normal_map: bool,
     ) -> Result<Self> {
+        let format = match format {
+            Some(fmt) => Some(
+                ImageFormat::from_extension(fmt)
+                    .with_context(|| format!("Unsupported image format {fmt} in {label}"))?,
+            ),
+            None => None,
+        };
+        // Check the size from the header first: a texture beyond the device limit would make
+        // wgpu fail with a validation error instead of a recoverable one.
+        let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes));
+        match format {
+            Some(format) => reader.set_format(format),
+            None => reader = reader.with_guessed_format()?,
+        }
+        let (width, height) = reader.into_dimensions()?;
+        let max = device.limits().max_texture_dimension_2d;
+        ensure!(
+            width <= max && height <= max,
+            "Image {label} is {width}×{height}; this device supports at most {max}×{max}"
+        );
         let img = match format {
             None => image::load_from_memory(bytes)?,
-            Some(fmt) => {
-                load_from_memory_with_format(bytes, ImageFormat::from_extension(fmt).unwrap())?
-            }
+            Some(format) => load_from_memory_with_format(bytes, format)?,
         };
         Self::from_image(device, queue, &img, Some(label), is_normal_map)
     }

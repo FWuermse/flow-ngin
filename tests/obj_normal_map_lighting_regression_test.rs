@@ -5,6 +5,9 @@ use crate::common::test_utils::TestRender;
 mod common;
 
 #[cfg(feature = "integration-tests")]
+use flow_ngin::data_structures::instance::Instance;
+
+#[cfg(feature = "integration-tests")]
 struct TwoModels(
     flow_ngin::data_structures::block::BuildingBlocks,
     flow_ngin::data_structures::block::BuildingBlocks,
