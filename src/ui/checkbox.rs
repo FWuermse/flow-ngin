@@ -35,7 +35,6 @@ pub struct Checkbox<S, E: Send> {
     value: Option<Value<bool>>,
     on_change: Option<Box<dyn Fn(bool) -> Out<S, E>>>,
     was_pressed: bool,
-    event_driven: bool,
 }
 
 impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
@@ -65,7 +64,6 @@ impl<S: 'static, E: Send + 'static> Checkbox<S, E> {
             value: None,
             on_change: None,
             was_pressed: false,
-            event_driven: false,
         }
     }
 
@@ -186,41 +184,10 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Checkbox<S, E> {
         let hovered = self.contains(pos.x, pos.y);
         let is_pressed = matches!(ctx.mouse.pressed, MouseButtonState::Left);
 
-        if !self.event_driven {
-            let clicked = self.was_pressed && !is_pressed && hovered;
-            self.was_pressed = is_pressed && hovered;
-            if clicked {
-                return self.toggle();
-            }
-        }
-        Out::Empty
-    }
-
-    fn on_window_events(
-        &mut self,
-        ctx: &Context,
-        _: &mut S,
-        event: &winit::event::WindowEvent,
-    ) -> Out<S, E> {
-        use winit::event::{MouseButton, WindowEvent};
-        if let WindowEvent::MouseInput {
-            button: MouseButton::Left,
-            state: button,
-            ..
-        } = event
-        {
-            self.event_driven = true;
-            let hovered = self.contains(ctx.mouse.coords.x, ctx.mouse.coords.y);
-            if button.is_pressed() {
-                self.was_pressed = hovered;
-            } else {
-                let clicked = std::mem::take(&mut self.was_pressed) && hovered;
-                if clicked {
-                    return self.toggle();
-                }
-            }
-        } else if matches!(event, WindowEvent::Focused(false)) {
-            self.was_pressed = false;
+        let clicked = self.was_pressed && !is_pressed && hovered;
+        self.was_pressed = is_pressed && hovered;
+        if clicked {
+            return self.toggle();
         }
         Out::Empty
     }

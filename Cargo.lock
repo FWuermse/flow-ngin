@@ -798,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "flow-ngin"
-version = "0.1.38"
+version = "0.1.39"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

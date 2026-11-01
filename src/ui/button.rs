@@ -28,8 +28,8 @@ pub enum ButtonContent {
 
 /// A clickable button with text or icon content.
 ///
-/// Click detection is coordinate-based and fires on mouse release. Forward window
-/// events to capture clicks between frames.
+/// Click detection is coordinate-based: the button tracks mouse state transitions
+/// in `on_update` and fires when the mouse is released while hovering over the button.
 ///
 /// # Example
 ///
@@ -60,7 +60,6 @@ pub struct Button<S, E: Send> {
     content_scale: f32,
     visual_state: VisualState,
     was_pressed: bool,
-    event_driven: bool,
     _marker: PhantomData<S>,
 }
 
@@ -102,7 +101,6 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
             content_scale: 0.8,
             visual_state: VisualState::Normal,
             was_pressed: false,
-            event_driven: false,
             _marker: PhantomData,
         }
     }
@@ -281,42 +279,10 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Button<S, E> {
             (false, _) => VisualState::Normal,
         };
 
-        // Keep polling as a fallback for callers that only forward updates.
-        if !self.event_driven {
-            let clicked = self.was_pressed && !is_pressed && hovered;
-            self.was_pressed = is_pressed && hovered;
-            if clicked {
-                return self.fire(ctx, state);
-            }
-        }
-        Out::Empty
-    }
-
-    fn on_window_events(
-        &mut self,
-        ctx: &Context,
-        state: &mut S,
-        event: &winit::event::WindowEvent,
-    ) -> Out<S, E> {
-        use winit::event::{MouseButton, WindowEvent};
-        if let WindowEvent::MouseInput {
-            button: MouseButton::Left,
-            state: button,
-            ..
-        } = event
-        {
-            self.event_driven = true;
-            let hovered = self.contains(ctx.mouse.coords.x, ctx.mouse.coords.y);
-            if button.is_pressed() {
-                self.was_pressed = hovered;
-            } else {
-                let clicked = std::mem::take(&mut self.was_pressed) && hovered;
-                if clicked {
-                    return self.fire(ctx, state);
-                }
-            }
-        } else if matches!(event, WindowEvent::Focused(false)) {
-            self.was_pressed = false;
+        let clicked = self.was_pressed && !is_pressed && hovered;
+        self.was_pressed = is_pressed && hovered;
+        if clicked {
+            return self.fire(ctx, state);
         }
         Out::Empty
     }

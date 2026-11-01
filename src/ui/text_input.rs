@@ -308,16 +308,6 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for TextInput<S, E> {
         _state: &mut S,
         event: &WindowEvent,
     ) -> Out<S, E> {
-        if let WindowEvent::MouseInput {
-            button: winit::event::MouseButton::Left,
-            state: ElementState::Released,
-            ..
-        } = event
-        {
-            self.focused = self.contains(ctx.mouse.coords.x, ctx.mouse.coords.y);
-            self.cursor_visible = true;
-            self.cursor_timer = Duration::ZERO;
-        }
         if matches!(event, WindowEvent::Focused(false)) {
             self.focused = false;
         }
