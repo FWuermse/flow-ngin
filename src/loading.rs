@@ -25,7 +25,7 @@ impl LoadingScreen {
         Self::create(
             &ctx.device,
             &ctx.queue,
-            ctx.config.format,
+            ctx.config.format.add_srgb_suffix(),
             ctx.anti_aliasing.sample_count(),
             ctx.config.width,
             ctx.config.height,
@@ -121,7 +121,7 @@ impl LoadingScreen {
 
 impl<S, E: Send> GraphicsFlow<S, E> for LoadingScreen {
     fn on_update(&mut self, ctx: &Context, _: &mut S, dt: Duration) -> Out<S, E> {
-        if self.target != (ctx.config.format, ctx.anti_aliasing.sample_count()) {
+        if self.target != (ctx.config.format.add_srgb_suffix(), ctx.anti_aliasing.sample_count()) {
             let elapsed = self.elapsed;
             *self = Self::new(ctx);
             self.elapsed = elapsed;

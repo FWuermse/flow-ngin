@@ -336,7 +336,7 @@ impl<'a, State: Default> AppState<State> {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: self.ctx.config.format,
+            format: self.ctx.config.format.add_srgb_suffix(),
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         })
@@ -408,7 +408,10 @@ impl<'a, State: Default> AppState<State> {
         #[cfg(not(feature = "integration-tests"))]
         let view = output
             .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+            .create_view(&wgpu::TextureViewDescriptor {
+                format: Some(self.ctx.config.format.add_srgb_suffix()),
+                ..Default::default()
+            });
 
         #[cfg(feature = "integration-tests")]
         let (tex, msaa_tex, depth) = {
@@ -422,7 +425,7 @@ impl<'a, State: Default> AppState<State> {
                     mip_level_count: 1,
                     sample_count,
                     dimension: wgpu::TextureDimension::D2,
-                    format: self.ctx.config.format,
+                    format: self.ctx.config.format.add_srgb_suffix(),
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 }))

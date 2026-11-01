@@ -173,7 +173,7 @@ fn mk_render_pipeline(
             module: shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
-                format: config.format,
+                format: config.format.add_srgb_suffix(),
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent::OVER,
                     alpha: wgpu::BlendComponent::OVER,

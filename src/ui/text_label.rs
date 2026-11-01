@@ -179,7 +179,7 @@ impl TextLabel {
         let swash_cache = SwashCache::new();
         let cache = Cache::new(&ctx.device);
         let viewport = Viewport::new(&ctx.device, &cache);
-        let mut atlas = TextAtlas::new(&ctx.device, &ctx.queue, &cache, ctx.config.format);
+        let mut atlas = TextAtlas::new(&ctx.device, &ctx.queue, &cache, ctx.config.format.add_srgb_suffix());
         let text_renderer = TextRenderer::new(
             &mut atlas,
             &ctx.device,

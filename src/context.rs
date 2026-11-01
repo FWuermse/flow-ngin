@@ -210,9 +210,10 @@ impl Context {
             .await?;
 
         let surface_caps = surface.get_capabilities(&adapter);
-        // Shader code in this tutorial assumes an Srgb surface texture. Using a different
-        // one will result all the colors comming out darker. If you want to support non
-        // Srgb surfaces, you'll need to account for that when drawing to the frame.
+        // Shaders output linear colors and rely on an sRGB render target for gamma encoding.
+        // Browser WebGPU only offers non-sRGB canvas formats (e.g. Bgra8Unorm on Windows), so
+        // we keep the surface format as is and render through an sRGB view of it instead.
+        // Pipelines and render targets must use `config.format.add_srgb_suffix()`.
         let surface_format = surface_caps
             .formats
             .iter()
@@ -229,7 +230,11 @@ impl Context {
             height: size.height,
             present_mode: surface_caps.present_modes[0],
             alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
+            view_formats: if surface_format.is_srgb() {
+                vec![]
+            } else {
+                vec![surface_format.add_srgb_suffix()]
+            },
             desired_maximum_frame_latency: 2,
         };
 

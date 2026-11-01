@@ -39,7 +39,7 @@ pub fn mk_basic_pipeline(
         &device,
         direction,
         &render_pipeline_layout,
-        config.format,
+        config.format.add_srgb_suffix(),
         Some(wgpu::BlendState {
             alpha: wgpu::BlendComponent::REPLACE,
             color: wgpu::BlendComponent::REPLACE,

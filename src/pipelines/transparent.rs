@@ -89,7 +89,7 @@ pub fn mk_transparent_pipeline(
         &device,
         wgpu::FrontFace::Ccw,
         &render_pipeline_layout,
-        config.format,
+        config.format.add_srgb_suffix(),
         Some(wgpu::BlendState::ALPHA_BLENDING),
         Some(Texture::DEPTH_FORMAT),
         &[ModelVertex::desc(), InstanceRaw::desc()],

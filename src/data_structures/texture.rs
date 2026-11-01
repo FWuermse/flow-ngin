@@ -52,7 +52,7 @@ impl Texture {
             mip_level_count: 1,
             sample_count,
             dimension: wgpu::TextureDimension::D2,
-            format: config.format,
+            format: config.format.add_srgb_suffix(),
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });

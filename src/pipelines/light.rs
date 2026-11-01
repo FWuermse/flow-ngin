@@ -143,7 +143,7 @@ pub fn mk_light_pipeline(
         &device,
         wgpu::FrontFace::Ccw,
         &layout,
-        config.format,
+        config.format.add_srgb_suffix(),
         Some(wgpu::BlendState {
             alpha: wgpu::BlendComponent::REPLACE,
             color: wgpu::BlendComponent::REPLACE,
