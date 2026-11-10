@@ -66,6 +66,21 @@ pub(crate) fn is_far(
     (camera_pos.to_vec() - position).magnitude2() > distance * distance
 }
 
+/// Sorts `indices` and groups them into contiguous ranges, skipping duplicates.
+fn index_runs(indices: &[usize]) -> Vec<std::ops::Range<usize>> {
+    let mut sorted = indices.to_vec();
+    sorted.sort_unstable();
+    let mut runs: Vec<std::ops::Range<usize>> = Vec::new();
+    for i in sorted {
+        match runs.last_mut() {
+            Some(r) if i < r.end => {} // duplicate
+            Some(r) if r.end == i => r.end += 1,
+            _ => runs.push(i..i + 1),
+        }
+    }
+    runs
+}
+
 fn mk_instance_buffer(device: &wgpu::Device, label: &str, amount: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
@@ -277,6 +292,51 @@ impl BuildingBlocks {
         lod.amount = far.len();
     }
 
+    /// Uploads only the instances at `indices`, e.g. after [`set_instance`](WorldCoordMesh::set_instance)
+    /// or [`instances_mut_size_unchanged`](WorldCoordMesh::instances_mut_size_unchanged).
+    /// Order and duplicates don't matter; consecutive indices are merged into one upload.
+    ///
+    /// Falls back to a full [`write_to_buffer`](GPUResource::write_to_buffer) when the buffer must be
+    /// resized (instances added/removed) or the previous write was a LOD write, which reorders the buffer.
+    pub fn write_to_buffer_indices(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+    ) {
+        if self.needs_full_write() {
+            return self.write_to_buffer(queue, device);
+        }
+        self.write_runs(queue, indices, |i| i.to_raw());
+    }
+
+    /// Like [`write_to_buffer_indices`](Self::write_to_buffer_indices) but applies `offset`, see
+    /// `write_to_buffer_offset`. `offset` must match the one used for the rest of the buffer.
+    pub fn write_to_buffer_indices_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+        offset: &Instance,
+    ) {
+        if self.needs_full_write() {
+            return self.write_to_buffer_offset(queue, device, offset);
+        }
+        self.write_runs(queue, indices, |i| (offset * i).to_raw());
+    }
+
+    fn needs_full_write(&self) -> bool {
+        self.buffer_size_needs_change || self.near_amount != self.instances.len()
+    }
+
+    fn write_runs(&self, queue: &wgpu::Queue, indices: &[usize], to_raw: impl Fn(&Instance) -> InstanceRaw) {
+        let stride = std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress;
+        for run in index_runs(indices) {
+            let raws = self.instances[run.clone()].iter().map(&to_raw).collect::<Vec<_>>();
+            queue.write_buffer(&self.instance_buffer, run.start as u64 * stride, bytemuck::cast_slice(&raws));
+        }
+    }
+
     /// All instances are drawn with the full model (used by the non-LOD write paths).
     fn reset_lod_split(&mut self) {
         self.near_amount = self.instances.len();
@@ -464,6 +524,12 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
 mod tests {
     use super::*;
     use cgmath::{Deg, Quaternion, Rotation3, Vector3, assert_relative_eq};
+
+    #[test]
+    fn index_runs_merges_sorts_and_dedups() {
+        assert!(index_runs(&[]).is_empty());
+        assert_eq!(index_runs(&[7, 3, 4, 4, 5, 9, 10, 0]), vec![0..1, 3..6, 7..8, 9..11]);
+    }
 
     #[test]
     fn uniform_instances_correct_count() {
