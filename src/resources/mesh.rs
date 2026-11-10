@@ -1,4 +1,4 @@
-use std::num::TryFromIntError;
+use std::{collections::HashMap, num::TryFromIntError};
 
 use cgmath::{InnerSpace, Zero};
 use wgpu::util::DeviceExt;
@@ -66,88 +66,92 @@ pub fn compute_tangents(vertices: &mut Vec<model::ModelVertex>, indices: &[u32])
     let mut tan1 = vec![cgmath::Vector3::zero(); vertices.len()];
     let mut tan2 = vec![cgmath::Vector3::zero(); vertices.len()];
 
-    for c in indices.chunks(3) {
-        if c.len() < 3 {
-            break;
+    for c in indices.chunks_exact(3) {
+        let (sdir, tdir) = triangle_dirs(vertices, c);
+        for &i in c {
+            tan1[i as usize] += sdir;
+            tan2[i as usize] += tdir;
         }
-
-        let i1 = c[0] as usize;
-        let i2 = c[1] as usize;
-        let i3 = c[2] as usize;
-
-        let v1 = &vertices[i1];
-        let v2 = &vertices[i2];
-        let v3 = &vertices[i3];
-
-        let p1: cgmath::Vector3<f32> = v1.position.into();
-        let p2: cgmath::Vector3<f32> = v2.position.into();
-        let p3: cgmath::Vector3<f32> = v3.position.into();
-
-        let w1: cgmath::Vector2<f32> = v1.tex_coords.into();
-        let w2: cgmath::Vector2<f32> = v2.tex_coords.into();
-        let w3: cgmath::Vector2<f32> = v3.tex_coords.into();
-
-        let x1 = p2.x - p1.x;
-        let x2 = p3.x - p1.x;
-        let y1 = p2.y - p1.y;
-        let y2 = p3.y - p1.y;
-        let z1 = p2.z - p1.z;
-        let z2 = p3.z - p1.z;
-
-        let s1 = w2.x - w1.x;
-        let s2 = w3.x - w1.x;
-        let t1 = w2.y - w1.y;
-        let t2 = w3.y - w1.y;
-
-        let r_denom = s1 * t2 - s2 * t1;
-        let r = if r_denom.abs() < 1e-6 {
-            0.0
-        } else {
-            1.0 / r_denom
-        };
-
-        let sdir = cgmath::Vector3::new(
-            (t2 * x1 - t1 * x2) * r,
-            (t2 * y1 - t1 * y2) * r,
-            (t2 * z1 - t1 * z2) * r,
-        );
-
-        let tdir = cgmath::Vector3::new(
-            (s1 * x2 - s2 * x1) * r,
-            (s1 * y2 - s2 * y1) * r,
-            (s1 * z2 - s2 * z1) * r,
-        );
-
-        tan1[i1] += sdir;
-        tan1[i2] += sdir;
-        tan1[i3] += sdir;
-
-        tan2[i1] += tdir;
-        tan2[i2] += tdir;
-        tan2[i3] += tdir;
     }
 
     for (i, vert) in vertices.iter_mut().enumerate() {
-        let n: cgmath::Vector3<f32> = vert.normal.into();
-        let t = tan1[i];
+        finish_tangent(vert, tan1[i], tan2[i]);
+    }
+}
 
-        // Gram-Schmidt orthogonalize
-        let tangent_xyz = (t - n * n.dot(t)).normalize();
+/// Recomputes tangents/bitangents only for the vertices in `targets`.
+///
+/// `indices` must contain **every** triangle that touches a target vertex (extra triangles are fine,
+/// they're ignored for non-targets). Cost is O(`indices.len()` + `targets.len()`), independent of the
+/// total mesh size, which makes it suitable for local edits on large meshes such as terrain grids.
+///
+/// Gives the same result for the targets as [`compute_tangents`] on the full mesh.
+pub fn compute_tangents_partial(
+    vertices: &mut [model::ModelVertex],
+    indices: &[u32],
+    targets: &[u32],
+) {
+    let zero = cgmath::Vector3::zero();
+    let mut acc: HashMap<u32, (cgmath::Vector3<f32>, cgmath::Vector3<f32>)> =
+        targets.iter().map(|&i| (i, (zero, zero))).collect();
 
-        let w = if n.cross(t).dot(tan2[i]) < 0.0 {
-            -1.0
-        } else {
-            1.0
-        };
-
-        if tangent_xyz.x.is_nan() {
-            vert.tangent = [1.0, 0.0, 0.0];
-            vert.bitangent = [0.0, 1.0, 0.0];
-        } else {
-            vert.tangent = tangent_xyz.into();
-            let bitangent = n.cross(tangent_xyz) * w;
-            vert.bitangent = bitangent.into();
+    for c in indices.chunks_exact(3) {
+        if !c.iter().any(|i| acc.contains_key(i)) {
+            continue;
         }
+        let (sdir, tdir) = triangle_dirs(vertices, c);
+        for i in c {
+            if let Some((t1, t2)) = acc.get_mut(i) {
+                *t1 += sdir;
+                *t2 += tdir;
+            }
+        }
+    }
+
+    for (i, (t1, t2)) in acc {
+        finish_tangent(&mut vertices[i as usize], t1, t2);
+    }
+}
+
+/// Per-triangle tangent (sdir) and bitangent (tdir) directions, unnormalized.
+fn triangle_dirs(
+    vertices: &[model::ModelVertex],
+    tri: &[u32],
+) -> (cgmath::Vector3<f32>, cgmath::Vector3<f32>) {
+    let v1 = &vertices[tri[0] as usize];
+    let v2 = &vertices[tri[1] as usize];
+    let v3 = &vertices[tri[2] as usize];
+
+    let p1: cgmath::Vector3<f32> = v1.position.into();
+    let e1 = cgmath::Vector3::from(v2.position) - p1;
+    let e2 = cgmath::Vector3::from(v3.position) - p1;
+
+    let w1: cgmath::Vector2<f32> = v1.tex_coords.into();
+    let (s1, t1) = (v2.tex_coords[0] - w1.x, v2.tex_coords[1] - w1.y);
+    let (s2, t2) = (v3.tex_coords[0] - w1.x, v3.tex_coords[1] - w1.y);
+
+    let r_denom = s1 * t2 - s2 * t1;
+    let r = if r_denom.abs() < 1e-6 {
+        0.0
+    } else {
+        1.0 / r_denom
+    };
+
+    ((e1 * t2 - e2 * t1) * r, (e2 * s1 - e1 * s2) * r)
+}
+
+/// Gram-Schmidt orthogonalizes the accumulated tangent against the normal and writes the result.
+fn finish_tangent(vert: &mut model::ModelVertex, t: cgmath::Vector3<f32>, t2: cgmath::Vector3<f32>) {
+    let n: cgmath::Vector3<f32> = vert.normal.into();
+    let tangent_xyz = (t - n * n.dot(t)).normalize();
+
+    if tangent_xyz.x.is_nan() {
+        vert.tangent = [1.0, 0.0, 0.0];
+        vert.bitangent = [0.0, 1.0, 0.0];
+    } else {
+        let w = if n.cross(t).dot(t2) < 0.0 { -1.0 } else { 1.0 };
+        vert.tangent = tangent_xyz.into();
+        vert.bitangent = (n.cross(tangent_xyz) * w).into();
     }
 }
 
@@ -270,5 +274,64 @@ mod tests {
         compute_tangents(&mut verts, &[0, 1]);
         // Should not panic, should produce fallback tangents
         assert_eq!(verts[0].tangent, [1.0, 0.0, 0.0]);
+    }
+
+    /// n×n vertex grid with wavy heights, UVs along x/z, and row-major indices.
+    fn bumpy_grid(n: u32) -> (Vec<model::ModelVertex>, Vec<u32>) {
+        let mut verts = Vec::new();
+        for z in 0..n {
+            for x in 0..n {
+                let (fx, fz) = (x as f32, z as f32);
+                let h = (fx * 0.7).sin() + (fz * 0.4).cos();
+                let normal = cgmath::Vector3::new(-0.7 * (fx * 0.7).cos(), 1.0, 0.4 * (fz * 0.4).sin())
+                    .normalize();
+                verts.push(make_vertex([fx, h, fz], [fx / n as f32, fz / n as f32], normal.into()));
+            }
+        }
+        let mut indices = Vec::new();
+        for z in 0..n - 1 {
+            for x in 0..n - 1 {
+                let i = z * n + x;
+                indices.extend_from_slice(&[i, i + n, i + 1, i + 1, i + n, i + n + 1]);
+            }
+        }
+        (verts, indices)
+    }
+
+    #[test]
+    fn partial_matches_full_and_leaves_others_untouched() {
+        let n = 8;
+        let (mut full, indices) = bumpy_grid(n);
+        compute_tangents(&mut full, &indices);
+
+        let (mut partial, _) = bumpy_grid(n);
+        let sentinel = [9.0, 9.0, 9.0];
+        for v in partial.iter_mut() {
+            v.tangent = sentinel;
+            v.bitangent = sentinel;
+        }
+        // Targets: vertices in the 3x3 block at (2..5, 2..5).
+        let targets: Vec<u32> = (2..5).flat_map(|z| (2..5).map(move |x| z * n + x)).collect();
+        // Triangles of the quads around that block (a superset is fine).
+        let mut tris = Vec::new();
+        for z in 1..5 {
+            for x in 1..5 {
+                let q = ((z * (n - 1) + x) * 6) as usize;
+                tris.extend_from_slice(&indices[q..q + 6]);
+            }
+        }
+        compute_tangents_partial(&mut partial, &tris, &targets);
+
+        for (i, (p, f)) in partial.iter().zip(&full).enumerate() {
+            if targets.contains(&(i as u32)) {
+                for k in 0..3 {
+                    assert!((p.tangent[k] - f.tangent[k]).abs() < 1e-5, "tangent mismatch at {i}");
+                    assert!((p.bitangent[k] - f.bitangent[k]).abs() < 1e-5, "bitangent mismatch at {i}");
+                }
+            } else {
+                assert_eq!(p.tangent, sentinel, "vertex {i} should be untouched");
+                assert_eq!(p.bitangent, sentinel, "vertex {i} should be untouched");
+            }
+        }
     }
 }
