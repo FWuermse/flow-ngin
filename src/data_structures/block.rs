@@ -479,19 +479,20 @@ impl<'a, 'pass> GPUResource<'a, 'pass> for BuildingBlocks {
     }
 
     fn get_render(&'a self) -> Render<'a, 'pass> {
-        match &self.lod {
-            Some(lod) if lod.amount > 0 => Render::Defaults(vec![
-                self.to_instanced(),
-                Instanced {
-                    instance: &lod.instance_buffer,
-                    model: &lod.model,
-                    amount: lod.amount,
-                    front_face: wgpu::FrontFace::Ccw,
-                    tiled: false,
-                    id: self.id,
-                },
-            ]),
-            _ => Render::Default(self.to_instanced()),
+        // Only emit draws that have instances
+        let near = (self.near_amount > 0).then(|| self.to_instanced());
+        let far = self.lod.as_ref().filter(|lod| lod.amount > 0).map(|lod| Instanced {
+            instance: &lod.instance_buffer,
+            model: &lod.model,
+            amount: lod.amount,
+            front_face: wgpu::FrontFace::Ccw,
+            tiled: false,
+            id: self.id,
+        });
+        match (near, far) {
+            (Some(near), Some(far)) => Render::Defaults(vec![near, far]),
+            (Some(one), None) | (None, Some(one)) => Render::Default(one),
+            (None, None) => Render::None,
         }
     }
 
