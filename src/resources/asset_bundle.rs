@@ -168,7 +168,7 @@ fn load_obj_files(
         .into_iter()
         .collect::<std::result::Result<Vec<_>, _>>()?;
     for (mesh, source) in meshes.iter_mut().zip(&models) {
-        mesh.material = source.mesh.material_id.unwrap_or(fallback);
+        mesh.material = super::obj_material_index(source.mesh.material_id, fallback);
         ensure!(
             mesh.material < gpu_materials.len(),
             "Invalid OBJ material index"

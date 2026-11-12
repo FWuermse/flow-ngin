@@ -170,7 +170,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    let raw_normal = final_normal_map * 2.0 - 1.0
+    let raw_normal = final_normal_map * 2.0 - 1.0;
     let tangent_normal = select(vec3<f32>(0.0, 0.0, 1.0), normalize(raw_normal), dot(raw_normal, raw_normal) > 1e-4);
     let light_dir = normalize(in.tangent_light_position - in.world_pos);
     let view_dir = normalize(in.tangent_view_position - in.world_pos);

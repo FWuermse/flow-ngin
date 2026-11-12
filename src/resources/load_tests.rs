@@ -26,6 +26,15 @@ async fn asset_work_does_not_block_the_calling_thread() {
 }
 
 #[test]
+fn obj_meshes_without_usemtl_use_the_first_material() {
+    // Blender omits `usemtl` for single-material meshes (e.g. log.obj)
+    assert_eq!(obj_material_index(None, 1), 0);
+    assert_eq!(obj_material_index(None, 0), 0, "no MTL materials → default at index 0");
+    assert_eq!(obj_material_index(Some(1), 2), 1);
+    assert_eq!(obj_material_index(Some(5), 2), 2, "unknown index → default");
+}
+
+#[test]
 fn extensions_ignore_url_suffixes_and_case() {
     for (path, expected) in [
         ("ship.OBJ", "obj"),

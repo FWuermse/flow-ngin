@@ -158,7 +158,7 @@ async fn load_model_obj_inner(
     let meshes = meshes.into_iter().zip(&models).enumerate().filter_map(|(idx, (result, source))| {
         match result {
             Ok(mut mesh) => {
-                mesh.material = source.mesh.material_id.filter(|&id| id < fallback).unwrap_or(fallback);
+                mesh.material = obj_material_index(source.mesh.material_id, fallback);
                 Some(mesh)
             }
             Err(_) => {
@@ -381,6 +381,17 @@ async fn load_model_gltf_inner(
     root_node.update_world_transform_all();
 
     Ok(root_node)
+}
+
+/// Material index for an OBJ mesh given `material_count` MTL materials, followed by the default at
+/// index `material_count`. Blender omits `usemtl` for single-material meshes, so a mesh without one
+/// uses the first MTL material when there is one.
+pub(crate) fn obj_material_index(material_id: Option<usize>, material_count: usize) -> usize {
+    match material_id {
+        Some(id) if id < material_count => id,
+        None if material_count > 0 => 0,
+        _ => material_count,
+    }
 }
 
 fn default_material(device: &wgpu::Device, queue: &wgpu::Queue) -> anyhow::Result<model::Material> {
