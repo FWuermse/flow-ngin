@@ -142,29 +142,33 @@ pub async fn load_textures(
     // We rather use a default normal map when none is passed instead of changing the pipeline
     let mut materials = Vec::new();
     for m in obj_materials? {
-        if let Some(m_diffuse_texture) = &m.diffuse_texture {
-            let diffuse_texture =
-                load_texture(&m_diffuse_texture, false, device, queue, None).await?;
-            let normal_texture = match &m.normal_texture {
-                Some(m_normal_texture) => {
-                    load_texture(&m_normal_texture, true, device, queue, None).await?
-                },
-                None => texture::Texture::create_default_normal_map(1, 1, device, queue)
-            };
-            if let Ok(model) = model::Material::new(
-                device,
-                &m.name,
-                diffuse_texture,
-                normal_texture,
-                layout,
-            ) {
-                materials.push(model);
-            } else {
-                log::warn!("Failed to create material for mtl ({}) in obj ({})", m.name, file_name);
+        let diffuse_texture = match m.diffuse_texture.as_deref().filter(|s| !s.is_empty()) {
+            Some(m_diffuse_texture) => {
+                load_texture(m_diffuse_texture, false, device, queue, None).await?
             }
-        } else {
-            log::error!("This material's mtl ({file_name}) references no texture.");
-        }
+            None => {
+                let [r, g, b] = m.diffuse.unwrap_or([0.8; 3]);
+                texture::Texture::from_linear_color([r, g, b, 1.0], device, queue)
+            }
+        };
+        let normal_texture = match m.normal_texture.as_deref().filter(|s| !s.is_empty()) {
+            Some(m_normal_texture) => {
+                load_texture(m_normal_texture, true, device, queue, None).await?
+            }
+            None => texture::Texture::create_default_normal_map(1, 1, device, queue),
+        };
+        let material =
+            match model::Material::new(device, &m.name, diffuse_texture, normal_texture, layout) {
+                Ok(material) => material,
+                Err(error) => {
+                    log::warn!(
+                        "Failed to create material for mtl ({}) in obj ({file_name}), using default: {error:#}",
+                        m.name
+                    );
+                    super::default_material(device, queue)?
+                }
+            };
+        materials.push(material);
     }
     Ok((materials, models))
 }

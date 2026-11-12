@@ -150,12 +150,17 @@ async fn load_model_obj_inner(
 ) -> anyhow::Result<model::Model> {
     let bind_group_layout = diffuse_normal_layout(device);
 
-    let (materials, models) =
+    let (mut materials, models) =
         texture::load_textures(file_name, queue, device, &bind_group_layout).await?;
+    let fallback = materials.len();
+    materials.push(default_material(device, queue)?);
     let meshes = mesh::load_meshes(&models, file_name, device);
-    let meshes = meshes.into_iter().enumerate().filter_map(|(idx, result)| {
+    let meshes = meshes.into_iter().zip(&models).enumerate().filter_map(|(idx, (result, source))| {
         match result {
-            Ok(mesh) => Some(mesh),
+            Ok(mut mesh) => {
+                mesh.material = source.mesh.material_id.filter(|&id| id < fallback).unwrap_or(fallback);
+                Some(mesh)
+            }
             Err(_) => {
                 log::warn!("Mesh at index {} in file {} could not be loaded due to overflows. Make sure you use the right scale in your .obj export settings.", idx, file_name);
                 None
@@ -289,7 +294,7 @@ async fn load_model_gltf_inner(
                 let diffuse_texture = Texture::from_bytes(
                     device,
                     queue,
-                    &buffer_data[view.buffer().index()],
+                    &buffer_data[view.buffer().index()][view.offset()..view.offset() + view.length()],
                     file_name,
                     mime_type.split('/').last(),
                     false,
@@ -308,8 +313,7 @@ async fn load_model_gltf_inner(
                 diffuse_texture
             },
             None => {
-                let colour = &pbr.base_color_factor().map(|c| (c * 255.0).round() as u8);
-                Texture::from_color(*colour, device, queue)
+                Texture::from_linear_color(pbr.base_color_factor(), device, queue)
             }
         };
         let normal_texture = if let Some(texture) = material.normal_texture() {
@@ -329,7 +333,7 @@ async fn load_model_gltf_inner(
                     let texture = Texture::from_bytes(
                         device,
                         queue,
-                        &buffer_data[view.buffer().index()],
+                        &buffer_data[view.buffer().index()][view.offset()..view.offset() + view.length()],
                         file_name,
                         None,
                         true,

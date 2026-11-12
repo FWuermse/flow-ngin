@@ -150,17 +150,8 @@ fn load_obj_files(
                 Texture::from_bytes(device, queue, &bytes(files, base, uri)?, uri, None, false)?
             }
             None => {
-                let c = mat.diffuse.unwrap_or([0.8; 3]);
-                Texture::from_color(
-                    [
-                        (c[0] * 255.) as u8,
-                        (c[1] * 255.) as u8,
-                        (c[2] * 255.) as u8,
-                        255,
-                    ],
-                    device,
-                    queue,
-                )
+                let [r, g, b] = mat.diffuse.unwrap_or([0.8; 3]);
+                Texture::from_linear_color([r, g, b, 1.0], device, queue)
             }
         };
         let normal = match mat.normal_texture.as_deref().filter(|s| !s.is_empty()) {
@@ -317,11 +308,7 @@ fn load_gltf_files(
         let pbr = mat.pbr_metallic_roughness();
         let diffuse = match pbr.base_color_texture() {
             Some(t) => image(t.texture().source(), false)?,
-            None => Texture::from_color(
-                pbr.base_color_factor().map(|c| (c * 255.).round() as u8),
-                device,
-                queue,
-            ),
+            None => Texture::from_linear_color(pbr.base_color_factor(), device, queue),
         };
         let normal = match mat.normal_texture() {
             Some(t) => image(t.texture().source(), true)?,

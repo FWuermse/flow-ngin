@@ -228,6 +228,15 @@ impl Texture {
         tex
     }
 
+    pub fn from_linear_color(rgba: [f32; 4], device: &wgpu::Device, queue: &wgpu::Queue) -> Texture {
+        let unorm = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let srgb = |c: f32| {
+            let c = c.clamp(0.0, 1.0);
+            unorm(if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 })
+        };
+        Self::from_color([srgb(rgba[0]), srgb(rgba[1]), srgb(rgba[2]), unorm(rgba[3])], device, queue)
+    }
+
     /// Overwrite a 1×1 solid-colour texture with a new RGBA value.
     ///
     /// Only valid for textures created via [`Texture::from_color`] (1×1, `COPY_DST`).

@@ -151,7 +151,7 @@ fn finish_tangent(vert: &mut model::ModelVertex, t: cgmath::Vector3<f32>, t2: cg
     } else {
         let w = if n.cross(t).dot(t2) < 0.0 { -1.0 } else { 1.0 };
         vert.tangent = tangent_xyz.into();
-        vert.bitangent = (n.cross(tangent_xyz) * w).into();
+        vert.bitangent = (n.cross(tangent_xyz) * -w).into();
     }
 }
 
@@ -229,6 +229,21 @@ mod tests {
                 "tangent should be unit length, got {}",
                 len
             );
+        }
+    }
+
+    #[test]
+    fn bitangent_points_to_image_top() {
+        let mut verts = vec![
+            make_vertex([0.0, 0.0, 0.0], [0.0, 1.0], [0.0, 0.0, 1.0]),
+            make_vertex([1.0, 0.0, 0.0], [1.0, 1.0], [0.0, 0.0, 1.0]),
+            make_vertex([1.0, 1.0, 0.0], [1.0, 0.0], [0.0, 0.0, 1.0]),
+            make_vertex([0.0, 1.0, 0.0], [0.0, 0.0], [0.0, 0.0, 1.0]),
+        ];
+        compute_tangents(&mut verts, &[0, 1, 2, 0, 2, 3]);
+        for v in &verts {
+            assert!((v.tangent[0] - 1.0).abs() < 1e-5, "tangent should follow +u (+X), got {:?}", v.tangent);
+            assert!((v.bitangent[1] - 1.0).abs() < 1e-5, "bitangent should point up (+Y), got {:?}", v.bitangent);
         }
     }
 
