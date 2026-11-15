@@ -67,7 +67,7 @@ pub(crate) fn is_far(
 }
 
 /// Sorts `indices` and groups them into contiguous ranges, skipping duplicates.
-fn index_runs(indices: &[usize]) -> Vec<std::ops::Range<usize>> {
+pub(crate) fn index_runs(indices: &[usize]) -> Vec<std::ops::Range<usize>> {
     let mut sorted = indices.to_vec();
     sorted.sort_unstable();
     let mut runs: Vec<std::ops::Range<usize>> = Vec::new();

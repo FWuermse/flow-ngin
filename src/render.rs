@@ -13,15 +13,99 @@
 //!
 
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "validate-draws")]
+use std::sync::{Mutex, OnceLock};
 
 use wgpu::RenderPass;
 
 use crate::{
     context::{Context, GPUResource},
-    data_structures::{block::BuildingBlocks, model::Model, scene_graph::SceneNode},
+    data_structures::{
+        block::BuildingBlocks, instance::InstanceRaw, model::Model, scene_graph::SceneNode,
+    },
     pick::PickId,
     pipelines::transparent::TransparencyUniform,
 };
+
+/// Number of [`InstanceRaw`]s that fit into `buffer`.
+pub(crate) fn instance_capacity(buffer: &wgpu::Buffer) -> usize {
+    buffer.size() as usize / std::mem::size_of::<InstanceRaw>()
+}
+
+/// Returns the instance count to draw, or `None` when the draw must be skipped.
+///
+/// With the `validate-draws` feature, a draw of more instances than `buffer` holds is skipped and
+/// logged with the object and the likely cause. Without it, wgpu reports that at submit time as a
+/// panic that names neither. Either way, empty buffers are skipped.
+#[inline]
+pub(crate) fn checked_instance_count(
+    buffer: &wgpu::Buffer,
+    amount: usize,
+    id: PickId,
+    model: &Model,
+    pass: &str,
+) -> Option<u32> {
+    #[cfg(feature = "validate-draws")]
+    return validated_instance_count(buffer, amount, id, model, pass);
+    #[cfg(not(feature = "validate-draws"))]
+    {
+        let _ = model;
+        if buffer.size() == 0 {
+            log::debug!(
+                "you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models."
+            );
+            return None;
+        }
+        u32_instance_count(amount, id, pass)
+    }
+}
+
+/// Validates an instanced draw before it is recorded. Each distinct mismatch is logged once to
+/// avoid flooding the log every frame.
+#[cfg(feature = "validate-draws")]
+fn validated_instance_count(
+    buffer: &wgpu::Buffer,
+    amount: usize,
+    id: PickId,
+    model: &Model,
+    pass: &str,
+) -> Option<u32> {
+    let capacity = instance_capacity(buffer);
+    if amount > capacity {
+        static REPORTED: OnceLock<Mutex<HashSet<(String, PickId, usize, usize)>>> = OnceLock::new();
+        let key = (pass.to_owned(), id, amount, capacity);
+        let first = REPORTED
+            .get_or_init(Default::default)
+            .lock()
+            .map(|mut seen| seen.insert(key))
+            .unwrap_or(true);
+        if first {
+            let meshes: Vec<&str> = model.meshes.iter().map(|m| m.name.as_str()).collect();
+            log::error!(
+                "Skipping {pass} draw of object {id:?} (meshes {meshes:?}): it reports {amount} \
+                 instances but its instance buffer only holds {capacity}. Its instance list was \
+                 changed (e.g. add_instance(s), duplicate_instance, instances_mut, set_instances) \
+                 without calling write_to_buffer(s) afterwards and before this frame was rendered."
+            );
+        }
+        return None;
+    }
+    u32_instance_count(amount, id, pass)
+}
+
+#[inline]
+fn u32_instance_count(amount: usize, id: PickId, pass: &str) -> Option<u32> {
+    match u32::try_from(amount) {
+        Ok(amount) => Some(amount),
+        Err(_) => {
+            log::error!(
+                "Skipping {pass} draw of object {id:?}: {amount} instances exceeds the maximum of {}.",
+                u32::MAX
+            );
+            None
+        }
+    }
+}
 
 /// Data for instanced object rendering: a model, instance buffer, and pick ID.
 ///
@@ -36,6 +120,14 @@ pub struct Instanced<'a> {
     pub tiled: bool,
     pub amount: usize,
     pub id: PickId,
+}
+
+impl Instanced<'_> {
+    /// See [`checked_instance_count`].
+    #[inline]
+    pub(crate) fn checked_amount(&self, pass: &str) -> Option<u32> {
+        checked_instance_count(self.instance, self.amount, self.id, self.model, pass)
+    }
 }
 
 /// Data for flat (2D / GUI) object rendering: vertex and index buffers with a bind group.

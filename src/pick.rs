@@ -183,28 +183,22 @@ pub(crate) fn draw_to_pick_buffer<State, Event: Send>(
 
         render_pass.set_pipeline(&ctx.pipelines.pick);
         for instanced in basics.iter_mut() {
-            if instanced.amount == 0 || instanced.instance.size() == 0 {
+            if instanced.amount == 0 {
                 log::debug!("Cannot pick empty render.");
                 continue;
             }
+            let Some(amount) = instanced.checked_amount("pick") else {
+                continue;
+            };
             let pick_model =
                 load_pick_model(&ctx.device, instanced.id, instanced.model.meshes.clone()).unwrap();
             render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
-            let amount: Result<u32, _> = instanced.amount.try_into();
-            match amount {
-                Err(e) => log::error!(
-                    "Failed to render flat object with id {:?}. Maximum amount of supported instances is {}. Error: {}",
-                    instanced.id,
-                    u32::MAX,
-                    e
-                ),
-                Ok(amount) => render_pass.draw_model_instanced(
-                    &pick_model,
-                    0..amount,
-                    &ctx.camera.bind_group,
-                    &ctx.light.bind_group,
-                ),
-            }
+            render_pass.draw_model_instanced(
+                &pick_model,
+                0..amount,
+                &ctx.camera.bind_group,
+                &ctx.light.bind_group,
+            );
         }
 
         render_pass.set_pipeline(&ctx.pipelines.flat_pick);

@@ -527,12 +527,9 @@ impl<'a, State: Default> AppState<State> {
                     log::debug!("you attemted to render instances, nothing drawn to screen.");
                     continue;
                 }
-                if instanced.instance.size() == 0 {
-                    log::debug!(
-                        "you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models."
-                    );
+                let Some(amount) = instanced.checked_amount("opaque") else {
                     continue;
-                }
+                };
                 let pipelines = &self.ctx.pipelines;
                 render_pass.set_pipeline(match (instanced.front_face, instanced.tiled) {
                     (wgpu::FrontFace::Cw, false) => &pipelines.basic_cw,
@@ -543,7 +540,7 @@ impl<'a, State: Default> AppState<State> {
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
                 render_pass.draw_model_instanced(
                     &instanced.model,
-                    0..instanced.amount as u32,
+                    0..amount,
                     &self.ctx.camera.bind_group,
                     &self.ctx.light.bind_group,
                 );
@@ -567,12 +564,9 @@ impl<'a, State: Default> AppState<State> {
                     log::debug!("you attemted to render instances, nothing drawn to screen.");
                     continue;
                 }
-                if instanced.instance.size() == 0 {
-                    log::debug!(
-                        "you attemted to draw an empty buffer, remember to call `write_to_buffer()` on your models."
-                    );
+                let Some(amount) = instanced.checked_amount("transparent") else {
                     continue;
-                }
+                };
                 let transparency_buffer =
                     self.ctx
                         .device
@@ -590,7 +584,7 @@ impl<'a, State: Default> AppState<State> {
                 render_pass.set_vertex_buffer(1, instanced.instance.slice(..));
                 render_pass.draw_model_instanced(
                     &instanced.model,
-                    0..instanced.amount as u32,
+                    0..amount,
                     &self.ctx.camera.bind_group,
                     &self.ctx.light.bind_group,
                 );

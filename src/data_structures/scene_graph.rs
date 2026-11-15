@@ -17,7 +17,8 @@ use crate::{
         model::{self, DrawModel},
     },
     pick::PickId,
-    render::{Instanced, Render},
+    data_structures::block::index_runs,
+    render::{Instanced, Render, checked_instance_count, instance_capacity},
     resources::{
         animation::Keyframes, load_model_obj, mesh::compute_tangents, pick::load_pick_model,
     },
@@ -344,6 +345,37 @@ pub trait SceneNode: Send {
         device: &wgpu::Device,
         offset: &Instance,
     );
+
+    /// Uploads only the instances at `indices` of this node and all its children, e.g. after
+    /// [`set_local_transform`](Self::set_local_transform) followed by
+    /// [`update_world_transforms`](Self::update_world_transforms) for those indices.
+    /// Order and duplicates don't matter; consecutive indices are merged into one upload.
+    ///
+    /// Nodes fall back to a full [`write_to_buffers`](Self::write_to_buffers) when their buffer
+    /// must be resized (instances added/removed). The default implementation always does a full write.
+    fn write_to_buffers_indices(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+    ) {
+        let _ = indices;
+        self.write_to_buffers(queue, device);
+    }
+
+    /// Like [`write_to_buffers_indices`](Self::write_to_buffers_indices) but applies `offset`, see
+    /// [`write_to_buffers_offset`](Self::write_to_buffers_offset). `offset` must match the one used
+    /// for the rest of the buffer.
+    fn write_to_buffers_indices_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+        offset: &Instance,
+    ) {
+        let _ = indices;
+        self.write_to_buffers_offset(queue, device, offset);
+    }
 
     /// Multiple instances of a parent can be passed down to multiple instances of multiple children.
     /// The argument `parents_world_transform` with a matching `range` size provides control over which instances are transformed.
@@ -732,6 +764,29 @@ impl SceneNode for ContainerNode {
             .iter_mut()
             .for_each(|child| child.write_to_buffers_offset(queue, device, offset));
     }
+
+    fn write_to_buffers_indices(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+    ) {
+        self.children
+            .iter_mut()
+            .for_each(|child| child.write_to_buffers_indices(queue, device, indices));
+    }
+
+    fn write_to_buffers_indices_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+        offset: &Instance,
+    ) {
+        self.children.iter_mut().for_each(|child| {
+            child.write_to_buffers_indices_offset(queue, device, indices, offset)
+        });
+    }
 }
 
 pub struct ModelNode {
@@ -801,9 +856,83 @@ impl ModelNode {
             id: id.into(),
         }
     }
+
+    /// A partial write is only valid while the buffer still matches the instance list in size.
+    fn needs_full_write(&self) -> bool {
+        self.buffer_size_needs_change
+            || instance_capacity(&self.instance_buffer) != self.instances.len()
+    }
+
+    /// Uploads the world transforms at `indices` (with `offset` applied) to this node's buffer.
+    fn write_runs(&mut self, queue: &wgpu::Queue, indices: &[usize], offset: Option<&Instance>) {
+        let to_world = |world: &Instance| match offset {
+            Some(offset) => offset * world,
+            None => world.clone(),
+        };
+        // Same winding detection as the full writes
+        if let Some((_, world)) = self.instances.first() {
+            self.front_face = if to_world(world).to_matrix().determinant().signum() < 0.0 {
+                wgpu::FrontFace::Cw
+            } else {
+                wgpu::FrontFace::Ccw
+            };
+        }
+        let len = self.instances.len();
+        let (valid, invalid): (Vec<usize>, Vec<usize>) = indices.iter().partition(|&&i| i < len);
+        if !invalid.is_empty() {
+            warn!(
+                "Ignoring instance indices {:?} of object {:?}, which only has {} instances.",
+                invalid, self.id, len
+            );
+        }
+        let stride = std::mem::size_of::<InstanceRaw>() as wgpu::BufferAddress;
+        for run in index_runs(&valid) {
+            let raws = self.instances[run.clone()]
+                .iter()
+                .map(|(_, world)| to_world(world).to_raw())
+                .collect::<Vec<_>>();
+            queue.write_buffer(
+                &self.instance_buffer,
+                run.start as u64 * stride,
+                bytemuck::cast_slice(&raws),
+            );
+        }
+    }
 }
 
 impl SceneNode for ModelNode {
+    fn write_to_buffers_indices(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+    ) {
+        if self.needs_full_write() {
+            // Recurses into the children itself
+            return self.write_to_buffers(queue, device);
+        }
+        self.write_runs(queue, indices, None);
+        self.children
+            .iter_mut()
+            .for_each(|child| child.write_to_buffers_indices(queue, device, indices));
+    }
+
+    fn write_to_buffers_indices_offset(
+        &mut self,
+        queue: &wgpu::Queue,
+        device: &wgpu::Device,
+        indices: &[usize],
+        offset: &Instance,
+    ) {
+        if self.needs_full_write() {
+            return self.write_to_buffers_offset(queue, device, offset);
+        }
+        self.write_runs(queue, indices, Some(offset));
+        self.children.iter_mut().for_each(|child| {
+            child.write_to_buffers_indices_offset(queue, device, indices, offset)
+        });
+    }
+
     fn add_child(&mut self, child: Box<dyn SceneNode>) -> usize {
         self.children.push(child);
         self.children.len() - 1
@@ -920,13 +1049,21 @@ impl SceneNode for ModelNode {
     {
         let instances = self.get_world_transforms();
         if !instances.is_empty() {
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.draw_model_instanced(
+            if let Some(amount) = checked_instance_count(
+                &self.instance_buffer,
+                instances.len(),
+                self.id,
                 &self.model,
-                0..instances.len() as u32,
-                &camera_bind_group,
-                &light_bind_group,
-            );
+                "scene node",
+            ) {
+                render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+                render_pass.draw_model_instanced(
+                    &self.model,
+                    0..amount,
+                    &camera_bind_group,
+                    &light_bind_group,
+                );
+            }
         }
         for child in &self.children {
             child.draw(camera_bind_group, light_bind_group, render_pass);

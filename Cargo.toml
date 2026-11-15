@@ -1,6 +1,6 @@
 [package]
 name = "flow-ngin"
-version = "0.1.41"
+version = "0.1.42"
 edition = "2024"
 authors = ["wuermseer.florian@gmail.com"]
 description = "A simple cross-plattform instancing-oriented game engine with focus on full WASM-compatibility."
@@ -18,6 +18,8 @@ crate-type = ["cdylib", "rlib"]
 integration-tests = []
 ui = []
 asset-bundles = ["dep:base64"]
+# Skip and log instanced draws whose instance count exceeds their buffer instead of letting wgpu panic.
+validate-draws = []
 
 [build-dependencies]
 anyhow = "1.0.104"
