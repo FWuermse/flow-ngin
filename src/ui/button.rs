@@ -20,11 +20,15 @@ enum VisualState {
     Pressed,
 }
 
-/// Button is either of text/icon.
+/// Button content: text, an icon, or an icon with a caption below it.
 pub enum ButtonContent {
     Text(TextLabel),
     Icon(Icon),
+    IconText(Icon, TextLabel),
 }
+
+/// Share of the button height the caption of [`ButtonContent::IconText`] takes.
+const CAPTION_SHARE: f32 = 0.3;
 
 /// A clickable button with text or icon content.
 ///
@@ -75,7 +79,9 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
 
         // Init content GPU resources.
         match &mut self.content {
-            Some(ButtonContent::Text(label)) => label.init(ctx),
+            Some(ButtonContent::Text(label)) | Some(ButtonContent::IconText(_, label)) => {
+                label.init(ctx)
+            }
             Some(ButtonContent::Icon(_)) | None => {}
         }
 
@@ -151,6 +157,16 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
         self
     }
 
+    /// Set an icon with a text caption below it as the button content.
+    ///
+    /// The caption takes the bottom 30% of the button, the icon is centered above it.
+    #[inline]
+    pub fn with_icon_and_text(mut self, icon: Icon, label: TextLabel) -> Self {
+        let label = label.halign(HAlign::Center).valign(VAlign::Center);
+        self.content = Some(ButtonContent::IconText(icon, label));
+        self
+    }
+
     #[inline]
     pub fn fill(mut self, icon: Icon) -> Self {
         self.fill = Some(icon);
@@ -209,21 +225,35 @@ impl<S: 'static, E: Send + 'static> Button<S, E> {
     }
 
     fn layout_content(&mut self, queue: &wgpu::Queue) {
+        let (x, y, w, h, scale) = (self.x, self.y, self.width, self.height, self.content_scale);
         match &mut self.content {
             Some(ButtonContent::Icon(icon)) => {
-                let icon_w = (self.width as f32 * self.content_scale) as u32;
-                let icon_h = (self.height as f32 * self.content_scale) as u32;
-                icon.width_px = icon_w;
-                icon.height_px = icon_h;
-                let ix = self.x + (self.width - icon_w) / 2;
-                let iy = self.y + (self.height - icon_h) / 2;
-                icon.set_position(ix, iy, queue);
+                Self::layout_icon(icon, x, y, w, h, scale, queue);
             }
             Some(ButtonContent::Text(label)) => {
-                Layout::resolve(label, self.x, self.y, self.width, self.height, queue);
+                Layout::resolve(label, x, y, w, h, queue);
+            }
+            Some(ButtonContent::IconText(icon, label)) => {
+                let caption_h = (h as f32 * CAPTION_SHARE) as u32;
+                let icon_area_h = h - caption_h;
+                // Keep the icon square inside the area above the caption.
+                let side = w.min(icon_area_h);
+                let icon_x = x + (w - side) / 2;
+                let icon_y = y + (icon_area_h - side) / 2;
+                Self::layout_icon(icon, icon_x, icon_y, side, side, scale, queue);
+                Layout::resolve(label, x, y + icon_area_h, w, caption_h, queue);
             }
             None => {}
         }
+    }
+
+    /// Scales the icon by `scale` and centers it in the given area.
+    fn layout_icon(icon: &mut Icon, x: u32, y: u32, w: u32, h: u32, scale: f32, queue: &wgpu::Queue) {
+        let icon_w = (w as f32 * scale) as u32;
+        let icon_h = (h as f32 * scale) as u32;
+        icon.width_px = icon_w;
+        icon.height_px = icon_h;
+        icon.set_position(x + (w - icon_w) / 2, y + (h - icon_h) / 2, queue);
     }
 
     fn layout_fill(&self, icon: Option<Icon>, queue: &wgpu::Queue) -> Option<Icon> {
@@ -317,6 +347,10 @@ impl<S: 'static, E: Send + 'static> GraphicsFlow<S, E> for Button<S, E> {
                 let content_render = match content {
                     ButtonContent::Text(label) => label.render(),
                     ButtonContent::Icon(icon) => GraphicsFlow::<S, E>::on_render(icon),
+                    ButtonContent::IconText(icon, label) => Render::Composed(vec![
+                        GraphicsFlow::<S, E>::on_render(icon),
+                        label.render(),
+                    ]),
                 };
                 Render::Composed(vec![bind_group, content_render])
             }

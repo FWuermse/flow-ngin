@@ -19,6 +19,7 @@ pub use layout::{Layout, UIElement};
 pub use background::{Background, BackgroundTexture};
 pub use card::Card;
 pub use button::Button;
+pub use text_label::TextLabel;
 pub use checkbox::Checkbox;
 pub use slider::Slider;
 pub use text_input::TextInput;
